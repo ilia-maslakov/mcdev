@@ -420,9 +420,11 @@ edit_fold_toggle (WEdit *edit)
 
                         line2 = edit_buffer_count_lines (&edit->buffer, 0, match);
                         if (line2 > line)
+                        {
                             edit_fold_make (edit, line, line2 - line);
+                            break;
+                        }
                     }
-                    break;
                 }
             }
         }

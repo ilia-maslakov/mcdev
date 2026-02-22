@@ -1198,18 +1198,40 @@ edit_left_char_move_cmd (WEdit *edit)
             long delta;
             off_t bol, eol;
 
-            /* Jump to EOL of fold start line */
+            /* Jump to fold start line */
             delta = edit->buffer.curs_line - fold->line_start;
             bol = edit_buffer_get_backward_offset (&edit->buffer,
                                                     edit_buffer_get_current_bol (&edit->buffer),
                                                     delta);
             eol = edit_buffer_get_eol (&edit->buffer, bol);
-            edit_cursor_move (edit, eol - edit->buffer.curs1);
 
             if (edit_options.cursor_beyond_eol)
+            {
+                /* cursor_beyond_eol on: land at end of fold indicator */
+                edit_cursor_move (edit, eol - edit->buffer.curs1);
                 edit->over_col = edit_fold_indicator_width (fold);
+            }
             else
+            {
+                off_t bracket_off;
+
+                /* cursor_beyond_eol off: land on the opening bracket */
+                for (bracket_off = eol - 1; bracket_off >= bol; bracket_off--)
+                {
+                    int ch;
+
+                    ch = edit_buffer_get_byte (&edit->buffer, bracket_off);
+                    if (ch == '{' || ch == '[' || ch == '(')
+                        break;
+                }
+
+                if (bracket_off >= bol)
+                    edit_cursor_move (edit, bracket_off - edit->buffer.curs1);
+                else
+                    edit_cursor_move (edit, eol - edit->buffer.curs1);
+
                 edit->over_col = 0;
+            }
         }
     }
 }
