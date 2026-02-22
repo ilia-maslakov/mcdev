@@ -986,8 +986,7 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
                     edit->start_line = saved_start_line;
 
                     /* skip hidden lines */
-                    b = edit_buffer_get_forward_offset (&edit->buffer, b,
-                                                        fold->line_count + 1, 0);
+                    b = edit_buffer_get_forward_offset (&edit->buffer, b, fold->line_count + 1, 0);
                     current_line += fold->line_count + 1;
                 }
                 else if (fold != NULL && current_line > fold->line_start)
@@ -998,7 +997,7 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
 
                     b = edit_buffer_get_forward_offset (&edit->buffer, b, skip, 0);
                     current_line += skip;
-                    row--;  /* compensate for loop increment */
+                    row--; /* compensate for loop increment */
                 }
                 else
                 {

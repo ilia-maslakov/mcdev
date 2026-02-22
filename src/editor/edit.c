@@ -1091,7 +1091,7 @@ edit_right_char_move_cmd (WEdit *edit)
                     off_t target;
 
                     target = edit_buffer_get_forward_offset (&edit->buffer, bol,
-                                                              fold->line_count + 1, 0);
+                                                             fold->line_count + 1, 0);
                     edit_cursor_move (edit, target - edit->buffer.curs1);
                     edit->over_col = 0;
                 }
@@ -1117,9 +1117,8 @@ edit_right_char_move_cmd (WEdit *edit)
             off_t target;
 
             delta = fold->line_start + fold->line_count + 1 - edit->buffer.curs_line;
-            target = edit_buffer_get_forward_offset (&edit->buffer,
-                                                      edit_buffer_get_current_bol (&edit->buffer),
-                                                      delta, 0);
+            target = edit_buffer_get_forward_offset (
+                &edit->buffer, edit_buffer_get_current_bol (&edit->buffer), delta, 0);
             edit_cursor_move (edit, target - edit->buffer.curs1);
             edit->over_col = 0;
         }
@@ -1200,9 +1199,8 @@ edit_left_char_move_cmd (WEdit *edit)
 
             /* Jump to fold start line */
             delta = edit->buffer.curs_line - fold->line_start;
-            bol = edit_buffer_get_backward_offset (&edit->buffer,
-                                                    edit_buffer_get_current_bol (&edit->buffer),
-                                                    delta);
+            bol = edit_buffer_get_backward_offset (
+                &edit->buffer, edit_buffer_get_current_bol (&edit->buffer), delta);
             eol = edit_buffer_get_eol (&edit->buffer, bol);
 
             if (edit_options.cursor_beyond_eol)
@@ -1292,13 +1290,11 @@ edit_move_updown (WEdit *edit, long lines, gboolean do_scroll, gboolean directio
                 off_t np;
 
                 if (delta > 0)
-                    np = edit_buffer_get_forward_offset (&edit->buffer,
-                                                         edit_buffer_get_current_bol (&edit->buffer),
-                                                         delta, 0);
+                    np = edit_buffer_get_forward_offset (
+                        &edit->buffer, edit_buffer_get_current_bol (&edit->buffer), delta, 0);
                 else
-                    np = edit_buffer_get_backward_offset (&edit->buffer,
-                                                          edit_buffer_get_current_bol (&edit->buffer),
-                                                          -delta);
+                    np = edit_buffer_get_backward_offset (
+                        &edit->buffer, edit_buffer_get_current_bol (&edit->buffer), -delta);
                 edit_cursor_move (edit, np - edit->buffer.curs1);
                 edit_move_to_prev_col (edit, np);
             }
@@ -3726,9 +3722,8 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
             off_t bol;
 
             delta = edit->buffer.curs_line - fold->line_start;
-            bol = edit_buffer_get_backward_offset (&edit->buffer,
-                                                    edit_buffer_get_current_bol (&edit->buffer),
-                                                    delta);
+            bol = edit_buffer_get_backward_offset (
+                &edit->buffer, edit_buffer_get_current_bol (&edit->buffer), delta);
             edit_cursor_move (edit, bol - edit->buffer.curs1);
             /* position at EOL of fold start line */
             edit_cursor_move (edit,

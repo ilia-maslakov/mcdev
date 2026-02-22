@@ -136,8 +136,7 @@ edit_fold_make (WEdit *edit, long line_start, long line_count)
         q = p->next;
         /* overlap: fold [p->line_start, p->line_start + p->line_count]
            intersects [line_start, line_start + line_count] */
-        if (p->line_start + p->line_count >= line_start
-            && p->line_start <= line_start + line_count)
+        if (p->line_start + p->line_count >= line_start && p->line_start <= line_start + line_count)
         {
             /* remove p */
             if (p->prev != NULL)

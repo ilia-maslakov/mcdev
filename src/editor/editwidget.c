@@ -1226,8 +1226,8 @@ edit_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
                         }
                         else
                         {
-                            target_b = edit_buffer_get_forward_offset (&edit->buffer, target_b,
-                                                                       1, 0);
+                            target_b =
+                                edit_buffer_get_forward_offset (&edit->buffer, target_b, 1, 0);
                             target_line++;
                         }
                     }
