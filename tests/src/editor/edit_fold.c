@@ -540,6 +540,145 @@ START_TEST (test_fold_make_maintains_sorted_order)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
+/* edit_fold_indicator_width */
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_indicator_width_returns_4)
+{
+    edit_fold_t f;
+
+    // given: any fold
+    memset (&f, 0, sizeof (f));
+    f.line_start = 10;
+    f.line_count = 5;
+
+    // then: indicator "...}" is always 4 columns
+    ck_assert_int_eq (edit_fold_indicator_width (&f), 4);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_indicator_width_independent_of_line_count)
+{
+    edit_fold_t f1, f2;
+
+    // given: folds with different line counts
+    memset (&f1, 0, sizeof (f1));
+    f1.line_start = 0;
+    f1.line_count = 1;
+
+    memset (&f2, 0, sizeof (f2));
+    f2.line_start = 0;
+    f2.line_count = 99999;
+
+    // then: same width regardless of line count
+    ck_assert_int_eq (edit_fold_indicator_width (&f1), edit_fold_indicator_width (&f2));
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+/* edit_fold_remove from inside fold */
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_remove_from_inside)
+{
+    // given: fold at line 10 hiding 5 lines
+    edit_fold_make (test_edit, 10, 5);
+
+    // when: remove by a line inside the fold
+    gboolean result = edit_fold_remove (test_edit, 13);
+
+    // then: fold is removed
+    mctest_assert_true (result);
+    mctest_assert_null (edit_fold_find (test_edit, 10));
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+/* edit_fold_inc / edit_fold_dec edge cases */
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_inc_at_fold_start)
+{
+    edit_fold_t *f;
+
+    // given: fold at line 10 with 5 hidden lines
+    edit_fold_make (test_edit, 10, 5);
+
+    // when: insert at the fold start line itself
+    edit_fold_inc (test_edit, 10);
+
+    // then: insertion at fold start line — fold is unchanged
+    // (line == line_start is neither "after" nor "inside")
+    f = edit_fold_find (test_edit, 10);
+    mctest_assert_not_null (f);
+    ck_assert_int_eq (f->line_start, 10);
+    ck_assert_int_eq (f->line_count, 5);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_dec_at_fold_start)
+{
+    edit_fold_t *f;
+
+    // given: fold at line 10 with 5 hidden lines
+    edit_fold_make (test_edit, 10, 5);
+
+    // when: delete at the fold start line itself
+    edit_fold_dec (test_edit, 10);
+
+    // then: fold start stays, no change (deletion is AT start, not inside)
+    f = edit_fold_find (test_edit, 10);
+    mctest_assert_not_null (f);
+    ck_assert_int_eq (f->line_start, 10);
+    ck_assert_int_eq (f->line_count, 5);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_inc_after_fold)
+{
+    edit_fold_t *f;
+
+    // given: fold at line 10 with 5 hidden lines (range 10-15)
+    edit_fold_make (test_edit, 10, 5);
+
+    // when: insert after the fold (at line 20)
+    edit_fold_inc (test_edit, 20);
+
+    // then: fold unchanged
+    f = edit_fold_find (test_edit, 10);
+    mctest_assert_not_null (f);
+    ck_assert_int_eq (f->line_start, 10);
+    ck_assert_int_eq (f->line_count, 5);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_fold_dec_after_fold)
+{
+    edit_fold_t *f;
+
+    // given: fold at line 10 with 5 hidden lines
+    edit_fold_make (test_edit, 10, 5);
+
+    // when: delete after the fold (at line 20)
+    edit_fold_dec (test_edit, 20);
+
+    // then: fold unchanged
+    f = edit_fold_find (test_edit, 10);
+    mctest_assert_not_null (f);
+    ck_assert_int_eq (f->line_start, 10);
+    ck_assert_int_eq (f->line_count, 5);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
 
 int
 main (void)
@@ -587,6 +726,16 @@ main (void)
     tcase_add_test (tc_core, test_fold_dec_removes_collapsed_fold);
     // sorted order
     tcase_add_test (tc_core, test_fold_make_maintains_sorted_order);
+    // edit_fold_indicator_width
+    tcase_add_test (tc_core, test_fold_indicator_width_returns_4);
+    tcase_add_test (tc_core, test_fold_indicator_width_independent_of_line_count);
+    // edit_fold_remove from inside
+    tcase_add_test (tc_core, test_fold_remove_from_inside);
+    // edit_fold_inc / edit_fold_dec edge cases
+    tcase_add_test (tc_core, test_fold_inc_at_fold_start);
+    tcase_add_test (tc_core, test_fold_dec_at_fold_start);
+    tcase_add_test (tc_core, test_fold_inc_after_fold);
+    tcase_add_test (tc_core, test_fold_dec_after_fold);
     // ***********************************
 
     return mctest_run_all (tc_core);
