@@ -860,8 +860,7 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
                 }
             }
 
-            g_snprintf (fold_text, sizeof (fold_text), _ ("...%c (%ld lines)"), close_bracket,
-                        fold_line_count);
+            g_snprintf (fold_text, sizeof (fold_text), "...%c", close_bracket);
         }
 
         for (fi = 0; fold_text[fi] != '\0' && p < line + MAX_LINE_LEN - 1; fi++)

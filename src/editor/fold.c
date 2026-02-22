@@ -341,6 +341,24 @@ edit_fold_dec (WEdit *edit, long line)
 /* --------------------------------------------------------------------------------------------- */
 
 /**
+ * Calculate the visual width of the fold indicator text "...} (N lines)".
+ *
+ * Uses str_term_width1 for correct i18n/UTF-8 handling.
+ *
+ * @param fold fold structure
+ * @return visual column width of the fold indicator text
+ */
+int
+edit_fold_indicator_width (const struct edit_fold_t *fold)
+{
+    (void) fold;
+    /* fold indicator is "...}" — always 4 columns */
+    return 4;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
  * Toggle fold at the current cursor line.
  *
  * If the cursor is on a fold start, unfold it.
