@@ -86,7 +86,8 @@ label_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *dat
             const int *colors;
 
             colors = widget_get_colors (w);
-            tty_setcolor (disabled ? CORE_DISABLED_COLOR : colors[DLG_COLOR_NORMAL]);
+            tty_setcolor (disabled ? CORE_DISABLED_COLOR
+                                   : colors[l->color_idx >= 0 ? l->color_idx : DLG_COLOR_NORMAL]);
         }
 
         align = (w->pos_flags & WPOS_CENTER_HORZ) != 0 ? J_CENTER_LEFT : J_LEFT;
@@ -146,6 +147,7 @@ label_new (int y, int x, const char *text)
     l->text = g_strdup (text);
     l->auto_adjust_cols = TRUE;
     l->transparent = FALSE;
+    l->color_idx = -1;
 
     return l;
 }

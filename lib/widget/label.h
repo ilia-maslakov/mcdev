@@ -20,6 +20,7 @@ typedef struct
     gboolean auto_adjust_cols;  // compute widget.cols from strlen(text)?
     char *text;
     gboolean transparent;  // Paint in the default color fg/bg
+    int color_idx;         // DLG_COLOR_* index override, or -1 for default (DLG_COLOR_NORMAL)
 } WLabel;
 
 /*** global variables defined in .c file *********************************************************/
