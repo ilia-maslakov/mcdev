@@ -572,15 +572,8 @@ SMBCLIENT_CFLAGS=""
 SMBCLIENT_LIBS=""
 have_panel_plugin_samba=no
 
-AC_CHECK_HEADERS([libsmbclient.h], [
-    AC_CHECK_LIB([smbclient], [smbc_new_context], [
-        SMBCLIENT_LIBS="-lsmbclient"
-        have_panel_plugin_samba=yes
-    ])
-])
+PKG_CHECK_MODULES([SMBCLIENT], [smbclient], [have_panel_plugin_samba=yes], [have_panel_plugin_samba=no])
 
-AC_SUBST([SMBCLIENT_CFLAGS])
-AC_SUBST([SMBCLIENT_LIBS])
 AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_SAMBA], [test x"$have_panel_plugin_samba" = xyes])
 
 dnl Optional libcurl for FTP/FTPS panel plugin
