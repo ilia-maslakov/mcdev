@@ -32,6 +32,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -74,6 +75,30 @@ arcmc_ext_archiver_t ext_archivers[] = {
 const size_t ext_archivers_count = G_N_ELEMENTS (ext_archivers);
 
 /*** file scope functions ************************************************************************/
+
+/* Check that a path from an archive entry is safe (no absolute paths, no ".." components). */
+static gboolean
+is_path_safe (const char *path)
+{
+    const char *p = path;
+
+    if (p[0] == '/')
+        return FALSE;
+
+    while (*p != '\0')
+    {
+        if (p[0] == '.' && p[1] == '.' && (p[2] == '/' || p[2] == '\0'))
+            return FALSE;
+        p = strchr (p, '/');
+        if (p == NULL)
+            break;
+        p++;
+    }
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 /* Strip trailing slashes from a path string (in-place). */
 static void
@@ -264,7 +289,20 @@ arcmc_pack_add_file (struct archive *a, const char *disk_path, const char *archi
                     }
                 }
             }
+
+            if (bytes_read < 0)
+            {
+                close (fd);
+                archive_entry_free (entry);
+                return FALSE;
+            }
+
             close (fd);
+        }
+        else
+        {
+            archive_entry_free (entry);
+            return FALSE;
         }
     }
 
@@ -756,6 +794,35 @@ arcmc_read_archive_extfs (arcmc_data_t *data)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Close an mc_pipe_t and return the child process exit status.
+   Returns the exit code (0 = success) or -1 on error. */
+static int
+mc_pclose_get_status (mc_pipe_t *p)
+{
+    int status = -1;
+    int res;
+
+    if (p == NULL)
+        return -1;
+
+    if (p->out.fd >= 0)
+        close (p->out.fd);
+    if (p->err.fd >= 0)
+        close (p->err.fd);
+
+    do
+        res = waitpid (p->child_pid, &status, 0);
+    while (res < 0 && errno == EINTR);
+
+    g_free (p);
+
+    if (res > 0 && WIFEXITED (status))
+        return WEXITSTATUS (status);
+    return -1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* Extract a file from the archive using extfs helper's "copyout" command.
    Returns MC_PPR_OK on success. */
 mc_pp_result_t
@@ -877,18 +944,17 @@ arcmc_extfs_run_cmd (const char *helper, const char *cmd_name, const char *archi
     if (error != NULL)
     {
         g_error_free (error);
-        mc_pclose (pip, NULL);
+        mc_pclose_get_status (pip);
         return FALSE;
     }
 
     if (pip->err.len > 0)
     {
-        mc_pclose (pip, NULL);
+        mc_pclose_get_status (pip);
         return FALSE;
     }
 
-    mc_pclose (pip, NULL);
-    return TRUE;
+    return (mc_pclose_get_status (pip) == 0);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -937,6 +1003,13 @@ arcmc_read_archive (arcmc_data_t *data)
         strip_trailing_slashes (clean_path);
 
         if (clean_path[0] == '\0')
+        {
+            g_free (clean_path);
+            continue;
+        }
+
+        /* reject path traversal attempts (Zip Slip) */
+        if (!is_path_safe (clean_path))
         {
             g_free (clean_path);
             continue;
@@ -2133,12 +2206,28 @@ arcmc_ext_run_with_status (const char *title, const char *cmd_str, char **error_
         err_buf = NULL;
     }
 
-    if (err_buf != NULL)
-        g_string_free (err_buf, TRUE);
     if (error != NULL)
         g_error_free (error);
 
-    mc_pclose (pip, NULL);
+    {
+        int exit_status = mc_pclose_get_status (pip);
+
+        if (ok && exit_status != 0)
+        {
+            ok = FALSE;
+            if (error_msg != NULL)
+            {
+                if (err_buf != NULL && err_buf->len > 0)
+                    *error_msg = g_string_free (err_buf, FALSE);
+                else
+                    *error_msg = g_strdup_printf ("Command exited with status %d", exit_status);
+                err_buf = NULL;
+            }
+        }
+    }
+
+    if (err_buf != NULL)
+        g_string_free (err_buf, TRUE);
     g_string_free (esm.log, TRUE);
 
     return ok;
@@ -2166,12 +2255,15 @@ write_file_list (GPtrArray *files)
     for (i = 0; i < files->len; i++)
     {
         const char *name = (const char *) g_ptr_array_index (files, i);
-        ssize_t nw;
+        size_t nlen = strlen (name);
 
-        nw = write (fd, name, strlen (name));
-        if (nw >= 0)
-            nw = write (fd, "\n", 1);
-        (void) nw;
+        if (write (fd, name, nlen) != (ssize_t) nlen || write (fd, "\n", 1) != 1)
+        {
+            close (fd);
+            unlink (tpl);
+            g_free (tpl);
+            return NULL;
+        }
     }
 
     close (fd);

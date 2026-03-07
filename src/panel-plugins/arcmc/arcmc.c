@@ -25,6 +25,8 @@
 
 #include <config.h>
 
+#include <errno.h>
+#include <fcntl.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <string.h>
@@ -64,6 +66,57 @@ static void *arcmc_action_test (mc_panel_host_t *host, const char *open_path);
 static void *arcmc_action_settings (mc_panel_host_t *host, const char *open_path);
 
 /*** file scope functions (helpers) ***************************************************************/
+
+/* Move a file, falling back to copy+unlink when src and dst are on different filesystems. */
+static gboolean
+move_file_cross_fs (const char *src, const char *dst)
+{
+    int src_fd, dst_fd;
+    char buf[8192];
+    ssize_t nr, nw;
+
+    if (rename (src, dst) == 0)
+        return TRUE;
+    if (errno != EXDEV)
+        return FALSE;
+
+    src_fd = open (src, O_RDONLY);
+    if (src_fd < 0)
+        return FALSE;
+
+    dst_fd = open (dst, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (dst_fd < 0)
+    {
+        close (src_fd);
+        return FALSE;
+    }
+
+    while ((nr = read (src_fd, buf, sizeof (buf))) > 0)
+    {
+        nw = write (dst_fd, buf, (size_t) nr);
+        if (nw != nr)
+        {
+            close (src_fd);
+            close (dst_fd);
+            unlink (dst);
+            return FALSE;
+        }
+    }
+
+    close (src_fd);
+    close (dst_fd);
+
+    if (nr < 0)
+    {
+        unlink (dst);
+        return FALSE;
+    }
+
+    unlink (src);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 /* Remove a directory tree recursively. */
 static void
@@ -592,7 +645,7 @@ arcmc_action_extract (mc_panel_host_t *host, const char *open_path)
                             out_path = g_build_filename (dest_dir, e->full_path, NULL);
                             out_dir = g_path_get_dirname (out_path);
                             g_mkdir_with_parents (out_dir, 0755);
-                            rename (local_path, out_path);
+                            move_file_cross_fs (local_path, out_path);
                             g_free (out_dir);
                             g_free (out_path);
                             g_free (local_path);
@@ -607,7 +660,7 @@ arcmc_action_extract (mc_panel_host_t *host, const char *open_path)
                             out_path = g_build_filename (dest_dir, e->full_path, NULL);
                             out_dir = g_path_get_dirname (out_path);
                             g_mkdir_with_parents (out_dir, 0755);
-                            rename (local_path, out_path);
+                            move_file_cross_fs (local_path, out_path);
                             g_free (out_dir);
                             g_free (out_path);
                             g_free (local_path);
