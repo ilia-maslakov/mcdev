@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin -progress dialog.
+   Archive browser panel plugin -archiver settings dialog.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -23,18 +23,14 @@
    along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef ARCMC_PROGRESS_H
-#define ARCMC_PROGRESS_H
+#ifndef ARCMC_DIALOG_SETTINGS_H
+#define ARCMC_DIALOG_SETTINGS_H
 
 #include "arcmc-types.h"
 
 /*** declarations (functions)
  * **********************************************************************/
 
-arcmc_progress_t *arcmc_progress_create (const char *title, const char *archive_path,
-                                         off_t total_bytes);
-void arcmc_progress_destroy (arcmc_progress_t *p);
-gboolean arcmc_progress_update (arcmc_progress_t *p, const char *filename, off_t file_size,
-                                off_t file_done, off_t total_done, off_t written);
+void arcmc_show_settings_dialog (void);
 
-#endif /* ARCMC_PROGRESS_H */
+#endif /* ARCMC_DIALOG_SETTINGS_H */

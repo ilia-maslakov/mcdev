@@ -24,7 +24,7 @@
  *  \brief Source: panel plugin registry
  *
  *  Maintains a list of registered mc_panel_plugin_t descriptors.
- *  Plugins are registered via mc_panel_plugin_add() — typically called
+ *  Plugins are registered via mc_panel_plugin_add() - typically called
  *  from the dynamic loader (panel-plugin-loader.c).
  */
 

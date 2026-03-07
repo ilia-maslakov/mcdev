@@ -132,7 +132,7 @@ static void sftp_disconnect (sftp_data_t *data);
 #define SFTP_PANEL_KEY_EDIT         "hotkey_edit"
 #define SFTP_PANEL_KEY_EDIT_DEFAULT "f4"
 
-/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f — matching lib/tty definitions */
+/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
 #define SFTP_KEY_F(n) (1000 + (n))
 #define SFTP_XCTRL(c) ((c) & 0x1f)
 
@@ -381,7 +381,7 @@ sftp_connection_copy_from (sftp_connection_t *dst, const sftp_connection_t *src)
 /* --------------------------------------------------------------------------------------------- */
 
 /* Simple XOR obfuscation to avoid storing passwords in plain text.
-   NOT cryptographically secure — just prevents casual reading. */
+   NOT cryptographically secure - just prevents casual reading. */
 
 static const unsigned char sftp_obfuscation_key[] = "Mc4SftpPanelKey!";
 
@@ -1159,7 +1159,7 @@ sftp_save_page_connection (sftp_connection_t *conn, const char *connect_timeout_
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection dialog: Tab 1 — Basic                                                              */
+/* Connection dialog: Tab 1 - Basic                                                              */
 /* --------------------------------------------------------------------------------------------- */
 
 static int
@@ -1245,7 +1245,7 @@ show_connection_tab_basic (sftp_connection_t *conn)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection dialog: Tab 2 — Connection                                                         */
+/* Connection dialog: Tab 2 - Connection                                                         */
 /* --------------------------------------------------------------------------------------------- */
 
 static int
@@ -1360,27 +1360,27 @@ show_connection_dialog (sftp_connection_t *conn)
 
         if (ret == B_ENTER)
         {
-            /* OK — accept all changes */
+            /* OK - accept all changes */
             sftp_connection_free (backup);
             return TRUE;
         }
 
         if (ret == B_CANCEL)
         {
-            /* Cancel — rollback all changes */
+            /* Cancel - rollback all changes */
             sftp_connection_copy_from (conn, backup);
             sftp_connection_free (backup);
             return FALSE;
         }
 
-        /* Tab switch — values already saved to conn by the page function */
+        /* Tab switch - values already saved to conn by the page function */
         if (ret >= SFTP_TAB_BASIC && ret <= SFTP_TAB_CONNECTION)
         {
             current_tab = ret;
             continue;
         }
 
-        /* unknown return code — treat as cancel */
+        /* unknown return code - treat as cancel */
         sftp_connection_copy_from (conn, backup);
         sftp_connection_free (backup);
         return FALSE;

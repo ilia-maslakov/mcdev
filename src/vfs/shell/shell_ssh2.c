@@ -1,6 +1,6 @@
 /*
    Virtual File System: SHELL implementation for transferring files over
-   shell connections — libssh2 transport layer.
+   shell connections - libssh2 transport layer.
 
    Copyright (C) 2025
    Free Software Foundation, Inc.
@@ -750,7 +750,7 @@ shell_ssh2_open (struct vfs_s_super *super, GError **mcerror)
 
     mc_return_val_if_error (mcerror, NULL);
 
-    /* rsh mode — libssh2 is not applicable */
+    /* rsh mode - libssh2 is not applicable */
     if (super->path_element->port == SHELL_FLAG_RSH)
         return NULL;
 
@@ -824,7 +824,7 @@ shell_ssh2_open (struct vfs_s_super *super, GError **mcerror)
     return ssh2;
 
 err:
-    /* Clear the error — caller will handle fallback */
+    /* Clear the error - caller will handle fallback */
     if (mcerror != NULL && *mcerror != NULL)
     {
         g_error_free (*mcerror);

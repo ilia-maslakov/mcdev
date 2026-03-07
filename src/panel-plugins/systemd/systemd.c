@@ -469,7 +469,7 @@ systemd_chdir (void *plugin_data, const char *path)
             return MC_PPR_OK;
         }
 
-        /* already at root — close plugin */
+        /* already at root - close plugin */
         return MC_PPR_CLOSE;
     }
 

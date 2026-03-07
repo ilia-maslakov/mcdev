@@ -751,7 +751,7 @@ shell_open_archive_int (struct vfs_class *me, struct vfs_s_super *super)
 
             goto connected;
         }
-        /* libssh2 failed (rsh mode, or connection error) — fallback to pipe+ssh */
+        /* libssh2 failed (rsh mode, or connection error) - fallback to pipe+ssh */
         if (mcerror != NULL)
             g_error_free (mcerror);
     }

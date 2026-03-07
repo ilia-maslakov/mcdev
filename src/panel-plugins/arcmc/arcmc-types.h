@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — shared types and constants.
+   Archive browser panel plugin -shared types and constants.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -56,7 +56,8 @@ enum
     ARCMC_FMT_OTHER_COUNT = 5 /* number of "Other" formats (tar.gz .. cpio) */
 };
 
-#define ARCMC_FMT_COUNT (ARCMC_FMT_CPIO + 1)
+#define ARCMC_FMT_COUNT    (ARCMC_FMT_CPIO + 1)
+#define ARCMC_FMT_EXT_BASE 100 /* external archiver formats start here */
 
 typedef struct
 {
@@ -92,23 +93,25 @@ typedef struct
     char *title_buf;                /* buffer for get_title */
     char *extfs_helper;             /* full path to extfs helper, or NULL for libarchive mode */
     arcmc_nest_frame_t *nest_stack; /* stack of outer archives for nested browsing */
+    GHashTable *bulk_cache;         /* bulk extract cache: filename -> local_path */
+    char *bulk_temp_dir;            /* temp directory for bulk-extracted files */
 } arcmc_data_t;
 
 /* Progress dialog context for pack/extract operations */
 typedef struct
 {
     WDialog *dlg;
-    WHLine *hline_top;      /* top separator — shows "{32%} title" */
+    WHLine *hline_top;      /* top separator -shows "{32%} title" */
     WLabel *lbl_archive;    /* archive path */
     WLabel *lbl_file;       /* current file path */
-    WLabel *lbl_file_size;  /* "184 КБ / 1.06 МБ" */
+    WLabel *lbl_file_size;  /* "184 KB / 1.06 MB" */
     WGauge *gauge_file;     /* per-file progress */
-    WLabel *lbl_total_size; /* "182 МБ / 559 МБ @ 17 МБ/с -00:00:22" */
-    WLabel *lbl_ratio;      /* "182 МБ → 9 МБ = 5%" */
+    WLabel *lbl_total_size; /* "182 MB / 559 MB @ 17 MB/s -00:00:22" */
+    WLabel *lbl_ratio;      /* "182 MB -> 9 MB = 5%" */
     WGauge *gauge_total;    /* total progress */
 
     /* tracking state */
-    char *op_title;      /* operation title (e.g. "Создание архива...") */
+    char *op_title;      /* operation title (e.g. "Creating archive...") */
     off_t total_bytes;   /* total bytes to process */
     off_t done_bytes;    /* bytes processed so far */
     off_t written_bytes; /* compressed bytes written */
@@ -122,16 +125,25 @@ typedef struct
     gboolean visible;    /* dlg_init() called */
 } arcmc_progress_t;
 
-/* Extension → extfs helper mapping entry */
+/* External archiver tool descriptor */
 typedef struct
 {
-    const char *ext;
-    const char *helper;
-} arcmc_extfs_map_t;
+    const char *name;          /* display name, e.g. "RAR" */
+    const char *ext;           /* default extension, e.g. ".rar" */
+    const char *pack_bin;      /* pack binary, e.g. "rar", NULL = no pack support */
+    const char *pack_args;     /* pack arguments template, e.g. "a -r -o+" */
+    const char *unpack_bin;    /* unpack binary, e.g. "unrar" */
+    const char *unpack_args;   /* unpack arguments template, e.g. "x -o+" */
+    const char *test_bin;      /* test binary, e.g. "unrar", NULL = no test */
+    const char *test_args;     /* test arguments template, e.g. "t" */
+    const char *extfs_helper;  /* extfs helper name for browsing, e.g. "urar" */
+    const char *list_file_arg; /* file-list argument template, e.g. "@%s" for RAR/7z, NULL = not
+                                  supported */
+} arcmc_ext_archiver_t;
 
-/* Extension → extfs helper mapping for formats not handled by libarchive */
-extern const arcmc_extfs_map_t extfs_map[];
-extern const size_t extfs_map_count;
+/* External archivers table */
+extern arcmc_ext_archiver_t ext_archivers[]; /* mutable: config may override fields */
+extern const size_t ext_archivers_count;
 
 /*** declarations (functions)
  * **********************************************************************/

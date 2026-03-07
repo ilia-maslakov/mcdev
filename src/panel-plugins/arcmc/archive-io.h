@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — archive read/write/extract and extfs helpers.
+   Archive browser panel plugin -archive read/write/extract and extfs helpers.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -64,5 +64,17 @@ gboolean arcmc_extfs_run_cmd (const char *helper, const char *cmd_name, const ch
                               const char *stored_name, const char *local_name);
 mc_pp_result_t arcmc_extract_to_temp (arcmc_data_t *data, const char *name, char **local_path);
 mc_pp_result_t arcmc_push_nested (arcmc_data_t *data, char *local_path);
+
+/* External archiver operations */
+const arcmc_ext_archiver_t *arcmc_find_ext_archiver (const char *archive_path);
+gboolean arcmc_check_bin_available (const char *bin_name);
+gboolean arcmc_ext_pack (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                         const char *cwd, GPtrArray *files, const char *password, char **error_msg);
+gboolean arcmc_ext_unpack (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                           const char *dest_dir, const char *password);
+gboolean arcmc_ext_unpack_files (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                                 const char *dest_dir, GPtrArray *files, const char *password);
+gboolean arcmc_ext_test (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                         const char *password);
 
 #endif /* ARCMC_ARCHIVE_IO_H */

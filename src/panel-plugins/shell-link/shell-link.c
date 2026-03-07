@@ -83,7 +83,7 @@ static mc_pp_result_t shell_handle_key (void *plugin_data, int key);
 #define SHELL_PANEL_KEY_CLONE         "hotkey_clone"
 #define SHELL_PANEL_KEY_CLONE_DEFAULT "shift-f5"
 
-/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f — matching lib/tty definitions */
+/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
 #define SHELL_KEY_F(n)   (1000 + (n))
 #define SHELL_XCTRL(c)   ((c) & 0x1f)
 
@@ -1001,7 +1001,7 @@ shell_handle_key (void *plugin_data, int key)
     if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
         return shell_edit_connection (data);
 
-    /* Shift+F5 — clone connection */
+    /* Shift+F5 - clone connection */
     if (data->key_clone >= 0 && key == data->key_clone)
         return shell_clone_connection (data);
 

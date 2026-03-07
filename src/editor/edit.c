@@ -1079,7 +1079,7 @@ edit_right_char_move_cmd (WEdit *edit)
                     }
                     else
                     {
-                        /* past the fold indicator — keep going right */
+                        /* past the fold indicator - keep going right */
                         edit->over_col++;
                     }
                     return;
@@ -1104,7 +1104,7 @@ edit_right_char_move_cmd (WEdit *edit)
     else
         edit_cursor_move (edit, char_length);
 
-    /* Skip over hidden (folded) lines — fallback for other entry points */
+    /* Skip over hidden (folded) lines - fallback for other entry points */
     if (edit->folds != NULL && edit_fold_is_hidden (edit, edit->buffer.curs_line))
     {
         edit_fold_t *fold;
@@ -3709,7 +3709,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
 
     edit->redo_stack_reset = 1;
 
-    /* Snap cursor out of hidden (folded) lines — like tab-snap prevents mid-tab cursor */
+    /* Snap cursor out of hidden (folded) lines - like tab-snap prevents mid-tab cursor */
     if (edit->folds != NULL && edit_fold_is_hidden (edit, edit->buffer.curs_line))
     {
         edit_fold_t *fold;

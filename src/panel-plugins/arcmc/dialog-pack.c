@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — pack dialog UI.
+   Archive browser panel plugin -pack dialog UI.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -31,6 +31,8 @@
 #include "lib/widget.h"
 
 #include "arcmc-types.h"
+#include "arcmc-config.h"
+#include "archive-io.h"
 #include "dialog-pack.h"
 
 /*** file scope variables ************************************************************************/
@@ -40,7 +42,7 @@ static const char *const other_format_names[] = {
     "tar.gz", "tar.bz2", "tar.xz", "tar", "cpio",
 };
 
-#define OTHER_FMT_DISPLAY_LEN 10
+#define OTHER_FMT_DISPLAY_LEN 16
 
 /* extensions for each ARCMC_FMT_* value */
 const char *const format_extensions[ARCMC_FMT_COUNT] = {
@@ -56,6 +58,12 @@ const char *const format_extensions[ARCMC_FMT_COUNT] = {
 /* currently selected "Other" format index (0-based within other_format_names) */
 static int current_other_fmt_idx = 0;
 
+/* currently selected external archiver index (into ext_archivers[]) */
+static int current_ext_fmt_idx = -1;
+
+/* TRUE when current "Other" selection is an external archiver, FALSE when builtin */
+static gboolean current_other_is_ext = FALSE;
+
 /* widget IDs for the pack dialog callback */
 static unsigned long pack_fmt_radio_id = 0;
 static unsigned long pack_path_input_id = 0;
@@ -64,6 +72,78 @@ static unsigned long pack_password_input_id = 0;
 static unsigned long pack_verify_input_id = 0;
 
 /*** file scope functions ************************************************************************/
+
+/* Strip any known extension (builtin or external) from `base` in-place. */
+static void
+pack_strip_known_ext (char *base, size_t base_len)
+{
+    size_t i;
+
+    for (i = 0; i < G_N_ELEMENTS (format_extensions); i++)
+    {
+        size_t ext_len = strlen (format_extensions[i]);
+
+        if (base_len >= ext_len
+            && g_ascii_strcasecmp (base + base_len - ext_len, format_extensions[i]) == 0)
+        {
+            base[base_len - ext_len] = '\0';
+            return;
+        }
+    }
+
+    for (i = 0; i < ext_archivers_count; i++)
+    {
+        size_t ext_len = strlen (ext_archivers[i].ext);
+
+        if (base_len >= ext_len
+            && g_ascii_strcasecmp (base + base_len - ext_len, ext_archivers[i].ext) == 0)
+        {
+            base[base_len - ext_len] = '\0';
+            return;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Replace the extension in the archive path input widget with `new_ext`. */
+static void
+pack_update_extension_str (Widget *dlg_w, const char *new_ext)
+{
+    Widget *path_w;
+    WInput *path_input;
+    const char *old_text;
+    char *base;
+    char *new_text;
+
+    path_w = widget_find_by_id (dlg_w, pack_path_input_id);
+    if (path_w == NULL)
+        return;
+
+    path_input = INPUT (path_w);
+    old_text = path_input->buffer->str;
+    base = g_strdup (old_text);
+    pack_strip_known_ext (base, strlen (base));
+
+    if (base[0] == '\0')
+    {
+        const char *dot;
+
+        g_free (base);
+        dot = strrchr (old_text, '.');
+        if (dot != NULL)
+            base = g_strndup (old_text, (gsize) (dot - old_text));
+        else
+            base = g_strdup (old_text);
+    }
+
+    new_text = g_strconcat (base, new_ext, NULL);
+    input_assign_text (path_input, new_text);
+    g_free (new_text);
+    g_free (base);
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 /* Replace the extension in the archive path input widget.
    `fmt` is an ARCMC_FMT_* value. */
@@ -136,23 +216,24 @@ pack_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         if (sender != NULL && sender->id == pack_fmt_radio_id)
         {
             int sel = RADIO (sender)->sel;
-            int fmt;
 
             switch (sel)
             {
             case 0:
-                fmt = ARCMC_FMT_ZIP;
+                pack_update_extension (w, ARCMC_FMT_ZIP);
                 break;
             case 1:
-                fmt = ARCMC_FMT_7Z;
+                pack_update_extension (w, ARCMC_FMT_7Z);
                 break;
             case 2:
             default:
-                fmt = ARCMC_FMT_TAR_GZ + current_other_fmt_idx;
+                if (current_other_is_ext && current_ext_fmt_idx >= 0
+                    && current_ext_fmt_idx < (int) ext_archivers_count)
+                    pack_update_extension_str (w, ext_archivers[current_ext_fmt_idx].ext);
+                else
+                    pack_update_extension (w, ARCMC_FMT_TAR_GZ + current_other_fmt_idx);
                 break;
             }
-
-            pack_update_extension (w, fmt);
             return MSG_HANDLED;
         }
 
@@ -185,35 +266,94 @@ pack_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Entry in the combined "Other" popup: either a builtin format or an external archiver. */
+typedef struct
+{
+    gboolean is_ext; /* TRUE = external archiver, FALSE = builtin */
+    int idx;         /* index into other_format_names[] or ext_archivers[] */
+} other_entry_t;
+
 static int
 sel_other_format_button (WButton *button, int action)
 {
     int result;
     WListbox *fmt_list;
     WDialog *fmt_dlg;
-    int i;
+    int count = 0;
+    other_entry_t *entries;
+    int sel_idx = 0;
+    int i, j;
 
     (void) action;
+
+    /* count enabled builtin "Other" formats */
+    for (i = 0; i < ARCMC_FMT_OTHER_COUNT; i++)
+        if (arcmc_builtin_enabled[2 + i])
+            count++;
+
+    /* count enabled external archivers with pack support */
+    for (i = 0; i < (int) ext_archivers_count; i++)
+        if (ext_archivers[i].pack_bin != NULL
+            && (arcmc_ext_enabled == NULL || arcmc_ext_enabled[i]))
+            count++;
+
+    if (count == 0)
+    {
+        message (D_NORMAL, _ ("Other formats"), _ ("No other formats are enabled"));
+        return 0;
+    }
+
+    entries = g_new (other_entry_t, count);
 
     {
         Widget *btn_w = WIDGET (button);
         int dlg_y = btn_w->rect.y;
         int dlg_x = btn_w->rect.x + btn_w->rect.cols + 1;
+        int dlg_w = OTHER_FMT_DISPLAY_LEN + 4;
 
-        fmt_dlg = dlg_create (TRUE, dlg_y, dlg_x, ARCMC_FMT_OTHER_COUNT + 2,
-                              OTHER_FMT_DISPLAY_LEN + 4, WPOS_KEEP_DEFAULT, TRUE, dialog_colors,
-                              NULL, NULL, "[arcmc]", _ ("Format"));
+        fmt_dlg = dlg_create (TRUE, dlg_y, dlg_x, count + 2, dlg_w, WPOS_KEEP_DEFAULT, TRUE,
+                              dialog_colors, NULL, NULL, "[arcmc]", _ ("Format"));
     }
 
-    fmt_list = listbox_new (1, 1, ARCMC_FMT_OTHER_COUNT, OTHER_FMT_DISPLAY_LEN + 2, FALSE, NULL);
+    fmt_list = listbox_new (1, 1, count, OTHER_FMT_DISPLAY_LEN + 2, FALSE, NULL);
 
+    j = 0;
+
+    /* builtin "Other" formats first */
     for (i = 0; i < ARCMC_FMT_OTHER_COUNT; i++)
     {
+        if (!arcmc_builtin_enabled[2 + i])
+            continue;
+
         listbox_add_item (fmt_list, LISTBOX_APPEND_AT_END, 0, other_format_names[i], NULL, FALSE);
-        if (i == current_other_fmt_idx)
-            listbox_set_current (fmt_list, i);
+        entries[j].is_ext = FALSE;
+        entries[j].idx = i;
+        if (!current_other_is_ext && i == current_other_fmt_idx)
+            sel_idx = j;
+        j++;
     }
 
+    /* external archivers */
+    for (i = 0; i < (int) ext_archivers_count; i++)
+    {
+        char label[32];
+
+        if (ext_archivers[i].pack_bin == NULL)
+            continue;
+        if (arcmc_ext_enabled != NULL && !arcmc_ext_enabled[i])
+            continue;
+
+        g_snprintf (label, sizeof (label), "+ %s (%s)", ext_archivers[i].name,
+                    ext_archivers[i].ext);
+        listbox_add_item (fmt_list, LISTBOX_APPEND_AT_END, 0, label, NULL, FALSE);
+        entries[j].is_ext = TRUE;
+        entries[j].idx = i;
+        if (current_other_is_ext && i == current_ext_fmt_idx)
+            sel_idx = j;
+        j++;
+    }
+
+    listbox_set_current (fmt_list, sel_idx);
     group_add_widget_autopos (GROUP (fmt_dlg), fmt_list, WPOS_KEEP_ALL, NULL);
 
     result = dlg_run (fmt_dlg);
@@ -221,11 +361,29 @@ sel_other_format_button (WButton *button, int action)
     {
         Widget *pack_dlg_w;
         Widget *radio_w;
+        int selected;
+        const other_entry_t *e;
 
-        current_other_fmt_idx = LISTBOX (fmt_list)->current;
-        button_set_text (button,
-                         str_fit_to_term (other_format_names[current_other_fmt_idx],
-                                          OTHER_FMT_DISPLAY_LEN, J_LEFT_FIT));
+        selected = LISTBOX (fmt_list)->current;
+        e = &entries[selected];
+        current_other_is_ext = e->is_ext;
+
+        if (e->is_ext)
+        {
+            char btn_text[32];
+
+            current_ext_fmt_idx = e->idx;
+            g_snprintf (btn_text, sizeof (btn_text), "%s (%s)", ext_archivers[e->idx].name,
+                        ext_archivers[e->idx].ext);
+            button_set_text (button, str_fit_to_term (btn_text, OTHER_FMT_DISPLAY_LEN, J_LEFT_FIT));
+        }
+        else
+        {
+            current_other_fmt_idx = e->idx;
+            button_set_text (
+                button,
+                str_fit_to_term (other_format_names[e->idx], OTHER_FMT_DISPLAY_LEN, J_LEFT_FIT));
+        }
 
         /* switch radio to "Other" and update extension */
         pack_dlg_w = WIDGET (WIDGET (button)->owner);
@@ -235,9 +393,14 @@ sel_other_format_button (WButton *button, int action)
             RADIO (radio_w)->sel = 2;
             widget_draw (radio_w);
         }
-        pack_update_extension (pack_dlg_w, ARCMC_FMT_TAR_GZ + current_other_fmt_idx);
+
+        if (e->is_ext)
+            pack_update_extension_str (pack_dlg_w, ext_archivers[e->idx].ext);
+        else
+            pack_update_extension (pack_dlg_w, ARCMC_FMT_TAR_GZ + e->idx);
     }
     widget_destroy (WIDGET (fmt_dlg));
+    g_free (entries);
 
     return 0;
 }
@@ -267,13 +430,13 @@ arcmc_show_pack_dialog (arcmc_pack_opts_t *opts, const char *initial_path)
     char *archive_path = NULL;
     char *password = NULL;
     char *password_verify = NULL;
-    int format_radio = 0; /* 0=zip, 1=7z, 2=other */
-    int compression = 2;  /* Normal */
-    int encrypt_files = 0;
-    int encrypt_header = 0;
+    static int format_radio = 0; /* 0=zip, 1=7z, 2=other */
+    static int compression = 2;  /* Normal */
+    static int encrypt_files = 0;
+    static int encrypt_header = 0;
     int show_password = 0;
-    int store_paths = 1;
-    int delete_after = 0;
+    static int store_paths = 1;
+    static int delete_after = 0;
     int ret;
 
     /* *INDENT-OFF* */
@@ -284,9 +447,15 @@ arcmc_show_pack_dialog (arcmc_pack_opts_t *opts, const char *initial_path)
         QUICK_START_COLUMNS,
         QUICK_START_GROUPBOX (N_ ("Format")),
         QUICK_RADIO (format_options_num, format_options, &format_radio, &pack_fmt_radio_id),
-        QUICK_BUTTON (str_fit_to_term (other_format_names[current_other_fmt_idx],
-                                       OTHER_FMT_DISPLAY_LEN, J_LEFT_FIT),
-                      B_USER, sel_other_format_button, NULL),
+        QUICK_BUTTON (
+            str_fit_to_term (
+                current_other_is_ext
+                    ? (current_ext_fmt_idx >= 0 && current_ext_fmt_idx < (int) ext_archivers_count
+                           ? ext_archivers[current_ext_fmt_idx].name
+                           : "---")
+                    : other_format_names[current_other_fmt_idx],
+                OTHER_FMT_DISPLAY_LEN, J_LEFT_FIT),
+            B_USER, sel_other_format_button, NULL),
         QUICK_STOP_GROUPBOX,
         QUICK_NEXT_COLUMN,
         QUICK_START_GROUPBOX (N_ ("Compression")),
@@ -364,7 +533,10 @@ arcmc_show_pack_dialog (arcmc_pack_opts_t *opts, const char *initial_path)
             break;
         case 2:
         default:
-            opts->format = ARCMC_FMT_TAR_GZ + current_other_fmt_idx;
+            if (current_other_is_ext)
+                opts->format = ARCMC_FMT_EXT_BASE + current_ext_fmt_idx;
+            else
+                opts->format = ARCMC_FMT_TAR_GZ + current_other_fmt_idx;
             break;
         }
 

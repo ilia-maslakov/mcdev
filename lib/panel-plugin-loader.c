@@ -81,7 +81,7 @@ mc_panel_plugins_load (void)
     if (dir == NULL)
     {
         g_free (plugins_dir);
-        return;  // no plugins dir — OK, nothing to load
+        return;  // no plugins dir - OK, nothing to load
     }
 
     panel_plugin_modules = g_ptr_array_new ();
@@ -123,7 +123,7 @@ mc_panel_plugins_load (void)
             continue;
         }
 
-        g_module_make_resident (module);  // prevent unload — plugin descriptor lives in .so
+        g_module_make_resident (module);  // prevent unload - plugin descriptor lives in .so
         g_ptr_array_add (panel_plugin_modules, module);
         g_free (path);
     }
@@ -208,7 +208,7 @@ mc_editor_plugins_load (void)
 void
 mc_panel_plugins_load (void)
 {
-    // GModule not available — dynamic panel plugins disabled
+    // GModule not available - dynamic panel plugins disabled
 }
 
 /* --------------------------------------------------------------------------------------------- */

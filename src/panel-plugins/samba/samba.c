@@ -73,7 +73,7 @@ typedef struct
     GPtrArray *entries; /* smb_entry_t* when browsing; NULL at root */
 
     /* Saved connections */
-    GPtrArray *connections; /* smb_connection_t* — loaded from ini */
+    GPtrArray *connections; /* smb_connection_t* - loaded from ini */
     char *connections_file; /* path to ini file */
 
     /* Active connection credentials (for auth callback) */
@@ -910,7 +910,7 @@ samba_get_items (void *plugin_data, void *list_ptr)
         return MC_PPR_OK;
     }
 
-    /* Inside a connection — show SMB entries */
+    /* Inside a connection - show SMB entries */
     if (data->entries != NULL)
     {
         for (i = 0; i < data->entries->len; i++)
@@ -961,7 +961,7 @@ samba_chdir (void *plugin_data, const char *path)
             parent = smb_url_up (data->current_url);
             if (parent == NULL)
             {
-                /* At smb:// level — go back to root (connections list) */
+                /* At smb:// level - go back to root (connections list) */
                 data->at_root = TRUE;
                 g_free (data->current_url);
                 data->current_url = NULL;
@@ -1103,7 +1103,7 @@ samba_enter (void *plugin_data, const char *name, const struct stat *st)
             return MC_PPR_OK;
         }
 
-        /* File — let mc handle via get_local_copy / viewer */
+        /* File - let mc handle via get_local_copy / viewer */
         return MC_PPR_NOT_SUPPORTED;
     }
 }
@@ -1387,7 +1387,7 @@ samba_create_item (void *plugin_data)
         if (backslash != NULL)
         {
             conn->workgroup = g_strndup (username, (gsize) (backslash - username));
-            /* Keep full username — libsmbclient handles DOMAIN\user */
+            /* Keep full username - libsmbclient handles DOMAIN\user */
         }
     }
 

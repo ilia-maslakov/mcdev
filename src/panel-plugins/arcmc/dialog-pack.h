@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — pack dialog UI.
+   Archive browser panel plugin -pack dialog UI.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.

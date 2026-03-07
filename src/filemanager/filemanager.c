@@ -1124,7 +1124,7 @@ midnight_execute_cmd (Widget *sender, long command)
     // stop quick search before executing any command
     send_message (current_panel, NULL, MSG_ACTION, CK_SearchStop, NULL);
 
-    /* Block destructive/inapplicable file operations on plugin panels — the listed
+    /* Block destructive/inapplicable file operations on plugin panels - the listed
        entries are virtual and do not exist on the real filesystem.
        View and Edit are allowed (the viewer/editor will handle missing files). */
     if (current_panel->is_plugin_panel)

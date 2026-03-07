@@ -503,7 +503,7 @@ ftp_normalize_host (const char *host_in)
 /* --------------------------------------------------------------------------------------------- */
 
 /* Simple XOR obfuscation to avoid storing passwords in plain text.
-   NOT cryptographically secure — just prevents casual reading. */
+   NOT cryptographically secure - just prevents casual reading. */
 
 static const unsigned char ftp_obfuscation_key[] = "Mc4FtpPanelKey!";
 
@@ -1776,7 +1776,7 @@ ftp_save_page_advanced (ftp_connection_t *conn, char *encoding, char *post_cmds,
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection dialog: Tab 1 — Basic                                                              */
+/* Connection dialog: Tab 1 - Basic                                                              */
 /* --------------------------------------------------------------------------------------------- */
 
 static int
@@ -1850,7 +1850,7 @@ show_connection_tab_basic (ftp_connection_t *conn)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection dialog: Tab 2 — Security & Connection                                              */
+/* Connection dialog: Tab 2 - Security & Connection                                              */
 /* --------------------------------------------------------------------------------------------- */
 
 static int
@@ -1941,7 +1941,7 @@ show_connection_tab_security (ftp_connection_t *conn)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection dialog: Tab 3 — Advanced & Proxy                                                   */
+/* Connection dialog: Tab 3 - Advanced & Proxy                                                   */
 /* --------------------------------------------------------------------------------------------- */
 
 static int
@@ -2065,27 +2065,27 @@ show_connection_dialog (ftp_connection_t *conn)
 
         if (ret == B_ENTER)
         {
-            /* OK — accept all changes */
+            /* OK - accept all changes */
             ftp_connection_free (backup);
             return TRUE;
         }
 
         if (ret == B_CANCEL)
         {
-            /* Cancel — rollback all changes */
+            /* Cancel - rollback all changes */
             ftp_connection_copy_from (conn, backup);
             ftp_connection_free (backup);
             return FALSE;
         }
 
-        /* Tab switch — values already saved to conn by the page function */
+        /* Tab switch - values already saved to conn by the page function */
         if (ret >= FTP_TAB_BASIC && ret <= FTP_TAB_ADVANCED)
         {
             current_tab = ret;
             continue;
         }
 
-        /* unknown return code — treat as cancel */
+        /* unknown return code - treat as cancel */
         ftp_connection_copy_from (conn, backup);
         ftp_connection_free (backup);
         return FALSE;
@@ -2131,7 +2131,7 @@ ftp_connect_status_init_cb (status_msg_t *sm)
 static void
 ftp_connect_status_deinit_cb (status_msg_t *sm)
 {
-    /* log is owned by the caller — not freed here */
+    /* log is owned by the caller - not freed here */
     (void) sm;
 }
 

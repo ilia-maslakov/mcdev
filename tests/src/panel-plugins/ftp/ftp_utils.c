@@ -264,7 +264,7 @@ static const struct test_password_decode_plain_ds
     const char *input;
     const char *expected;
 } test_password_decode_plain_ds[] = {
-    { "plaintext", "plaintext" },  // 0: no enc: prefix → return as-is
+    { "plaintext", "plaintext" },  // 0: no enc: prefix -> return as-is
     { "", "" },                    // 1: empty string
     { NULL, NULL },                // 2: NULL
 };
@@ -281,11 +281,11 @@ static const struct test_build_url_ds
     const char *expected;
 } test_build_url_ds[] = {
     { 0, "example.com", 21, "/pub", "ftp://example.com:21/pub" },       // 0: ftp basic
-    { 1, "example.com", 21, "/pub", "ftp://example.com:21/pub" },       // 1: ssl_mode=1 → ftp
-    { 2, "example.com", 990, "/", "ftps://example.com:990/" },          // 2: ssl_mode=2 → ftps
-    { 3, "example.com", 990, "/data", "ftps://example.com:990/data" },  // 3: ssl_mode=3 → ftps
-    { 0, "example.com", 21, NULL, "ftp://example.com:21/" },            // 4: NULL path → /
-    { 0, "example.com", 21, "", "ftp://example.com:21/" },              // 5: empty path → /
+    { 1, "example.com", 21, "/pub", "ftp://example.com:21/pub" },       // 1: ssl_mode=1 -> ftp
+    { 2, "example.com", 990, "/", "ftps://example.com:990/" },          // 2: ssl_mode=2 -> ftps
+    { 3, "example.com", 990, "/data", "ftps://example.com:990/data" },  // 3: ssl_mode=3 -> ftps
+    { 0, "example.com", 21, NULL, "ftp://example.com:21/" },            // 4: NULL path -> /
+    { 0, "example.com", 21, "", "ftp://example.com:21/" },              // 5: empty path -> /
 };
 
 /* ---- connection_dup ---- */
@@ -441,13 +441,13 @@ START_PARAMETRIZED_TEST (test_connection_dup, test_connection_dup_ds)
     ck_assert_int_eq (dup->ssl_mode, data->ssl_mode);
     ck_assert_int_eq (dup->proxy_type, data->proxy_type);
 
-    /* verify deep copy — different pointers */
+    /* verify deep copy - different pointers */
     if (data->host != NULL)
     {
         mctest_assert_ptr_ne (dup->host, src.host);
     }
 
-    /* clean up — don't free src strings, they are const */
+    /* clean up - don't free src strings, they are const */
     dup->label = NULL;
     dup->host = NULL;
     dup->user = NULL;

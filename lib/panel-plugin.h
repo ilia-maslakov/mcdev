@@ -45,7 +45,7 @@ typedef enum
 /* Forward declaration */
 struct mc_panel_host_t;
 
-/* Plugin action descriptor — one entry per action the plugin exposes. */
+/* Plugin action descriptor - one entry per action the plugin exposes. */
 typedef struct mc_pp_action_t
 {
     const char *label; /* translatable action name shown in listbox/menu */
@@ -97,8 +97,8 @@ typedef struct mc_panel_plugin_t
     int api_version;          /* MC_PANEL_PLUGIN_API_VERSION */
     const char *name;         /* "docker", "git-log" */
     const char *display_name; /* "Docker containers" */
-    const char *proto; /* protocol prefix for panel title, e.g. "HelloWorld" → "HelloWorld:/path" */
-    const char *prefix; /* "docker:" or NULL */
+    const char *proto;        /* protocol prefix for panel. for example git:/  */
+    const char *prefix;       /* "docker:" or NULL */
     mc_pp_flags_t flags;
 
     /* Required */
@@ -106,7 +106,7 @@ typedef struct mc_panel_plugin_t
     void (*close) (void *plugin_data);
     /* Populate the panel.  @list is a dir_list* (from dir.h).
        The ".." entry at index 0 is already created by the host;
-       the plugin must NOT add ".." itself — only real items. */
+       the plugin must NOT add ".." itself - only real items. */
     mc_pp_result_t (*get_items) (void *plugin_data, void *list /* dir_list* */);
 
     /* Optional (NULL = not supported) */
