@@ -36,7 +36,7 @@ typedef struct
     time_t fetch_time;  /* when the listing was fetched */
 } mc_pp_dir_cache_entry_t;
 
-/** Directory cache instance — embed in plugin data. */
+/** Directory cache instance - embed in plugin data. */
 typedef struct
 {
     GHashTable *table; /* path (char*) -> mc_pp_dir_cache_entry_t* */

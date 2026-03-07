@@ -609,7 +609,7 @@ START_TEST (test_fold_inc_at_fold_start)
     // when: insert at the fold start line itself
     edit_fold_inc (test_edit, 10);
 
-    // then: insertion at fold start line — fold is unchanged
+    // then: insertion at fold start line - fold is unchanged
     // (line == line_start is neither "after" nor "inside")
     f = edit_fold_find (test_edit, 10);
     mctest_assert_not_null (f);

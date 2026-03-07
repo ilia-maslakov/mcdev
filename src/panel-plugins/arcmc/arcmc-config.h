@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin -progress dialog.
+   Archive browser panel plugin -config persistence.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -23,18 +23,23 @@
    along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef ARCMC_PROGRESS_H
-#define ARCMC_PROGRESS_H
+#ifndef ARCMC_CONFIG_H
+#define ARCMC_CONFIG_H
 
-#include "arcmc-types.h"
+#include "lib/global.h"
 
-/*** declarations (functions)
- * **********************************************************************/
+/*** constants *********************************************************************************/
 
-arcmc_progress_t *arcmc_progress_create (const char *title, const char *archive_path,
-                                         off_t total_bytes);
-void arcmc_progress_destroy (arcmc_progress_t *p);
-gboolean arcmc_progress_update (arcmc_progress_t *p, const char *filename, off_t file_size,
-                                off_t file_done, off_t total_done, off_t written);
+#define ARCMC_BUILTIN_COUNT 13
 
-#endif /* ARCMC_PROGRESS_H */
+/*** global variables **************************************************************************/
+
+extern gboolean arcmc_builtin_enabled[ARCMC_BUILTIN_COUNT];
+extern gboolean *arcmc_ext_enabled;
+
+/*** declarations (functions) ******************************************************************/
+
+void arcmc_config_load (void);
+void arcmc_config_save (void);
+
+#endif /* ARCMC_CONFIG_H */

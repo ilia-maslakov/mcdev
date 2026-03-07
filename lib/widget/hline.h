@@ -20,6 +20,7 @@ typedef struct
     char *text;
     gboolean auto_adjust_cols;  // Compute widget.cols from parent width?
     gboolean transparent;       // Paint in the default color fg/bg
+    int text_color_idx;         // DLG_COLOR_* index for text, or -1 for default (DLG_COLOR_FRAME)
 } WHLine;
 
 /*** global variables defined in .c file *********************************************************/

@@ -411,7 +411,7 @@ quick_dialog_skip (quick_dialog_t *quick_dlg, int nskip)
                 g_array_append_val (widgets, hline_item);
             }
 
-            // do NOT set quick_end — continue processing remaining widgets
+            // do NOT set quick_end - continue processing remaining widgets
             quick_widget--;
             break;
         }
@@ -622,7 +622,7 @@ quick_dialog_skip (quick_dialog_t *quick_dlg, int nskip)
             break;
 
         case quick_top_buttons:
-            // horizontal button row at top — center the following buttons
+            // horizontal button row at top - center the following buttons
             in_top_buttons = TRUE;
             break;
 

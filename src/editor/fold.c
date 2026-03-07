@@ -324,7 +324,7 @@ edit_fold_dec (WEdit *edit, long line)
             p->line_count--;
             if (p->line_count <= 0)
             {
-                /* fold collapsed — remove it */
+                /* fold collapsed - remove it */
                 if (p->prev != NULL)
                     p->prev->next = p->next;
                 else
@@ -351,7 +351,7 @@ int
 edit_fold_indicator_width (const struct edit_fold_t *fold)
 {
     (void) fold;
-    /* fold indicator is "...}" — always 4 columns */
+    /* fold indicator is "...}" - always 4 columns */
     return 4;
 }
 
@@ -377,7 +377,7 @@ edit_fold_toggle (WEdit *edit)
 
     if (fold != NULL && line == fold->line_start)
     {
-        /* existing fold — unfold */
+        /* existing fold - unfold */
         edit_fold_remove (edit, fold->line_start);
     }
     else
@@ -386,7 +386,7 @@ edit_fold_toggle (WEdit *edit)
 
         if (eval_marks (edit, &start_mark, &end_mark))
         {
-            /* selection active — fold selected lines */
+            /* selection active - fold selected lines */
             long line1, line2;
 
             line1 = edit_buffer_count_lines (&edit->buffer, 0, start_mark);
@@ -399,7 +399,7 @@ edit_fold_toggle (WEdit *edit)
         }
         else
         {
-            /* no selection — find { on this line, match } */
+            /* no selection - find { on this line, match } */
             off_t bol, eol, pos;
 
             bol = edit_buffer_get_current_bol (&edit->buffer);

@@ -69,8 +69,8 @@
  * parameters = [0-9;:]+
  *            | [<=>?] (parameter-byte)* # private mode
  * parameter-byte = [\x30-\x3F]     # one of "0-9;:<=>?"
- * intermediate-byte = [\x20–\x2F]  # one of " !\"#$%&'()*+,-./"
- * final-byte = [\x40-\x7e]         # one of "@A–Z[\]^_`a–z{|}~"
+ * intermediate-byte = [\x20-\x2F]  # one of " !\"#$%&'()*+,-./"
+ * final-byte = [\x40-\x7e]         # one of "@A-Z[\]^_`a-z{|}~"
  */
 gboolean
 parse_csi (csi_command_t *out, const char **sptr, const char *end)

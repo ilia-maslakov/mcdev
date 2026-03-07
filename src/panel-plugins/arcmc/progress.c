@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — progress dialog.
+   Archive browser panel plugin -progress dialog.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -36,18 +36,18 @@
 
 /*** file scope functions ************************************************************************/
 
-/* Format byte size into human-readable string with Russian units. */
+/* Format byte size into human-readable string. */
 static void
 arcmc_format_size (off_t bytes, char *buf, size_t buflen)
 {
     if (bytes < 1024)
-        g_snprintf (buf, buflen, "%d Б", (int) bytes);
+        g_snprintf (buf, buflen, "%d B", (int) bytes);
     else if (bytes < 1024 * 1024)
-        g_snprintf (buf, buflen, "%.1f КБ", (double) bytes / 1024.0);
+        g_snprintf (buf, buflen, "%.1f KB", (double) bytes / 1024.0);
     else if (bytes < (off_t) 1024 * 1024 * 1024)
-        g_snprintf (buf, buflen, "%.2f МБ", (double) bytes / (1024.0 * 1024.0));
+        g_snprintf (buf, buflen, "%.2f MB", (double) bytes / (1024.0 * 1024.0));
     else
-        g_snprintf (buf, buflen, "%.2f ГБ", (double) bytes / (1024.0 * 1024.0 * 1024.0));
+        g_snprintf (buf, buflen, "%.2f GB", (double) bytes / (1024.0 * 1024.0 * 1024.0));
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -105,7 +105,7 @@ arcmc_progress_check_buttons (arcmc_progress_t *p)
             return FALSE;
         }
 
-        /* user chose No — continue */
+        /* user chose No -continue */
         p->dlg->ret_value = 0;
     }
 
@@ -114,7 +114,7 @@ arcmc_progress_check_buttons (arcmc_progress_t *p)
 
 /*** public functions ****************************************************************************/
 
-/* Create progress dialog. Does not show it yet — display is deferred 1 second. */
+/* Create progress dialog. Does not show it yet -display is deferred 1 second. */
 arcmc_progress_t *
 arcmc_progress_create (const char *title, const char *archive_path, off_t total_bytes)
 {
@@ -180,7 +180,7 @@ arcmc_progress_create (const char *title, const char *archive_path, off_t total_
     /* separator before button */
     group_add_widget (g, hline_new (y++, -1, -1));
 
-    /* Abort button — centered */
+    /* Abort button -centered */
     abort_btn =
         button_new (y, 0, B_CANCEL, NORMAL_BUTTON, _ ("&Abort"), arcmc_progress_btn_callback);
     btn_width = button_get_width (abort_btn);
@@ -288,7 +288,7 @@ arcmc_progress_update (arcmc_progress_t *p, const char *filename, off_t file_siz
     {
         p->last_total_col = total_col;
 
-        /* percent on the top hline — lightweight, no frame repaint */
+        /* percent on the top hline -lightweight, no frame repaint */
         {
             int pct = 0;
 
@@ -316,7 +316,7 @@ arcmc_progress_update (arcmc_progress_t *p, const char *filename, off_t file_siz
             eta_min = eta_sec / 60;
             eta_sec %= 60;
 
-            g_snprintf (line, sizeof (line), " %s / %s @ %s/с -%02d:%02d:%02d", buf_done, buf_total,
+            g_snprintf (line, sizeof (line), " %s / %s @ %s/s -%02d:%02d:%02d", buf_done, buf_total,
                         buf_speed, eta_min / 60, eta_min % 60, eta_sec);
         }
         else
@@ -331,7 +331,7 @@ arcmc_progress_update (arcmc_progress_t *p, const char *filename, off_t file_siz
 
             arcmc_format_size (total_done, buf_done, sizeof (buf_done));
             arcmc_format_size (written, buf_written, sizeof (buf_written));
-            g_snprintf (line, sizeof (line), " %s → %s = %d%%", buf_done, buf_written, ratio);
+            g_snprintf (line, sizeof (line), " %s -> %s = %d%%", buf_done, buf_written, ratio);
             label_set_text (p->lbl_ratio, line);
         }
 

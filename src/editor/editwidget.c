@@ -1129,12 +1129,12 @@ edit_update_cursor (WEdit *edit, const mouse_event_t *event)
 
                     if (edit_options.cursor_beyond_eol && click_col >= fold_visual_end)
                     {
-                        /* Click beyond fold indicator — cursor past fold end */
+                        /* Click beyond fold indicator - cursor past fold end */
                         edit->over_col = click_col - bracket_col;
                     }
                     else
                     {
-                        /* Click on fold indicator — stay at bracket */
+                        /* Click on fold indicator - stay at bracket */
                         edit->over_col = 0;
                     }
                 }
@@ -1542,7 +1542,7 @@ edit_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
             }
         }
 
-        // click in the line-state gutter area — toggle fold
+        // click in the line-state gutter area - toggle fold
         if (edit_options.line_state)
         {
             int gutter_x;
@@ -1591,7 +1591,7 @@ edit_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
 
                 if (fold != NULL && line == fold->line_start)
                 {
-                    // existing fold — unfold
+                    // existing fold - unfold
                     edit_fold_remove (edit, fold->line_start);
                 }
                 else

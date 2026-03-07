@@ -2138,7 +2138,7 @@ panel_plugin_apply_default_columns_format (WPanel *panel)
     cols = panel_plugin_get_columns (panel, &cols_count);
     if (cols == NULL || cols_count == 0)
     {
-        /* Plugin has no custom columns — recalculate standard format for current width */
+        /* Plugin has no custom columns - recalculate standard format for current width */
         GSList *form;
         char *err = NULL;
 
@@ -2632,7 +2632,7 @@ goto_parent_dir (WPanel *panel)
         else
         {
             g_free (focus_name);
-            // no navigation support — close plugin panel
+            // no navigation support - close plugin panel
             panel_plugin_close (panel);
             return;
         }
@@ -6232,7 +6232,7 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
 
     // populate dir list
     panel_clean_dir (panel);
-    // panel_clean_dir resets flags — restore them
+    // panel_clean_dir resets flags - restore them
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
 
@@ -6341,7 +6341,7 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
 
     /* populate dir list */
     panel_clean_dir (panel);
-    /* panel_clean_dir resets flags — restore them */
+    /* panel_clean_dir resets flags - restore them */
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
 

@@ -991,7 +991,7 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
                 }
                 else if (fold != NULL && current_line > fold->line_start)
                 {
-                    /* start_line was inside a fold — skip to after it
+                    /* start_line was inside a fold - skip to after it
                        without consuming a screen row */
                     long skip = fold->line_start + fold->line_count + 1 - current_line;
 

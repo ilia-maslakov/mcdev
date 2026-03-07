@@ -1,5 +1,5 @@
 /*
-   Archive browser panel plugin — archive read/write/extract and extfs helpers.
+   Archive browser panel plugin -archive read/write/extract and extfs helpers.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
@@ -27,8 +27,12 @@
 
 #include <errno.h>
 #include <fcntl.h>
+#include <signal.h>
+#include <stdarg.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -40,6 +44,7 @@
 #endif
 
 #include "lib/global.h"
+#include "lib/tty/tty.h"
 #include "lib/widget.h"
 #include "lib/util.h"        /* mc_popen, mc_pread, mc_pstream_get_string, mc_pclose, name_quote */
 #include "lib/vfs/utilvfs.h" /* vfs_parse_ls_lga */
@@ -51,16 +56,49 @@
 
 /*** file scope variables ************************************************************************/
 
-/* Extension → extfs helper mapping for formats not handled by libarchive */
-const arcmc_extfs_map_t extfs_map[] = {
-    { ".arj", "uarj" }, { ".rar", "urar" }, { ".ace", "uace" }, { ".arc", "uarc" },
-    { ".alz", "ualz" }, { ".zoo", "uzoo" }, { ".ha", "uha" },   { ".wim", "uwim" },
-    { ".lha", "ulha" }, { ".lzh", "ulha" }, { ".deb", "deb" },  { ".rpm", "rpm" },
+/* External archivers table -replaces the old extfs_map[] */
+arcmc_ext_archiver_t ext_archivers[] = {
+    { "RAR", ".rar", "rar", "a -r", "unrar", "x -o+", "unrar", "t", "urar", "@%s" },
+    { "ARJ", ".arj", "arj", "a -r", "arj", "x -y", "arj", "t", "uarj", "!%s" },
+    { "ACE", ".ace", NULL, NULL, "unace", "x -o", "unace", "t", "uace", NULL },
+    { "ARC", ".arc", "arc", "a", "arc", "x", NULL, NULL, "uarc", NULL },
+    { "ALZ", ".alz", NULL, NULL, "unalz", "", NULL, NULL, "ualz", NULL },
+    { "ZOO", ".zoo", "zoo", "a", "zoo", "x", NULL, NULL, "uzoo", NULL },
+    { "HA", ".ha", "ha", "a", "ha", "x", "ha", "t", "uha", NULL },
+    { "WIM", ".wim", NULL, NULL, "wimlib-imagex", "extract", NULL, NULL, "uwim", NULL },
+    { "LHA", ".lha", "lha", "a", "lha", "x", "lha", "t", "ulha", "@%s" },
+    { "LZH", ".lzh", "lha", "a", "lha", "x", "lha", "t", "ulha", "@%s" },
+    { "DEB", ".deb", NULL, NULL, "dpkg-deb", "-x", NULL, NULL, "deb", NULL },
+    { "RPM", ".rpm", NULL, NULL, NULL, NULL, NULL, NULL, "rpm", NULL },
 };
 
-const size_t extfs_map_count = G_N_ELEMENTS (extfs_map);
+const size_t ext_archivers_count = G_N_ELEMENTS (ext_archivers);
 
 /*** file scope functions ************************************************************************/
+
+/* Check that a path from an archive entry is safe (no absolute paths, no ".." components). */
+static gboolean
+is_path_safe (const char *path)
+{
+    const char *p = path;
+
+    if (p[0] == '/')
+        return FALSE;
+
+    while (*p != '\0')
+    {
+        if (p[0] == '.' && p[1] == '.' && (p[2] == '/' || p[2] == '\0'))
+            return FALSE;
+        p = strchr (p, '/');
+        if (p == NULL)
+            break;
+        p++;
+    }
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 /* Strip trailing slashes from a path string (in-place). */
 static void
@@ -251,7 +289,20 @@ arcmc_pack_add_file (struct archive *a, const char *disk_path, const char *archi
                     }
                 }
             }
+
+            if (bytes_read < 0)
+            {
+                close (fd);
+                archive_entry_free (entry);
+                return FALSE;
+            }
+
             close (fd);
+        }
+        else
+        {
+            archive_entry_free (entry);
+            return FALSE;
         }
     }
 
@@ -510,23 +561,27 @@ arcmc_find_extfs_helper (const char *archive_path)
 
     blen = strlen (basename_ptr);
 
-    for (i = 0; i < extfs_map_count; i++)
+    for (i = 0; i < ext_archivers_count; i++)
     {
-        size_t elen = strlen (extfs_map[i].ext);
+        size_t elen = strlen (ext_archivers[i].ext);
 
-        if (blen >= elen && g_ascii_strcasecmp (basename_ptr + blen - elen, extfs_map[i].ext) == 0)
+        if (blen >= elen
+            && g_ascii_strcasecmp (basename_ptr + blen - elen, ext_archivers[i].ext) == 0)
         {
             char *path;
 
+            if (ext_archivers[i].extfs_helper == NULL)
+                return NULL;
+
             /* try user data dir first */
-            path =
-                g_build_filename (mc_config_get_data_path (), "extfs.d", extfs_map[i].helper, NULL);
+            path = g_build_filename (mc_config_get_data_path (), "extfs.d",
+                                     ext_archivers[i].extfs_helper, NULL);
             if (g_file_test (path, G_FILE_TEST_IS_EXECUTABLE))
                 return path;
             g_free (path);
 
             /* try system libexecdir */
-            path = g_build_filename (LIBEXECDIR, "extfs.d", extfs_map[i].helper, NULL);
+            path = g_build_filename (LIBEXECDIR, "extfs.d", ext_archivers[i].extfs_helper, NULL);
             if (g_file_test (path, G_FILE_TEST_IS_EXECUTABLE))
                 return path;
             g_free (path);
@@ -739,6 +794,35 @@ arcmc_read_archive_extfs (arcmc_data_t *data)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Close an mc_pipe_t and return the child process exit status.
+   Returns the exit code (0 = success) or -1 on error. */
+static int
+mc_pclose_get_status (mc_pipe_t *p)
+{
+    int status = -1;
+    int res;
+
+    if (p == NULL)
+        return -1;
+
+    if (p->out.fd >= 0)
+        close (p->out.fd);
+    if (p->err.fd >= 0)
+        close (p->err.fd);
+
+    do
+        res = waitpid (p->child_pid, &status, 0);
+    while (res < 0 && errno == EINTR);
+
+    g_free (p);
+
+    if (res > 0 && WIFEXITED (status))
+        return WEXITSTATUS (status);
+    return -1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* Extract a file from the archive using extfs helper's "copyout" command.
    Returns MC_PPR_OK on success. */
 mc_pp_result_t
@@ -806,7 +890,7 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
         if (stat (*local_path, &st) != 0 || st.st_size == 0)
         {
             /* zero-size might be ok for empty files, check if the entry had size 0 */
-            /* just return OK — zero-byte files are valid */
+            /* just return OK -zero-byte files are valid */
         }
     }
 
@@ -860,18 +944,17 @@ arcmc_extfs_run_cmd (const char *helper, const char *cmd_name, const char *archi
     if (error != NULL)
     {
         g_error_free (error);
-        mc_pclose (pip, NULL);
+        mc_pclose_get_status (pip);
         return FALSE;
     }
 
     if (pip->err.len > 0)
     {
-        mc_pclose (pip, NULL);
+        mc_pclose_get_status (pip);
         return FALSE;
     }
 
-    mc_pclose (pip, NULL);
-    return TRUE;
+    return (mc_pclose_get_status (pip) == 0);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -920,6 +1003,13 @@ arcmc_read_archive (arcmc_data_t *data)
         strip_trailing_slashes (clean_path);
 
         if (clean_path[0] == '\0')
+        {
+            g_free (clean_path);
+            continue;
+        }
+
+        /* reject path traversal attempts (Zip Slip) */
+        if (!is_path_safe (clean_path))
         {
             g_free (clean_path);
             continue;
@@ -1003,7 +1093,7 @@ arcmc_try_open (arcmc_data_t *data)
         }
     }
 
-    /* maybe encrypted — ask for password (libarchive only) */
+    /* maybe encrypted -ask for password (libarchive only) */
     for (;;)
     {
         char *pw;
@@ -1545,7 +1635,7 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
 
         g_free (clean);
 
-        /* found the entry — extract it to a temp file */
+        /* found the entry -extract it to a temp file */
         {
             GError *error = NULL;
             int fd;
@@ -1709,7 +1799,7 @@ arcmc_push_nested (arcmc_data_t *data, char *local_path)
 
     if (!arcmc_try_open (data))
     {
-        /* failed — pop the stack and restore */
+        /* failed -pop the stack and restore */
         arcmc_nest_frame_t *f = data->nest_stack;
 
         g_free (data->archive_path);
@@ -1734,6 +1824,722 @@ arcmc_push_nested (arcmc_data_t *data, char *local_path)
     }
 
     return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Find the external archiver entry matching the archive file extension.
+   Returns NULL if no match. */
+const arcmc_ext_archiver_t *
+arcmc_find_ext_archiver (const char *archive_path)
+{
+    const char *basename_ptr;
+    size_t blen, i;
+
+    if (archive_path == NULL)
+        return NULL;
+
+    basename_ptr = strrchr (archive_path, '/');
+    if (basename_ptr != NULL)
+        basename_ptr++;
+    else
+        basename_ptr = archive_path;
+
+    blen = strlen (basename_ptr);
+
+    for (i = 0; i < ext_archivers_count; i++)
+    {
+        size_t elen = strlen (ext_archivers[i].ext);
+
+        if (blen >= elen
+            && g_ascii_strcasecmp (basename_ptr + blen - elen, ext_archivers[i].ext) == 0)
+            return &ext_archivers[i];
+    }
+
+    return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Check if a binary is available in PATH. */
+gboolean
+arcmc_check_bin_available (const char *bin_name)
+{
+    char *full_path;
+
+    if (bin_name == NULL || bin_name[0] == '\0')
+        return FALSE;
+
+    full_path = g_find_program_in_path (bin_name);
+    if (full_path != NULL)
+    {
+        g_free (full_path);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Status dialog for external archiver operations -shows last N lines of output. */
+
+#define EXT_STATUS_MAX_LINES          10
+#define EXT_STATUS_UPDATE_INTERVAL_US 100000 /* 100 ms */
+#define EXT_STATUS_DLG_WIDTH          60
+
+typedef struct
+{
+    simple_status_msg_t status_msg;
+    GString *log;
+    Widget *hline_w;
+    Widget *button_w;
+    gint64 last_update_time;
+    gboolean dirty;
+} arcmc_ext_status_msg_t;
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+arcmc_ext_status_init_cb (status_msg_t *sm)
+{
+    simple_status_msg_t *ssm = SIMPLE_STATUS_MSG (sm);
+    arcmc_ext_status_msg_t *esm = (arcmc_ext_status_msg_t *) sm;
+    Widget *wd = WIDGET (sm->dlg);
+    WGroup *wg = GROUP (sm->dlg);
+    WRect r;
+
+    const char *b_name = _ ("&Abort");
+    int wd_width, y;
+
+    wd_width = EXT_STATUS_DLG_WIDTH;
+
+    y = 2;
+    ssm->label = label_new (y++, 3, _ ("Please wait..."));
+    group_add_widget (wg, ssm->label);
+
+    esm->hline_w = WIDGET (hline_new (y++, -1, -1));
+    group_add_widget (wg, esm->hline_w);
+
+    esm->button_w = WIDGET (button_new (y++, 3, B_CANCEL, NORMAL_BUTTON, b_name, NULL));
+    group_add_widget_autopos (wg, esm->button_w, WPOS_KEEP_TOP | WPOS_CENTER_HORZ, NULL);
+
+    r = wd->rect;
+    r.lines = y + 2;
+    r.cols = wd_width;
+    widget_set_size_rect (wd, &r);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+arcmc_ext_status_update_cb (status_msg_t *sm)
+{
+    simple_status_msg_t *ssm = SIMPLE_STATUS_MSG (sm);
+    arcmc_ext_status_msg_t *esm = (arcmc_ext_status_msg_t *) sm;
+    Widget *wd = WIDGET (sm->dlg);
+    Widget *lw = WIDGET (ssm->label);
+    const char *text;
+    int label_lines;
+    WRect r;
+
+    text = (esm->log != NULL && esm->log->len > 0) ? esm->log->str : _ ("Please wait...");
+    label_set_text (ssm->label, text);
+
+    label_lines = lw->rect.lines;
+    r = wd->rect;
+    r.lines = MAX (r.lines, label_lines + 6);
+    r.cols = EXT_STATUS_DLG_WIDTH;
+    r.y = (LINES - r.lines) / 2;
+    r.x = (COLS - r.cols) / 2;
+    widget_set_size_rect (wd, &r);
+
+    /* keep label within dialog bounds */
+    {
+        WRect lr = lw->rect;
+
+        lr.x = r.x + 3;
+        lr.cols = r.cols - 6;
+        widget_set_size_rect (lw, &lr);
+    }
+
+    /* reposition hline below label */
+    if (esm->hline_w != NULL)
+    {
+        WRect hr = esm->hline_w->rect;
+
+        hr.y = r.y + 2 + label_lines;
+        widget_set_size_rect (esm->hline_w, &hr);
+    }
+
+    /* reposition button below hline */
+    if (esm->button_w != NULL)
+    {
+        WRect br = esm->button_w->rect;
+
+        br.y = r.y + 3 + label_lines;
+        br.x = r.x + (r.cols - br.cols) / 2;
+        widget_set_size_rect (esm->button_w, &br);
+    }
+
+    return status_msg_common_update (sm);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+arcmc_ext_status_deinit_cb (status_msg_t *sm)
+{
+    (void) sm;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Update the log with a new line, keeping only the last EXT_STATUS_MAX_LINES lines.
+   Redraws the dialog at most once per EXT_STATUS_UPDATE_INTERVAL_US. */
+static gboolean
+arcmc_ext_status_add_line (arcmc_ext_status_msg_t *esm, const char *line)
+{
+    gsize len = strlen (line);
+    gint64 now;
+    int max_width = EXT_STATUS_DLG_WIDTH - 6; /* 3 padding each side */
+
+    /* trim trailing whitespace */
+    while (len > 0
+           && (line[len - 1] == '\n' || line[len - 1] == '\r' || line[len - 1] == ' '
+               || line[len - 1] == '\t'))
+        len--;
+
+    if (len == 0)
+        return TRUE;
+
+    /* trim leading whitespace */
+    while (len > 0 && (*line == ' ' || *line == '\t'))
+    {
+        line++;
+        len--;
+    }
+
+    if (len == 0)
+        return TRUE;
+
+    if (esm->log->len > 0)
+        g_string_append_c (esm->log, '\n');
+
+    /* truncate to fit dialog, then right-align with padding */
+    {
+        char *tmp = g_strndup (line, len);
+        int tw = str_term_width1 (tmp);
+
+        if (tw > max_width)
+        {
+            /* cut from the left: find the suffix that fits */
+            char *p = tmp;
+
+            while (str_term_width1 (p) > max_width - 1 && *p != '\0')
+                str_next_char (&p);
+
+            g_string_append_c (esm->log, '~');
+            g_string_append (esm->log, p);
+        }
+        else
+        {
+            /* right-align: pad with spaces on the left */
+            int pad = max_width - tw;
+            int i;
+
+            for (i = 0; i < pad; i++)
+                g_string_append_c (esm->log, ' ');
+            g_string_append (esm->log, tmp);
+        }
+
+        g_free (tmp);
+    }
+
+    /* keep only last N lines */
+    {
+        const char *s = esm->log->str;
+        int count = 0;
+        const char *p;
+
+        for (p = s + esm->log->len - 1; p >= s; p--)
+        {
+            if (*p == '\n')
+            {
+                count++;
+                if (count >= EXT_STATUS_MAX_LINES)
+                {
+                    g_string_erase (esm->log, 0, (gssize) (p - s + 1));
+                    break;
+                }
+            }
+        }
+    }
+
+    esm->dirty = TRUE;
+
+    /* throttle redraws */
+    now = g_get_monotonic_time ();
+    if (now - esm->last_update_time < EXT_STATUS_UPDATE_INTERVAL_US)
+        return TRUE;
+
+    esm->last_update_time = now;
+    esm->dirty = FALSE;
+
+    return (STATUS_MSG (esm)->update (STATUS_MSG (esm)) != B_CANCEL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Flush pending update if dirty (call after read loop ends or between read chunks). */
+static gboolean
+arcmc_ext_status_flush (arcmc_ext_status_msg_t *esm)
+{
+    if (!esm->dirty)
+        return TRUE;
+
+    esm->dirty = FALSE;
+    esm->last_update_time = g_get_monotonic_time ();
+
+    return (STATUS_MSG (esm)->update (STATUS_MSG (esm)) != B_CANCEL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Run an external command with a status dialog showing its output log.
+   Returns TRUE on success. On failure, *error_msg receives a description. */
+static gboolean
+arcmc_ext_run_with_status (const char *title, const char *cmd_str, char **error_msg)
+{
+    mc_pipe_t *pip;
+    GError *error = NULL;
+    gboolean ok = TRUE;
+    gboolean cancelled = FALSE;
+    arcmc_ext_status_msg_t esm;
+    GString *err_buf;
+
+    if (error_msg != NULL)
+        *error_msg = NULL;
+
+    pip = mc_popen (cmd_str, TRUE, TRUE, &error);
+    if (pip == NULL)
+    {
+        if (error_msg != NULL)
+            *error_msg = g_strdup (error != NULL ? error->message : "failed to run command");
+        if (error != NULL)
+            g_error_free (error);
+        return FALSE;
+    }
+
+    memset (&esm, 0, sizeof (esm));
+    esm.log = g_string_new (_ ("Running external archiver, please wait..."));
+
+    status_msg_init (STATUS_MSG (&esm), title, 0.0, arcmc_ext_status_init_cb,
+                     arcmc_ext_status_update_cb, arcmc_ext_status_deinit_cb);
+
+    err_buf = g_string_new ("");
+
+    while (TRUE)
+    {
+        pip->out.len = MC_PIPE_BUFSIZE;
+        pip->out.null_term = TRUE;
+        pip->err.len = MC_PIPE_BUFSIZE;
+
+        mc_pread (pip, &error);
+        if (error != NULL)
+        {
+            ok = FALSE;
+            break;
+        }
+
+        /* collect stderr for error reporting */
+        if (pip->err.len > 0)
+            g_string_append_len (err_buf, pip->err.buf, pip->err.len);
+
+        /* show stdout lines in log */
+        if (pip->out.len > 0)
+        {
+            GString *line;
+
+            while ((line = mc_pstream_get_string (&pip->out)) != NULL)
+            {
+                if (!arcmc_ext_status_add_line (&esm, line->str))
+                {
+                    cancelled = TRUE;
+                    g_string_free (line, TRUE);
+                    break;
+                }
+                g_string_free (line, TRUE);
+            }
+        }
+
+        if (cancelled)
+        {
+            kill (pip->child_pid, SIGTERM);
+            ok = FALSE;
+            break;
+        }
+
+        if (pip->out.len == MC_PIPE_STREAM_EOF && pip->err.len == MC_PIPE_STREAM_EOF)
+            break;
+    }
+
+    /* final flush to show last output */
+    if (!cancelled)
+        arcmc_ext_status_flush (&esm);
+
+    status_msg_deinit (STATUS_MSG (&esm));
+
+    if (cancelled)
+    {
+        if (error_msg != NULL)
+            *error_msg = g_strdup (_ ("Operation cancelled"));
+    }
+    else if (!ok && error_msg != NULL)
+    {
+        if (err_buf->len > 0)
+            *error_msg = g_string_free (err_buf, FALSE);
+        else if (error != NULL)
+            *error_msg = g_strdup (error->message);
+        else
+            *error_msg = g_strdup (_ ("Unknown error"));
+        err_buf = NULL;
+    }
+
+    if (error != NULL)
+        g_error_free (error);
+
+    {
+        int exit_status = mc_pclose_get_status (pip);
+
+        if (ok && exit_status != 0)
+        {
+            ok = FALSE;
+            if (error_msg != NULL)
+            {
+                if (err_buf != NULL && err_buf->len > 0)
+                    *error_msg = g_string_free (err_buf, FALSE);
+                else
+                    *error_msg = g_strdup_printf ("Command exited with status %d", exit_status);
+                err_buf = NULL;
+            }
+        }
+    }
+
+    if (err_buf != NULL)
+        g_string_free (err_buf, TRUE);
+    g_string_free (esm.log, TRUE);
+
+    return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Write file names to a temporary file (one per line).
+   Returns the path to the temp file, or NULL on error. Caller must g_free(). */
+static char *
+write_file_list (GPtrArray *files)
+{
+    char *tpl;
+    int fd;
+    guint i;
+
+    tpl = g_build_filename (g_get_tmp_dir (), "mc-filelist-XXXXXX", (char *) NULL);
+    fd = mkstemp (tpl);
+    if (fd < 0)
+    {
+        g_free (tpl);
+        return NULL;
+    }
+
+    for (i = 0; i < files->len; i++)
+    {
+        const char *name = (const char *) g_ptr_array_index (files, i);
+        size_t nlen = strlen (name);
+
+        if (write (fd, name, nlen) != (ssize_t) nlen || write (fd, "\n", 1) != 1)
+        {
+            close (fd);
+            unlink (tpl);
+            g_free (tpl);
+            return NULL;
+        }
+    }
+
+    close (fd);
+    return tpl;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Pack files using an external archiver binary.
+   If error_msg is not NULL, it receives a newly-allocated error string on failure. */
+gboolean
+arcmc_ext_pack (const arcmc_ext_archiver_t *archiver, const char *archive_path, const char *cwd,
+                GPtrArray *files, const char *password, char **error_msg)
+{
+    GString *cmd;
+    char *quoted;
+    guint i;
+    char *title;
+    gboolean ok;
+
+    (void) password;
+
+    if (error_msg != NULL)
+        *error_msg = NULL;
+
+    if (archiver->pack_bin == NULL)
+    {
+        if (error_msg != NULL)
+            *error_msg = g_strdup_printf ("%s: packing not supported", archiver->name);
+        return FALSE;
+    }
+
+    if (!arcmc_check_bin_available (archiver->pack_bin))
+    {
+        if (error_msg != NULL)
+            *error_msg = g_strdup_printf ("'%s' not found in PATH", archiver->pack_bin);
+        return FALSE;
+    }
+
+    cmd = g_string_new ("");
+    if (cwd != NULL)
+    {
+        quoted = name_quote (cwd, FALSE);
+        g_string_append_printf (cmd, "cd %s && ", quoted);
+        g_free (quoted);
+    }
+
+    g_string_append (cmd, archiver->pack_bin);
+    if (archiver->pack_args != NULL && archiver->pack_args[0] != '\0')
+        g_string_append_printf (cmd, " %s", archiver->pack_args);
+
+    quoted = name_quote (archive_path, FALSE);
+    g_string_append_printf (cmd, " %s", quoted);
+    g_free (quoted);
+
+    {
+        size_t est_len = cmd->len;
+        char *list_file = NULL;
+
+        for (i = 0; i < files->len; i++)
+            est_len += strlen ((const char *) g_ptr_array_index (files, i)) + 4;
+
+        /* if command is too long and file-list is supported, use it */
+        if (est_len > 131072 && archiver->list_file_arg != NULL)
+        {
+            char *list_arg;
+
+            list_file = write_file_list (files);
+            if (list_file != NULL)
+            {
+                list_arg = g_strdup_printf (archiver->list_file_arg, list_file);
+                quoted = name_quote (list_arg, FALSE);
+                g_string_append_printf (cmd, " %s", quoted);
+                g_free (quoted);
+                g_free (list_arg);
+            }
+        }
+
+        if (list_file == NULL)
+        {
+            for (i = 0; i < files->len; i++)
+            {
+                const char *name = (const char *) g_ptr_array_index (files, i);
+
+                quoted = name_quote (name, FALSE);
+                g_string_append_printf (cmd, " %s", quoted);
+                g_free (quoted);
+            }
+        }
+
+        g_string_append (cmd, " 2>&1");
+
+        title = g_strdup_printf (_ ("Packing: %s"), archiver->name);
+        ok = arcmc_ext_run_with_status (title, cmd->str, error_msg);
+        g_free (title);
+        g_string_free (cmd, TRUE);
+
+        if (list_file != NULL)
+        {
+            unlink (list_file);
+            g_free (list_file);
+        }
+    }
+
+    return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Extract an archive using an external archiver binary. */
+gboolean
+arcmc_ext_unpack (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                  const char *dest_dir, const char *password)
+{
+    GString *cmd;
+    char *quoted;
+    char *title;
+    gboolean ok;
+
+    (void) password;
+
+    if (archiver->unpack_bin == NULL)
+        return FALSE;
+
+    cmd = g_string_new (archiver->unpack_bin);
+    if (archiver->unpack_args != NULL && archiver->unpack_args[0] != '\0')
+        g_string_append_printf (cmd, " %s", archiver->unpack_args);
+
+    quoted = name_quote (archive_path, FALSE);
+    g_string_append_printf (cmd, " %s", quoted);
+    g_free (quoted);
+
+    if (dest_dir != NULL)
+    {
+        quoted = name_quote (dest_dir, FALSE);
+        g_string_append_printf (cmd, " %s", quoted);
+        g_free (quoted);
+    }
+
+    g_string_append (cmd, " 2>&1");
+
+    title = g_strdup_printf (_ ("Extracting: %s"), archiver->name);
+    ok = arcmc_ext_run_with_status (title, cmd->str, NULL);
+    g_free (title);
+    g_string_free (cmd, TRUE);
+
+    return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Extract specific files from an archive using an external archiver binary.
+   Supports file-list argument (@filelist) when command line would be too long. */
+gboolean
+arcmc_ext_unpack_files (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                        const char *dest_dir, GPtrArray *files, const char *password)
+{
+    GString *cmd;
+    char *quoted;
+    char *title;
+    gboolean ok;
+    guint i;
+    size_t est_len;
+    char *list_file = NULL;
+
+    (void) password;
+
+    if (archiver->unpack_bin == NULL || files == NULL || files->len == 0)
+        return FALSE;
+
+    /* estimate command length */
+    est_len = strlen (archiver->unpack_bin) + strlen (archive_path) + 64;
+    if (archiver->unpack_args != NULL)
+        est_len += strlen (archiver->unpack_args);
+    if (dest_dir != NULL)
+        est_len += strlen (dest_dir) + 4;
+    for (i = 0; i < files->len; i++)
+        est_len += strlen ((const char *) g_ptr_array_index (files, i)) + 4;
+
+    cmd = g_string_new ("");
+
+    /* cd to dest dir so all archivers extract there regardless of syntax */
+    if (dest_dir != NULL)
+    {
+        quoted = name_quote (dest_dir, FALSE);
+        g_string_append_printf (cmd, "cd %s && ", quoted);
+        g_free (quoted);
+    }
+
+    g_string_append (cmd, archiver->unpack_bin);
+    if (archiver->unpack_args != NULL && archiver->unpack_args[0] != '\0')
+        g_string_append_printf (cmd, " %s", archiver->unpack_args);
+
+    quoted = name_quote (archive_path, FALSE);
+    g_string_append_printf (cmd, " %s", quoted);
+    g_free (quoted);
+
+    /* if command is too long and file-list is supported, use it */
+    if (est_len > 131072 && archiver->list_file_arg != NULL)
+    {
+        char *list_arg;
+
+        list_file = write_file_list (files);
+        if (list_file != NULL)
+        {
+            list_arg = g_strdup_printf (archiver->list_file_arg, list_file);
+            quoted = name_quote (list_arg, FALSE);
+            g_string_append_printf (cmd, " %s", quoted);
+            g_free (quoted);
+            g_free (list_arg);
+        }
+    }
+
+    /* no file list used - append files inline */
+    if (list_file == NULL)
+    {
+        for (i = 0; i < files->len; i++)
+        {
+            const char *name = (const char *) g_ptr_array_index (files, i);
+
+            quoted = name_quote (name, FALSE);
+            g_string_append_printf (cmd, " %s", quoted);
+            g_free (quoted);
+        }
+    }
+
+    g_string_append (cmd, " 2>&1");
+
+    title = g_strdup_printf (_ ("Extracting: %s"), archiver->name);
+    ok = arcmc_ext_run_with_status (title, cmd->str, NULL);
+    g_free (title);
+
+    g_string_free (cmd, TRUE);
+
+    if (list_file != NULL)
+    {
+        unlink (list_file);
+        g_free (list_file);
+    }
+
+    return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Test an archive using an external archiver binary. */
+gboolean
+arcmc_ext_test (const arcmc_ext_archiver_t *archiver, const char *archive_path,
+                const char *password)
+{
+    GString *cmd;
+    char *quoted;
+    char *title;
+    gboolean ok;
+
+    (void) password;
+
+    if (archiver->test_bin == NULL)
+        return FALSE;
+
+    cmd = g_string_new (archiver->test_bin);
+    if (archiver->test_args != NULL && archiver->test_args[0] != '\0')
+        g_string_append_printf (cmd, " %s", archiver->test_args);
+
+    quoted = name_quote (archive_path, FALSE);
+    g_string_append_printf (cmd, " %s", quoted);
+    g_free (quoted);
+
+    g_string_append (cmd, " 2>&1");
+
+    title = g_strdup_printf (_ ("Testing: %s"), archiver->name);
+    ok = arcmc_ext_run_with_status (title, cmd->str, NULL);
+    g_free (title);
+    g_string_free (cmd, TRUE);
+
+    return ok;
 }
 
 /* --------------------------------------------------------------------------------------------- */

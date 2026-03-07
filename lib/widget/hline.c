@@ -124,6 +124,14 @@ hline_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *dat
         {
             int text_width;
 
+            if (l->text_color_idx >= 0)
+            {
+                const int *colors2;
+
+                colors2 = widget_get_colors (w);
+                tty_setcolor (colors2[l->text_color_idx]);
+            }
+
             text_width = str_term_width1 (l->text);
             widget_gotoyx (w, 0, (w->rect.cols - text_width) / 2);
             tty_print_string (l->text);
@@ -157,6 +165,7 @@ hline_new (int y, int x, int width)
     l->text = NULL;
     l->auto_adjust_cols = (width < 0);
     l->transparent = FALSE;
+    l->text_color_idx = -1;
 
     return l;
 }

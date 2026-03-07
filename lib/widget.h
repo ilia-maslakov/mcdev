@@ -36,6 +36,7 @@ typedef struct WGroup WGroup;
 #include "lib/widget/listbox-window.h"
 #include "lib/widget/quick.h"
 #include "lib/widget/wtools.h"
+#include "lib/widget/table.h"
 #include "lib/widget/dialog-switch.h"
 
 /*** typedefs(not structures) and defined constants **********************************************/

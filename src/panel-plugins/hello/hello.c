@@ -1,5 +1,5 @@
 /*
-   Hello World panel plugin — demonstrates the panel plugin API.
+   Hello World panel plugin - demonstrates the panel plugin API.
 
    Copyright (C) 2025
    Free Software Foundation, Inc.
