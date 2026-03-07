@@ -61,6 +61,8 @@ jobs:
             echo "Checking formatting..." && \
             clang-format --version && \
             make indent && \
+            echo "Changed files after formatting:" && \
+            git diff --name-only && \
             git diff --exit-code && \
             \
             make -j$(nproc) && \
