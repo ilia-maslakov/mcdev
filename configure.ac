@@ -839,6 +839,7 @@ tests/src/vfs/extfs/helpers-list/misc/Makefile
 tests/src/vfs/ftpfs/Makefile
 tests/src/panel-plugins/Makefile
 tests/src/panel-plugins/ftp/Makefile
+tests/src/panel-plugins/arcmc/Makefile
 ])
 
 AC_OUTPUT
