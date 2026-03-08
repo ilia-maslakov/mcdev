@@ -1393,21 +1393,29 @@ show_dir (const WPanel *panel)
         if (panel->plugin->get_title != NULL && panel->plugin_data != NULL)
             title = panel->plugin->get_title (panel->plugin_data);
 
-        if (panel->plugin->proto != NULL)
         {
-            /* format as "Proto:/path" */
-            if (title != NULL)
-                tty_printf (" %s:%s ", panel->plugin->proto, title);
+            char *full_title;
+
+            if (panel->plugin->proto != NULL)
+            {
+                if (title != NULL)
+                    full_title = g_strdup_printf ("%s:%s", panel->plugin->proto, title);
+                else
+                    full_title = g_strdup_printf ("%s:/", panel->plugin->proto);
+            }
             else
-                tty_printf (" %s:/ ", panel->plugin->proto);
-        }
-        else
-        {
-            if (title == NULL)
-                title = panel->plugin->display_name;
-            if (title == NULL)
-                title = panel->plugin->name;
-            tty_printf (" %s ", title);
+            {
+                if (title == NULL)
+                    title = panel->plugin->display_name;
+                if (title == NULL)
+                    title = panel->plugin->name;
+                full_title = g_strdup (title);
+            }
+
+            tty_printf (" %s ",
+                         str_term_trim (full_title,
+                                        MIN (MAX (w->rect.cols - 12, 0), w->rect.cols)));
+            g_free (full_title);
         }
     }
     else if (panel->is_panelized)

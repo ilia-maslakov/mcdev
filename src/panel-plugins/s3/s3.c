@@ -2626,39 +2626,57 @@ s3_get_title (void *plugin_data)
 
     g_free (data->title_buf);
 
-    switch (data->level)
     {
-    case S3_LEVEL_CONNECTIONS:
-        data->title_buf = g_strdup ("/");
-        break;
+        const char *label_raw =
+            (data->active_connection != NULL && data->active_connection->label != NULL)
+                ? data->active_connection->label
+                : NULL;
+        char *label = NULL;
 
-    case S3_LEVEL_BUCKETS:
-        if (data->active_connection != NULL && data->active_connection->label != NULL)
-            data->title_buf = g_strdup (data->active_connection->label);
-        else
-            data->title_buf = g_strdup ("S3");
-        break;
-
-    case S3_LEVEL_OBJECTS:
-        if (data->active_connection != NULL && data->current_bucket != NULL)
+        /* strip trailing slashes from label for clean title */
+        if (label_raw != NULL)
         {
-            const char *prefix =
-                (data->current_prefix != NULL && data->current_prefix[0] != '\0')
-                    ? data->current_prefix
-                    : "";
-            data->title_buf = g_strdup_printf ("%s/%s/%s",
-                                               data->active_connection->label != NULL
-                                                   ? data->active_connection->label
-                                                   : "S3",
-                                               data->current_bucket, prefix);
+            label = g_strdup (label_raw);
+            {
+                size_t len = strlen (label);
+                while (len > 0 && label[len - 1] == '/')
+                    label[--len] = '\0';
+            }
         }
-        else
-            data->title_buf = g_strdup ("S3");
-        break;
 
-    default:
-        data->title_buf = g_strdup ("/");
-        break;
+        switch (data->level)
+        {
+        case S3_LEVEL_CONNECTIONS:
+            data->title_buf = g_strdup ("/");
+            break;
+
+        case S3_LEVEL_BUCKETS:
+            if (label != NULL)
+                data->title_buf = g_strdup_printf ("/%s", label);
+            else
+                data->title_buf = g_strdup ("/");
+            break;
+
+        case S3_LEVEL_OBJECTS:
+            if (label != NULL && data->current_bucket != NULL)
+            {
+                const char *prefix =
+                    (data->current_prefix != NULL && data->current_prefix[0] != '\0')
+                        ? data->current_prefix
+                        : "";
+                data->title_buf =
+                    g_strdup_printf ("/%s/%s/%s", label, data->current_bucket, prefix);
+            }
+            else
+                data->title_buf = g_strdup ("/");
+            break;
+
+        default:
+            data->title_buf = g_strdup ("/");
+            break;
+        }
+
+        g_free (label);
     }
 
     return data->title_buf;
