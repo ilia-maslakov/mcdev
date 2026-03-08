@@ -1413,8 +1413,7 @@ show_dir (const WPanel *panel)
             }
 
             tty_printf (" %s ",
-                         str_term_trim (full_title,
-                                        MIN (MAX (w->rect.cols - 12, 0), w->rect.cols)));
+                        str_term_trim (full_title, MIN (MAX (w->rect.cols - 12, 0), w->rect.cols)));
             g_free (full_title);
         }
     }

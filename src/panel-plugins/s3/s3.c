@@ -185,8 +185,8 @@ static mc_pp_result_t s3_handle_key (void *plugin_data, int key);
 #define S3_PANEL_KEY_EDIT_DEFAULT "f4"
 
 /* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
-#define S3_KEY_F(n) (1000 + (n))
-#define S3_XCTRL(c) ((c) & 0x1f)
+#define S3_KEY_F(n)      (1000 + (n))
+#define S3_XCTRL(c)      ((c) & 0x1f)
 
 #define S3_DIR_CACHE_TTL 60
 
@@ -342,7 +342,8 @@ s3_load_hotkey (const char *key, const char *default_str, int default_val)
     char *val;
     int code;
 
-    user_cfg = g_build_filename (g_get_user_config_dir (), "mc", S3_PANEL_CONFIG_FILE, (char *) NULL);
+    user_cfg =
+        g_build_filename (g_get_user_config_dir (), "mc", S3_PANEL_CONFIG_FILE, (char *) NULL);
     val = s3_read_config_string (user_cfg, key);
     g_free (user_cfg);
 
@@ -530,8 +531,7 @@ s3_save_connections (const char *filepath, GPtrArray *connections)
 
     for (i = 0; i < connections->len; i++)
     {
-        const s3_connection_t *conn =
-            (const s3_connection_t *) g_ptr_array_index (connections, i);
+        const s3_connection_t *conn = (const s3_connection_t *) g_ptr_array_index (connections, i);
 
         g_key_file_set_string (kf, conn->label, "access_key", conn->access_key);
 
@@ -936,8 +936,7 @@ s3_progress_create (const char *direction, const char *fname)
     group_add_widget (g, hline_new (y++, -1, -1));
 
     /* Abort button */
-    abort_btn =
-        button_new (y, 0, B_CANCEL, NORMAL_BUTTON, N_ ("&Abort"), s3_progress_btn_callback);
+    abort_btn = button_new (y, 0, B_CANCEL, NORMAL_BUTTON, N_ ("&Abort"), s3_progress_btn_callback);
     btn_width = button_get_width (abort_btn);
     WIDGET (abort_btn)->rect.x = (dlg_width - btn_width) / 2;
     group_add_widget (g, abort_btn);
@@ -1469,12 +1468,10 @@ s3_xml_objects_end (GMarkupParseContext *context, const gchar *element_name, gpo
     }
     else if (ctx->in_is_truncated && strcmp (element_name, "IsTruncated") == 0)
     {
-        ctx->is_truncated =
-            (g_ascii_strcasecmp (ctx->text->str, "true") == 0);
+        ctx->is_truncated = (g_ascii_strcasecmp (ctx->text->str, "true") == 0);
         ctx->in_is_truncated = FALSE;
     }
-    else if (ctx->in_next_continuation_token
-             && strcmp (element_name, "NextContinuationToken") == 0)
+    else if (ctx->in_next_continuation_token && strcmp (element_name, "NextContinuationToken") == 0)
     {
         g_free (ctx->next_continuation_token);
         ctx->next_continuation_token = g_strdup (ctx->text->str);
@@ -1663,8 +1660,8 @@ s3_api_download_object (const s3_connection_t *conn, const char *bucket, const c
  * Returns TRUE on success.
  */
 static gboolean
-s3_api_upload_object (const s3_connection_t *conn, const char *bucket, const char *key,
-                      int fd, off_t file_size, const char *display_name)
+s3_api_upload_object (const s3_connection_t *conn, const char *bucket, const char *key, int fd,
+                      off_t file_size, const char *display_name)
 {
     CURL *curl;
     s3_file_read_ctx_t ctx;
@@ -1759,8 +1756,7 @@ s3_api_delete_prefix (const s3_connection_t *conn, const char *bucket, const cha
         const mc_pp_dir_entry_t *e = (const mc_pp_dir_entry_t *) g_ptr_array_index (entries, i);
         char *full_key;
 
-        full_key = g_strdup_printf ("%s%s%s", prefix, e->name,
-                                    e->is_dir ? "/" : "");
+        full_key = g_strdup_printf ("%s%s%s", prefix, e->name, e->is_dir ? "/" : "");
 
         if (e->is_dir)
         {
@@ -1933,8 +1929,7 @@ s3_reload_entries (s3_data_t *data)
             return;
         }
 
-        data->entries =
-            s3_api_list_objects (data->active_connection, data->current_bucket, prefix);
+        data->entries = s3_api_list_objects (data->active_connection, data->current_bucket, prefix);
         if (data->entries != NULL)
             mc_pp_dir_cache_store (&data->dir_cache, cache_key, data->entries);
 
@@ -2099,8 +2094,7 @@ s3_activate_connection (s3_data_t *data, s3_connection_t *conn)
 
     s3_reload_entries (data);
 
-    S3_LOG ("activate_connection: entries=%s",
-            data->entries != NULL ? "loaded" : "NULL (failed)");
+    S3_LOG ("activate_connection: entries=%s", data->entries != NULL ? "loaded" : "NULL (failed)");
     return (data->entries != NULL);
 }
 
@@ -2227,8 +2221,7 @@ s3_open (mc_panel_host_t *host, const char *open_path)
     data->entries = NULL;
     data->title_buf = NULL;
     data->active_connection = NULL;
-    data->key_edit =
-        s3_load_hotkey (S3_PANEL_KEY_EDIT, S3_PANEL_KEY_EDIT_DEFAULT, S3_KEY_F (4));
+    data->key_edit = s3_load_hotkey (S3_PANEL_KEY_EDIT, S3_PANEL_KEY_EDIT_DEFAULT, S3_KEY_F (4));
 
     data->connections_file = s3_get_connections_file_path ();
     data->connections = s3_load_connections (data->connections_file);
@@ -2468,7 +2461,7 @@ s3_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     }
 
     if (!s3_api_download_object (data->active_connection, data->current_bucket, key, local_fd,
-                                    fname))
+                                 fname))
     {
         S3_LOG ("get_local_copy: download FAILED");
         close (local_fd);
@@ -2600,8 +2593,7 @@ s3_delete_items (void *plugin_data, const char **names, int count)
             }
             else
             {
-                if (!s3_api_delete_object (data->active_connection, data->current_bucket,
-                                           full_key))
+                if (!s3_api_delete_object (data->active_connection, data->current_bucket, full_key))
                     failed = TRUE;
             }
 
@@ -2629,8 +2621,8 @@ s3_get_title (void *plugin_data)
     {
         const char *label_raw =
             (data->active_connection != NULL && data->active_connection->label != NULL)
-                ? data->active_connection->label
-                : NULL;
+            ? data->active_connection->label
+            : NULL;
         char *label = NULL;
 
         /* strip trailing slashes from label for clean title */
@@ -2662,8 +2654,8 @@ s3_get_title (void *plugin_data)
             {
                 const char *prefix =
                     (data->current_prefix != NULL && data->current_prefix[0] != '\0')
-                        ? data->current_prefix
-                        : "";
+                    ? data->current_prefix
+                    : "";
                 data->title_buf =
                     g_strdup_printf ("/%s/%s/%s", label, data->current_bucket, prefix);
             }
@@ -2966,7 +2958,7 @@ s3_view_object_info (s3_data_t *data, const char *fname)
         s3_format_relative_time (entry->st.st_mtime, time_buf, sizeof (time_buf));
     else
         g_strlcpy (time_buf, hr.last_modified != NULL ? hr.last_modified : "unknown",
-                    sizeof (time_buf));
+                   sizeof (time_buf));
 
     info = g_string_new ("");
     g_string_append_printf (info, "Object Info\n");
@@ -3121,8 +3113,8 @@ s3_view_item (void *plugin_data, const char *fname, const struct stat *st, gbool
             escaped_secret = g_shell_quote (conn->secret_key != NULL ? conn->secret_key : "");
 
             cmd = g_strdup_printf ("curl -sf --aws-sigv4 'aws:amz:%s:s3' -u %s:%s %s",
-                                    conn->region != NULL ? conn->region : "us-east-1",
-                                    escaped_key, escaped_secret, escaped_url);
+                                   conn->region != NULL ? conn->region : "us-east-1", escaped_key,
+                                   escaped_secret, escaped_url);
 
             g_free (escaped_url);
             g_free (escaped_key);
