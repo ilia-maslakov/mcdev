@@ -502,75 +502,6 @@ ftp_normalize_host (const char *host_in)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Simple XOR obfuscation to avoid storing passwords in plain text.
-   NOT cryptographically secure - just prevents casual reading. */
-
-static const unsigned char ftp_obfuscation_key[] = "Mc4FtpPanelKey!";
-
-static char *
-ftp_password_encode (const char *plain)
-{
-    size_t i, len, klen;
-    guchar *xored;
-    gchar *b64;
-    char *result;
-
-    if (plain == NULL || plain[0] == '\0')
-        return NULL;
-
-    len = strlen (plain);
-    klen = sizeof (ftp_obfuscation_key) - 1;
-    xored = g_new (guchar, len);
-
-    for (i = 0; i < len; i++)
-        xored[i] = (guchar) plain[i] ^ ftp_obfuscation_key[i % klen];
-
-    b64 = g_base64_encode (xored, len);
-    g_free (xored);
-
-    result = g_strdup_printf ("enc:%s", b64);
-    g_free (b64);
-
-    return result;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static char *
-ftp_password_decode (const char *encoded)
-{
-    guchar *xored;
-    gsize len;
-    size_t i, klen;
-    char *plain;
-
-    if (encoded == NULL)
-        return NULL;
-
-    /* backward compatibility: plain text without "enc:" prefix */
-    if (strncmp (encoded, "enc:", 4) != 0)
-        return g_strdup (encoded);
-
-    xored = g_base64_decode (encoded + 4, &len);
-    if (xored == NULL || len == 0)
-    {
-        g_free (xored);
-        return g_strdup ("");
-    }
-
-    klen = sizeof (ftp_obfuscation_key) - 1;
-    plain = g_new (char, len + 1);
-
-    for (i = 0; i < len; i++)
-        plain[i] = (char) (xored[i] ^ ftp_obfuscation_key[i % klen]);
-    plain[len] = '\0';
-
-    g_free (xored);
-    return plain;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static GPtrArray *
 load_connections (const char *filepath)
 {
@@ -600,7 +531,7 @@ load_connections (const char *filepath)
         conn->user = g_key_file_get_string (kf, groups[i], "user", NULL);
         {
             char *raw_pw = g_key_file_get_string (kf, groups[i], "password", NULL);
-            conn->password = ftp_password_decode (raw_pw);
+            conn->password = mc_password_decode (raw_pw, "ftp");
             g_free (raw_pw);
         }
         conn->path = g_key_file_get_string (kf, groups[i], "path", NULL);
@@ -714,7 +645,7 @@ load_connections (const char *filepath)
         conn->proxy_user = g_key_file_get_string (kf, groups[i], "proxy_user", NULL);
         {
             char *raw_proxy_pw = g_key_file_get_string (kf, groups[i], "proxy_password", NULL);
-            conn->proxy_password = ftp_password_decode (raw_proxy_pw);
+            conn->proxy_password = mc_password_decode (raw_proxy_pw, "ftp");
             g_free (raw_proxy_pw);
         }
 
@@ -782,7 +713,7 @@ save_connections (const char *filepath, GPtrArray *connections)
             g_key_file_set_string (kf, conn->label, "path", conn->path);
         if (conn->password != NULL)
         {
-            char *enc = ftp_password_encode (conn->password);
+            char *enc = mc_password_encode (conn->password, "ftp");
             if (enc != NULL)
             {
                 g_key_file_set_string (kf, conn->label, "password", enc);
@@ -823,7 +754,7 @@ save_connections (const char *filepath, GPtrArray *connections)
             g_key_file_set_string (kf, conn->label, "proxy_user", conn->proxy_user);
         if (conn->proxy_password != NULL && conn->proxy_password[0] != '\0')
         {
-            char *enc_proxy = ftp_password_encode (conn->proxy_password);
+            char *enc_proxy = mc_password_encode (conn->proxy_password, "ftp");
             if (enc_proxy != NULL)
             {
                 g_key_file_set_string (kf, conn->label, "proxy_password", enc_proxy);

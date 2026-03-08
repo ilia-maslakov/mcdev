@@ -43,6 +43,7 @@
 
 #include "lib/global.h"
 #include "lib/keybind.h"
+#include "lib/util.h"
 #include "lib/mcconfig.h"
 #include "lib/panel-plugin.h"
 #include "lib/vfs/utilvfs.h"
@@ -380,75 +381,6 @@ sftp_connection_copy_from (sftp_connection_t *dst, const sftp_connection_t *src)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Simple XOR obfuscation to avoid storing passwords in plain text.
-   NOT cryptographically secure - just prevents casual reading. */
-
-static const unsigned char sftp_obfuscation_key[] = "Mc4SftpPanelKey!";
-
-static char *
-sftp_password_encode (const char *plain)
-{
-    size_t i, len, klen;
-    guchar *xored;
-    gchar *b64;
-    char *result;
-
-    if (plain == NULL || plain[0] == '\0')
-        return NULL;
-
-    len = strlen (plain);
-    klen = sizeof (sftp_obfuscation_key) - 1;
-    xored = g_new (guchar, len);
-
-    for (i = 0; i < len; i++)
-        xored[i] = (guchar) plain[i] ^ sftp_obfuscation_key[i % klen];
-
-    b64 = g_base64_encode (xored, len);
-    g_free (xored);
-
-    result = g_strdup_printf ("enc:%s", b64);
-    g_free (b64);
-
-    return result;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static char *
-sftp_password_decode (const char *encoded)
-{
-    guchar *xored;
-    gsize len;
-    size_t i, klen;
-    char *plain;
-
-    if (encoded == NULL)
-        return NULL;
-
-    /* backward compatibility: plain text without "enc:" prefix */
-    if (strncmp (encoded, "enc:", 4) != 0)
-        return g_strdup (encoded);
-
-    xored = g_base64_decode (encoded + 4, &len);
-    if (xored == NULL || len == 0)
-    {
-        g_free (xored);
-        return g_strdup ("");
-    }
-
-    klen = sizeof (sftp_obfuscation_key) - 1;
-    plain = g_new (char, len + 1);
-
-    for (i = 0; i < len; i++)
-        plain[i] = (char) (xored[i] ^ sftp_obfuscation_key[i % klen]);
-    plain[len] = '\0';
-
-    g_free (xored);
-    return plain;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static char *
 get_connections_file_path (void)
 {
@@ -491,7 +423,7 @@ load_connections (const char *filepath)
         {
             char *raw_pw = g_key_file_get_string (kf, groups[i], "password", NULL);
 
-            conn->password = sftp_password_decode (raw_pw);
+            conn->password = mc_password_decode (raw_pw, "sftp");
             g_free (raw_pw);
         }
 
@@ -607,7 +539,7 @@ save_connections (const char *filepath, GPtrArray *connections)
             g_key_file_set_string (kf, conn->label, "path", conn->path);
         if (conn->password != NULL && conn->password[0] != '\0')
         {
-            char *enc = sftp_password_encode (conn->password);
+            char *enc = mc_password_encode (conn->password, "sftp");
 
             if (enc != NULL)
             {
