@@ -3376,47 +3376,58 @@ do_enter (WPanel *panel)
         }
 
         // try chdir for directories (st_mode == 0 covers ".." from dir_list_init)
-        if ((S_ISDIR (fe->st.st_mode) || link_isdir (fe) || fe->st.st_mode == 0)
-            && panel->plugin->chdir != NULL && (panel->plugin->flags & MC_PPF_NAVIGATE) != 0)
+        if (S_ISDIR (fe->st.st_mode) || link_isdir (fe) || fe->st.st_mode == 0)
         {
-            mc_pp_result_t r;
-
-            r = panel->plugin->chdir (panel->plugin_data, fe->fname->str);
-            if (r == MC_PPR_OK)
+            if (panel->plugin->chdir != NULL && (panel->plugin->flags & MC_PPF_NAVIGATE) != 0)
             {
-                if (panel->plugin->get_focus_name != NULL)
+                mc_pp_result_t r;
+
+                r = panel->plugin->chdir (panel->plugin_data, fe->fname->str);
+                if (r == MC_PPR_OK)
                 {
-                    const char *plugin_focus = panel->plugin->get_focus_name (panel->plugin_data);
-                    if (plugin_focus != NULL && *plugin_focus != '\0')
+                    if (panel->plugin->get_focus_name != NULL)
                     {
-                        g_free (focus_name);
-                        focus_name = g_strdup (plugin_focus);
+                        const char *plugin_focus =
+                            panel->plugin->get_focus_name (panel->plugin_data);
+                        if (plugin_focus != NULL && *plugin_focus != '\0')
+                        {
+                            g_free (focus_name);
+                            focus_name = g_strdup (plugin_focus);
+                        }
                     }
+                    panel_plugin_reload (panel);
+                    if (focus_name != NULL)
+                        panel_set_current_by_name (panel, focus_name);
+                    g_free (focus_name);
+                    return TRUE;
                 }
-                panel_plugin_reload (panel);
-                if (focus_name != NULL)
-                    panel_set_current_by_name (panel, focus_name);
-                g_free (focus_name);
-                return TRUE;
-            }
-            if (r == MC_PPR_NOT_SUPPORTED || r == MC_PPR_CLOSE)
-            {
-                char *plugin_focus = NULL;
-
-                if (panel->plugin_host != NULL && panel->plugin_host->focus_after != NULL)
+                if (r == MC_PPR_NOT_SUPPORTED || r == MC_PPR_CLOSE)
                 {
-                    plugin_focus = panel->plugin_host->focus_after;
-                    panel->plugin_host->focus_after = NULL;
-                }
+                    char *plugin_focus = NULL;
 
+                    if (panel->plugin_host != NULL && panel->plugin_host->focus_after != NULL)
+                    {
+                        plugin_focus = panel->plugin_host->focus_after;
+                        panel->plugin_host->focus_after = NULL;
+                    }
+
+                    g_free (focus_name);
+                    panel_plugin_close (panel);
+
+                    if (plugin_focus != NULL)
+                    {
+                        panel_set_current_by_name (panel, plugin_focus);
+                        g_free (plugin_focus);
+                    }
+                    return TRUE;
+                }
+            }
+            else if (fe->fname != NULL && fe->fname->str != NULL
+                     && strcmp (fe->fname->str, "..") == 0)
+            {
+                // no navigation support - ".." closes the plugin panel
                 g_free (focus_name);
                 panel_plugin_close (panel);
-
-                if (plugin_focus != NULL)
-                {
-                    panel_set_current_by_name (panel, plugin_focus);
-                    g_free (plugin_focus);
-                }
                 return TRUE;
             }
         }
