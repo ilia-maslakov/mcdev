@@ -1845,11 +1845,11 @@ sftp_edit_connection (sftp_data_t *data)
         return MC_PPR_FAILED;
 
     if (!show_connection_dialog (conn))
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     if (conn->label == NULL || conn->label[0] == '\0' || conn->host == NULL
         || conn->host[0] == '\0')
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     save_connections (data->connections_file, data->connections);
 
@@ -1943,12 +1943,76 @@ sftp_view_item (void *plugin_data, const char *fname, const struct stat *st, gbo
 /* --------------------------------------------------------------------------------------------- */
 
 static mc_pp_result_t
+sftp_clone_connection (sftp_data_t *data)
+{
+    const GString *current_name;
+    sftp_connection_t *src, *clone;
+
+    if (!data->at_root)
+        return MC_PPR_NOT_SUPPORTED;
+
+    current_name = data->host->get_current (data->host);
+    if (current_name == NULL || current_name->len == 0)
+        return MC_PPR_OK;
+
+    src = NULL;
+    {
+        guint i;
+
+        for (i = 0; i < data->connections->len; i++)
+        {
+            sftp_connection_t *c = (sftp_connection_t *) g_ptr_array_index (data->connections, i);
+
+            if (strcmp (c->label, current_name->str) == 0)
+            {
+                src = c;
+                break;
+            }
+        }
+    }
+
+    if (src == NULL)
+        return MC_PPR_OK;
+
+    clone = sftp_connection_dup (src);
+    g_free (clone->label);
+    clone->label = g_strdup_printf (_ ("Copy of %s"), src->label);
+
+    if (!show_connection_dialog (clone))
+    {
+        sftp_connection_free (clone);
+        return MC_PPR_OK;
+    }
+
+    if (clone->label == NULL || clone->label[0] == '\0' || clone->host == NULL
+        || clone->host[0] == '\0')
+    {
+        sftp_connection_free (clone);
+        return MC_PPR_OK;
+    }
+
+    g_ptr_array_add (data->connections, clone);
+    save_connections (data->connections_file, data->connections);
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
 sftp_handle_key (void *plugin_data, int key)
 {
     sftp_data_t *data = (sftp_data_t *) plugin_data;
 
     if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
         return sftp_edit_connection (data);
+
+    if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle)
+    {
+        if (data->at_root)
+            return sftp_clone_connection (data);
+        return MC_PPR_NOT_SUPPORTED;
+    }
 
     return MC_PPR_NOT_SUPPORTED;
 }

@@ -602,7 +602,7 @@ shell_edit_connection (shell_data_t *data)
         g_free (old_user);
         g_free (old_password);
         g_free (old_path);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (conn->label == NULL || conn->label[0] == '\0' || conn->host == NULL
@@ -619,7 +619,7 @@ shell_edit_connection (shell_data_t *data)
         conn->password = old_password;
         conn->path = old_path;
         conn->compressed = old_compressed;
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (shell_label_exists (data, conn->label, conn))
@@ -636,7 +636,7 @@ shell_edit_connection (shell_data_t *data)
         conn->password = old_password;
         conn->path = old_path;
         conn->compressed = old_compressed;
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     g_free (old_label);
@@ -887,25 +887,25 @@ shell_clone_connection (shell_data_t *data)
 
     current_name = data->host->get_current (data->host);
     if (current_name == NULL || current_name->len == 0)
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     src = find_connection (data, current_name->str);
     if (src == NULL)
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     new_label = input_dialog (_ ("Clone Connection"), _ ("New connection name:"),
                               "shell-link-clone", src->label, INPUT_COMPLETE_NONE);
     if (new_label == NULL || new_label[0] == '\0')
     {
         g_free (new_label);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (shell_label_exists (data, new_label, NULL))
     {
         message (D_ERROR, MSG_ERROR, _ ("Connection with this name already exists"));
         g_free (new_label);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     conn = g_new0 (shell_connection_t, 1);
@@ -932,8 +932,8 @@ shell_handle_key (void *plugin_data, int key)
     if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
         return shell_edit_connection (data);
 
-    /* Shift+F5 - clone connection */
-    if (data->key_clone >= 0 && key == data->key_clone)
+    if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle
+        || (data->key_clone >= 0 && key == data->key_clone))
         return shell_clone_connection (data);
 
     return MC_PPR_NOT_SUPPORTED;

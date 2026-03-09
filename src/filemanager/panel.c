@@ -4050,10 +4050,16 @@ panel_execute_cmd (WPanel *panel, long command)
         chdir_to_readlink (panel);
         break;
     case CK_CopySingle:
-        copy_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_copy_cmd (panel);
+        else
+            copy_cmd_local (panel);
         break;
     case CK_DeleteSingle:
-        delete_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_delete_cmd (panel);
+        else
+            delete_cmd_local (panel);
         break;
     case CK_Enter:
         do_enter (panel);
@@ -4068,7 +4074,10 @@ panel_execute_cmd (WPanel *panel, long command)
             edit_cmd_new ();
         break;
     case CK_MoveSingle:
-        rename_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_move_cmd (panel);
+        else
+            rename_cmd_local (panel);
         break;
     case CK_SelectInvert:
         panel_select_invert_files (panel);

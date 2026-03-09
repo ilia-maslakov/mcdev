@@ -2440,7 +2440,14 @@ s3_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         || data->current_bucket == NULL)
     {
         S3_LOG ("get_local_copy: precondition failed level=%d", (int) data->level);
-        return MC_PPR_FAILED;
+        return MC_PPR_NOT_SUPPORTED;
+    }
+
+    /* skip ".." and virtual directories (prefixes ending with '/') */
+    if (strcmp (fname, "..") == 0 || (fname[0] != '\0' && fname[strlen (fname) - 1] == '/'))
+    {
+        S3_LOG ("get_local_copy: skipping directory entry '%s'", fname);
+        return MC_PPR_NOT_SUPPORTED;
     }
 
     if (data->current_prefix != NULL && data->current_prefix[0] != '\0')
@@ -2761,12 +2768,58 @@ s3_edit_connection (s3_data_t *data)
         return MC_PPR_FAILED;
 
     if (!s3_show_connection_dialog (conn))
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     if (conn->label == NULL || conn->label[0] == '\0' || conn->access_key == NULL
         || conn->access_key[0] == '\0')
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
+    s3_save_connections (data->connections_file, data->connections);
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+s3_clone_connection (s3_data_t *data)
+{
+    const GString *current_name;
+    s3_connection_t *src;
+    s3_connection_t *clone;
+    char *new_label;
+
+    if (data->level != S3_LEVEL_CONNECTIONS)
+        return MC_PPR_NOT_SUPPORTED;
+
+    current_name = data->host->get_current (data->host);
+    if (current_name == NULL || current_name->len == 0)
+        return MC_PPR_OK;
+
+    src = s3_find_connection (data, current_name->str);
+    if (src == NULL)
+        return MC_PPR_OK;
+
+    new_label = g_strdup_printf (_ ("Copy of %s"), src->label);
+
+    clone = s3_connection_dup (src);
+    g_free (clone->label);
+    clone->label = new_label;
+
+    if (!s3_show_connection_dialog (clone))
+    {
+        s3_connection_free (clone);
+        return MC_PPR_OK;
+    }
+
+    if (clone->label == NULL || clone->label[0] == '\0' || clone->access_key == NULL
+        || clone->access_key[0] == '\0')
+    {
+        s3_connection_free (clone);
+        return MC_PPR_OK;
+    }
+
+    g_ptr_array_add (data->connections, clone);
     s3_save_connections (data->connections_file, data->connections);
 
     return MC_PPR_OK;
@@ -3143,6 +3196,18 @@ s3_handle_key (void *plugin_data, int key)
 
     if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
         return s3_edit_connection (data);
+
+    if (data->level == S3_LEVEL_CONNECTIONS
+        && (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle))
+        return s3_clone_connection (data);
+
+    /* block copy/move at buckets level -- no downloadable objects there */
+    if (data->level == S3_LEVEL_BUCKETS
+        && (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle))
+    {
+        message (D_ERROR, MSG_ERROR, _ ("Copying is not supported at this navigation level"));
+        return MC_PPR_OK;
+    }
 
     return MC_PPR_NOT_SUPPORTED;
 }
