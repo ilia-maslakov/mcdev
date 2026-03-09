@@ -1132,9 +1132,17 @@ midnight_execute_cmd (Widget *sender, long command)
         switch (command)
         {
         case CK_Copy:
+            if (current_panel->plugin != NULL && current_panel->plugin->handle_key != NULL
+                && current_panel->plugin->handle_key (current_panel->plugin_data, CK_Copy)
+                    == MC_PPR_OK)
+                return MSG_HANDLED;
             plugin_panel_copy_cmd (current_panel);
             return MSG_HANDLED;
         case CK_Move:
+            if (current_panel->plugin != NULL && current_panel->plugin->handle_key != NULL
+                && current_panel->plugin->handle_key (current_panel->plugin_data, CK_Move)
+                    == MC_PPR_OK)
+                return MSG_HANDLED;
             plugin_panel_move_cmd (current_panel);
             return MSG_HANDLED;
         case CK_Delete:

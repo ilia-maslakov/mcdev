@@ -131,75 +131,6 @@ shell_connection_free (gpointer p)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Simple XOR obfuscation to avoid storing passwords in plain text.
-   NOT cryptographically secure - only prevents casual reading. */
-
-static const unsigned char shell_obfuscation_key[] = "Mc4ShellPanelKey!";
-
-static char *
-shell_password_encode (const char *plain)
-{
-    size_t i, len, klen;
-    guchar *xored;
-    gchar *b64;
-    char *result;
-
-    if (plain == NULL || plain[0] == '\0')
-        return NULL;
-
-    len = strlen (plain);
-    klen = sizeof (shell_obfuscation_key) - 1;
-    xored = g_new (guchar, len);
-
-    for (i = 0; i < len; i++)
-        xored[i] = (guchar) plain[i] ^ shell_obfuscation_key[i % klen];
-
-    b64 = g_base64_encode (xored, len);
-    g_free (xored);
-
-    result = g_strdup_printf ("enc:%s", b64);
-    g_free (b64);
-
-    return result;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static char *
-shell_password_decode (const char *encoded)
-{
-    guchar *xored;
-    gsize len;
-    size_t i, klen;
-    char *plain;
-
-    if (encoded == NULL)
-        return NULL;
-
-    /* backward compatibility: plain text without "enc:" prefix */
-    if (strncmp (encoded, "enc:", 4) != 0)
-        return g_strdup (encoded);
-
-    xored = g_base64_decode (encoded + 4, &len);
-    if (xored == NULL || len == 0)
-    {
-        g_free (xored);
-        return g_strdup ("");
-    }
-
-    klen = sizeof (shell_obfuscation_key) - 1;
-    plain = g_new (char, len + 1);
-
-    for (i = 0; i < len; i++)
-        plain[i] = (char) (xored[i] ^ shell_obfuscation_key[i % klen]);
-    plain[len] = '\0';
-
-    g_free (xored);
-    return plain;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static char *
 shell_read_config_string (const char *path, const char *key)
 {
@@ -370,7 +301,7 @@ load_connections (const char *filepath)
         {
             char *raw_pw = g_key_file_get_string (kf, groups[i], "password", NULL);
 
-            conn->password = shell_password_decode (raw_pw);
+            conn->password = mc_password_decode (raw_pw, "shell-link");
             g_free (raw_pw);
         }
         conn->path = g_key_file_get_string (kf, groups[i], "path", NULL);
@@ -421,7 +352,7 @@ save_connections (const char *filepath, GPtrArray *connections)
             g_key_file_set_string (kf, conn->label, "user", conn->user);
         if (conn->password != NULL && conn->password[0] != '\0')
         {
-            char *enc = shell_password_encode (conn->password);
+            char *enc = mc_password_encode (conn->password, "shell-link");
 
             if (enc != NULL)
                 g_key_file_set_string (kf, conn->label, "password", enc);
@@ -671,7 +602,7 @@ shell_edit_connection (shell_data_t *data)
         g_free (old_user);
         g_free (old_password);
         g_free (old_path);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (conn->label == NULL || conn->label[0] == '\0' || conn->host == NULL
@@ -688,7 +619,7 @@ shell_edit_connection (shell_data_t *data)
         conn->password = old_password;
         conn->path = old_path;
         conn->compressed = old_compressed;
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (shell_label_exists (data, conn->label, conn))
@@ -705,7 +636,7 @@ shell_edit_connection (shell_data_t *data)
         conn->password = old_password;
         conn->path = old_path;
         conn->compressed = old_compressed;
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     g_free (old_label);
@@ -956,25 +887,25 @@ shell_clone_connection (shell_data_t *data)
 
     current_name = data->host->get_current (data->host);
     if (current_name == NULL || current_name->len == 0)
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     src = find_connection (data, current_name->str);
     if (src == NULL)
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
 
     new_label = input_dialog (_ ("Clone Connection"), _ ("New connection name:"),
                               "shell-link-clone", src->label, INPUT_COMPLETE_NONE);
     if (new_label == NULL || new_label[0] == '\0')
     {
         g_free (new_label);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     if (shell_label_exists (data, new_label, NULL))
     {
         message (D_ERROR, MSG_ERROR, _ ("Connection with this name already exists"));
         g_free (new_label);
-        return MC_PPR_FAILED;
+        return MC_PPR_OK;
     }
 
     conn = g_new0 (shell_connection_t, 1);
@@ -1001,8 +932,8 @@ shell_handle_key (void *plugin_data, int key)
     if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
         return shell_edit_connection (data);
 
-    /* Shift+F5 - clone connection */
-    if (data->key_clone >= 0 && key == data->key_clone)
+    if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle
+        || (data->key_clone >= 0 && key == data->key_clone))
         return shell_clone_connection (data);
 
     return MC_PPR_NOT_SUPPORTED;

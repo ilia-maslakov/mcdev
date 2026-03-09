@@ -1393,21 +1393,28 @@ show_dir (const WPanel *panel)
         if (panel->plugin->get_title != NULL && panel->plugin_data != NULL)
             title = panel->plugin->get_title (panel->plugin_data);
 
-        if (panel->plugin->proto != NULL)
         {
-            /* format as "Proto:/path" */
-            if (title != NULL)
-                tty_printf (" %s:%s ", panel->plugin->proto, title);
+            char *full_title;
+
+            if (panel->plugin->proto != NULL)
+            {
+                if (title != NULL)
+                    full_title = g_strdup_printf ("%s:%s", panel->plugin->proto, title);
+                else
+                    full_title = g_strdup_printf ("%s:/", panel->plugin->proto);
+            }
             else
-                tty_printf (" %s:/ ", panel->plugin->proto);
-        }
-        else
-        {
-            if (title == NULL)
-                title = panel->plugin->display_name;
-            if (title == NULL)
-                title = panel->plugin->name;
-            tty_printf (" %s ", title);
+            {
+                if (title == NULL)
+                    title = panel->plugin->display_name;
+                if (title == NULL)
+                    title = panel->plugin->name;
+                full_title = g_strdup (title);
+            }
+
+            tty_printf (" %s ",
+                        str_term_trim (full_title, MIN (MAX (w->rect.cols - 12, 0), w->rect.cols)));
+            g_free (full_title);
         }
     }
     else if (panel->is_panelized)
@@ -3369,47 +3376,58 @@ do_enter (WPanel *panel)
         }
 
         // try chdir for directories (st_mode == 0 covers ".." from dir_list_init)
-        if ((S_ISDIR (fe->st.st_mode) || link_isdir (fe) || fe->st.st_mode == 0)
-            && panel->plugin->chdir != NULL && (panel->plugin->flags & MC_PPF_NAVIGATE) != 0)
+        if (S_ISDIR (fe->st.st_mode) || link_isdir (fe) || fe->st.st_mode == 0)
         {
-            mc_pp_result_t r;
-
-            r = panel->plugin->chdir (panel->plugin_data, fe->fname->str);
-            if (r == MC_PPR_OK)
+            if (panel->plugin->chdir != NULL && (panel->plugin->flags & MC_PPF_NAVIGATE) != 0)
             {
-                if (panel->plugin->get_focus_name != NULL)
+                mc_pp_result_t r;
+
+                r = panel->plugin->chdir (panel->plugin_data, fe->fname->str);
+                if (r == MC_PPR_OK)
                 {
-                    const char *plugin_focus = panel->plugin->get_focus_name (panel->plugin_data);
-                    if (plugin_focus != NULL && *plugin_focus != '\0')
+                    if (panel->plugin->get_focus_name != NULL)
                     {
-                        g_free (focus_name);
-                        focus_name = g_strdup (plugin_focus);
+                        const char *plugin_focus =
+                            panel->plugin->get_focus_name (panel->plugin_data);
+                        if (plugin_focus != NULL && *plugin_focus != '\0')
+                        {
+                            g_free (focus_name);
+                            focus_name = g_strdup (plugin_focus);
+                        }
                     }
+                    panel_plugin_reload (panel);
+                    if (focus_name != NULL)
+                        panel_set_current_by_name (panel, focus_name);
+                    g_free (focus_name);
+                    return TRUE;
                 }
-                panel_plugin_reload (panel);
-                if (focus_name != NULL)
-                    panel_set_current_by_name (panel, focus_name);
-                g_free (focus_name);
-                return TRUE;
-            }
-            if (r == MC_PPR_NOT_SUPPORTED || r == MC_PPR_CLOSE)
-            {
-                char *plugin_focus = NULL;
-
-                if (panel->plugin_host != NULL && panel->plugin_host->focus_after != NULL)
+                if (r == MC_PPR_NOT_SUPPORTED || r == MC_PPR_CLOSE)
                 {
-                    plugin_focus = panel->plugin_host->focus_after;
-                    panel->plugin_host->focus_after = NULL;
-                }
+                    char *plugin_focus = NULL;
 
+                    if (panel->plugin_host != NULL && panel->plugin_host->focus_after != NULL)
+                    {
+                        plugin_focus = panel->plugin_host->focus_after;
+                        panel->plugin_host->focus_after = NULL;
+                    }
+
+                    g_free (focus_name);
+                    panel_plugin_close (panel);
+
+                    if (plugin_focus != NULL)
+                    {
+                        panel_set_current_by_name (panel, plugin_focus);
+                        g_free (plugin_focus);
+                    }
+                    return TRUE;
+                }
+            }
+            else if (fe->fname != NULL && fe->fname->str != NULL
+                     && strcmp (fe->fname->str, "..") == 0)
+            {
+                // no navigation support - ".." closes the plugin panel
                 g_free (focus_name);
                 panel_plugin_close (panel);
-
-                if (plugin_focus != NULL)
-                {
-                    panel_set_current_by_name (panel, plugin_focus);
-                    g_free (plugin_focus);
-                }
                 return TRUE;
             }
         }
@@ -4043,10 +4061,16 @@ panel_execute_cmd (WPanel *panel, long command)
         chdir_to_readlink (panel);
         break;
     case CK_CopySingle:
-        copy_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_copy_cmd (panel);
+        else
+            copy_cmd_local (panel);
         break;
     case CK_DeleteSingle:
-        delete_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_delete_cmd (panel);
+        else
+            delete_cmd_local (panel);
         break;
     case CK_Enter:
         do_enter (panel);
@@ -4061,7 +4085,10 @@ panel_execute_cmd (WPanel *panel, long command)
             edit_cmd_new ();
         break;
     case CK_MoveSingle:
-        rename_cmd_local (panel);
+        if (panel->is_plugin_panel)
+            plugin_panel_move_cmd (panel);
+        else
+            rename_cmd_local (panel);
         break;
     case CK_SelectInvert:
         panel_select_invert_files (panel);

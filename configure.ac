@@ -662,6 +662,49 @@ fi
 
 AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_ARCMC], [test x"$have_panel_plugin_arcmc" = xyes])
 
+dnl Optional libcurl >= 7.75.0 for S3 panel plugin (needs CURLOPT_AWS_SIGV4)
+LIBCURL_S3_CFLAGS=""
+LIBCURL_S3_LIBS=""
+have_panel_plugin_s3=no
+enable_panel_plugin_s3=auto
+
+AC_ARG_ENABLE([panel-plugin-s3],
+    AS_HELP_STRING([--enable-panel-plugin-s3@<:@=auto/yes/no@:>@],
+                   [Build S3 object storage panel plugin (default: auto)]),
+    [enable_panel_plugin_s3="$enableval"],
+    [enable_panel_plugin_s3=auto])
+
+AS_CASE([$enable_panel_plugin_s3],
+    [yes|no|auto], [],
+    [AC_MSG_ERROR([bad value '$enable_panel_plugin_s3' for --enable-panel-plugin-s3 (use auto, yes, or no)])])
+
+if test "x$enable_panel_plugin_s3" != xno; then
+    PKG_CHECK_MODULES([LIBCURL_S3], [libcurl >= 7.75.0], [
+        save_CPPFLAGS="$CPPFLAGS"
+        save_LIBS="$LIBS"
+        CPPFLAGS="$CPPFLAGS $LIBCURL_S3_CFLAGS"
+        LIBS="$LIBCURL_S3_LIBS $LIBS"
+        AC_LINK_IFELSE(
+            [AC_LANG_PROGRAM([[#include <curl/curl.h>]], [[curl_easy_init ();]])],
+            [have_panel_plugin_s3=yes],
+            [have_panel_plugin_s3=no]
+        )
+        CPPFLAGS="$save_CPPFLAGS"
+        LIBS="$save_LIBS"
+    ], [:])
+fi
+
+if test "x$enable_panel_plugin_s3" = xyes && test "x$have_panel_plugin_s3" != xyes; then
+    AC_MSG_ERROR([S3 panel plugin requested but libcurl >= 7.75.0 was not found.
+Install libcurl development package (for example: libcurl4-openssl-dev) or use --enable-panel-plugin-s3=auto/no.])
+fi
+
+if test "x$enable_panel_plugin_s3" = xauto && test "x$have_panel_plugin_s3" != xyes; then
+    AC_MSG_WARN([S3 panel plugin disabled: libcurl >= 7.75.0 was not found.])
+fi
+
+AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_S3], [test x"$have_panel_plugin_s3" = xyes])
+
 AC_ARG_ENABLE([configure-args],
     AS_HELP_STRING([--enable-configure-args], [Embed ./configure arguments into binaries]))
 if test "x$enable_configure_args" != xno; then
@@ -713,6 +756,7 @@ src/panel-plugins/docker/Makefile
 src/panel-plugins/git/Makefile
 src/panel-plugins/shell-link/Makefile
 src/panel-plugins/arcmc/Makefile
+src/panel-plugins/s3/Makefile
 
 src/vfs/Makefile
 

@@ -1709,6 +1709,8 @@ plugin_panel_copy_cmd (WPanel *panel)
         char *dest_path;
 
         r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
+        if (r == MC_PPR_NOT_SUPPORTED)
+            continue;
         if (r != MC_PPR_OK || local_path == NULL)
         {
             message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);
@@ -1868,6 +1870,8 @@ plugin_panel_move_cmd (WPanel *panel)
         char *dest_path;
 
         r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
+        if (r == MC_PPR_NOT_SUPPORTED)
+            continue;
         if (r != MC_PPR_OK || local_path == NULL)
         {
             message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);

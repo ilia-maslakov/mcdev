@@ -38,6 +38,7 @@
 #include <libsmbclient.h>
 
 #include "lib/global.h"
+#include "lib/keybind.h"
 #include "lib/panel-plugin.h"
 #include "lib/widget.h"
 
@@ -105,6 +106,7 @@ static mc_pp_result_t samba_put_file (void *plugin_data, const char *local_path,
 static mc_pp_result_t samba_delete_items (void *plugin_data, const char **names, int count);
 static const char *samba_get_title (void *plugin_data);
 static mc_pp_result_t samba_create_item (void *plugin_data);
+static mc_pp_result_t samba_handle_key (void *plugin_data, int key);
 static void samba_update_title (samba_data_t *data);
 
 /*** file scope variables ************************************************************************/
@@ -129,7 +131,7 @@ static const mc_panel_plugin_t samba_plugin = {
     .save_file = samba_put_file,
     .delete_items = samba_delete_items,
     .get_title = samba_get_title,
-    .handle_key = NULL,
+    .handle_key = samba_handle_key,
     .create_item = samba_create_item,
 };
 
@@ -1336,6 +1338,176 @@ samba_get_title (void *plugin_data)
     if (data->title_buf == NULL)
         samba_update_title (data);
     return data->title_buf;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+samba_edit_connection (samba_data_t *data)
+{
+    const GString *current_name;
+    smb_connection_t *conn;
+    char *label, *address, *username, *password;
+
+    if (!data->at_root)
+        return MC_PPR_NOT_SUPPORTED;
+
+    current_name = data->host->get_current (data->host);
+    if (current_name == NULL || current_name->len == 0)
+        return MC_PPR_OK;
+
+    conn = NULL;
+    {
+        guint i;
+
+        for (i = 0; i < data->connections->len; i++)
+        {
+            smb_connection_t *c = (smb_connection_t *) g_ptr_array_index (data->connections, i);
+
+            if (strcmp (c->label, current_name->str) == 0)
+            {
+                conn = c;
+                break;
+            }
+        }
+    }
+
+    if (conn == NULL)
+        return MC_PPR_OK;
+
+    label = g_strdup (conn->label);
+    address = g_strdup (conn->server);
+    username = g_strdup (conn->username);
+    password = g_strdup (conn->password);
+
+    if (!show_connection_dialog (&label, &address, &username, &password))
+    {
+        g_free (label);
+        g_free (address);
+        g_free (username);
+        g_free (password);
+        return MC_PPR_OK;
+    }
+
+    if (label == NULL || label[0] == '\0' || address == NULL || address[0] == '\0')
+    {
+        g_free (label);
+        g_free (address);
+        g_free (username);
+        g_free (password);
+        return MC_PPR_OK;
+    }
+
+    g_free (conn->label);
+    g_free (conn->server);
+    g_free (conn->username);
+    g_free (conn->password);
+    conn->label = label;
+    conn->server = address;
+    conn->username = username;
+    conn->password = password;
+
+    /* Update workgroup from DOMAIN\user */
+    g_free (conn->workgroup);
+    conn->workgroup = NULL;
+    if (username != NULL)
+    {
+        char *backslash;
+
+        backslash = strchr (username, '\\');
+        if (backslash != NULL)
+            conn->workgroup = g_strndup (username, (gsize) (backslash - username));
+    }
+
+    save_connections (data->connections_file, data->connections);
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+samba_clone_connection (samba_data_t *data)
+{
+    const GString *current_name;
+    const smb_connection_t *src;
+    smb_connection_t *clone;
+    char *label, *address, *username, *password;
+
+    if (!data->at_root)
+        return MC_PPR_NOT_SUPPORTED;
+
+    current_name = data->host->get_current (data->host);
+    if (current_name == NULL || current_name->len == 0)
+        return MC_PPR_OK;
+
+    src = find_connection (data, current_name->str);
+    if (src == NULL)
+        return MC_PPR_OK;
+
+    label = g_strdup_printf (_ ("Copy of %s"), src->label);
+    address = g_strdup (src->server);
+    username = g_strdup (src->username);
+    password = g_strdup (src->password);
+
+    if (!show_connection_dialog (&label, &address, &username, &password))
+    {
+        g_free (label);
+        g_free (address);
+        g_free (username);
+        g_free (password);
+        return MC_PPR_OK;
+    }
+
+    if (label == NULL || label[0] == '\0' || address == NULL || address[0] == '\0')
+    {
+        g_free (label);
+        g_free (address);
+        g_free (username);
+        g_free (password);
+        return MC_PPR_OK;
+    }
+
+    clone = g_new0 (smb_connection_t, 1);
+    clone->label = label;
+    clone->server = address;
+    clone->share = g_strdup (src->share);
+    clone->username = username;
+    clone->password = password;
+
+    if (username != NULL)
+    {
+        char *backslash;
+
+        backslash = strchr (username, '\\');
+        if (backslash != NULL)
+            clone->workgroup = g_strndup (username, (gsize) (backslash - username));
+    }
+
+    g_ptr_array_add (data->connections, clone);
+    save_connections (data->connections_file, data->connections);
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+samba_handle_key (void *plugin_data, int key)
+{
+    samba_data_t *data = (samba_data_t *) plugin_data;
+
+    if (key == CK_Edit)
+        return samba_edit_connection (data);
+
+    if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle)
+    {
+        if (data->at_root)
+            return samba_clone_connection (data);
+        return MC_PPR_NOT_SUPPORTED;
+    }
+
+    return MC_PPR_NOT_SUPPORTED;
 }
 
 /* --------------------------------------------------------------------------------------------- */

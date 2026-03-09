@@ -1389,3 +1389,102 @@ mc_time_elapsed (gint64 *timestamp, gint64 delay)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Obfuscate a password string using XOR + base64.
+ * The salt (e.g. plugin name) is XORed with username to form the key.
+ * Returns "enc:BASE64" string or NULL if plain is NULL/empty.
+ * Caller owns the result.
+ */
+char *
+mc_password_encode (const char *plain, const char *salt)
+{
+    const char *user;
+    size_t i, len, ulen, slen;
+    guchar *xored;
+    gchar *b64;
+    char *result;
+
+    if (plain == NULL || plain[0] == '\0')
+        return NULL;
+
+    user = g_get_user_name ();
+    if (user == NULL || user[0] == '\0')
+        user = "mc";
+
+    len = strlen (plain);
+    ulen = strlen (user);
+    slen = (salt != NULL && salt[0] != '\0') ? strlen (salt) : 0;
+
+    xored = g_new (guchar, len);
+
+    for (i = 0; i < len; i++)
+    {
+        guchar k = (guchar) user[i % ulen];
+        if (slen > 0)
+            k ^= (guchar) salt[i % slen];
+        xored[i] = (guchar) plain[i] ^ k;
+    }
+
+    b64 = g_base64_encode (xored, len);
+    g_free (xored);
+
+    result = g_strdup_printf ("enc:%s", b64);
+    g_free (b64);
+
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Decode an obfuscated password string.
+ * Accepts "enc:BASE64" (obfuscated) or plain text (backward compatibility).
+ * Returns decoded string. Caller owns the result.
+ */
+char *
+mc_password_decode (const char *encoded, const char *salt)
+{
+    const char *user;
+    guchar *xored;
+    gsize len;
+    size_t i, ulen, slen;
+    char *plain;
+
+    if (encoded == NULL)
+        return NULL;
+
+    /* backward compatibility: plain text without "enc:" prefix */
+    if (strncmp (encoded, "enc:", 4) != 0)
+        return g_strdup (encoded);
+
+    xored = g_base64_decode (encoded + 4, &len);
+    if (xored == NULL || len == 0)
+    {
+        g_free (xored);
+        return g_strdup ("");
+    }
+
+    user = g_get_user_name ();
+    if (user == NULL || user[0] == '\0')
+        user = "mc";
+
+    ulen = strlen (user);
+    slen = (salt != NULL && salt[0] != '\0') ? strlen (salt) : 0;
+
+    plain = g_new (char, len + 1);
+
+    for (i = 0; i < len; i++)
+    {
+        guchar k = (guchar) user[i % ulen];
+        if (slen > 0)
+            k ^= (guchar) salt[i % slen];
+        plain[i] = (char) (xored[i] ^ k);
+    }
+    plain[len] = '\0';
+
+    g_free (xored);
+    return plain;
+}
+
+/* --------------------------------------------------------------------------------------------- */

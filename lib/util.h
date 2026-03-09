@@ -282,6 +282,10 @@ void mc_replace_error (GError **dest, int code, const char *format, ...) G_GNUC_
 
 gboolean mc_time_elapsed (gint64 *timestamp, gint64 delay);
 
+/* password obfuscation for panel plugins (XOR + base64, not real encryption) */
+char *mc_password_encode (const char *plain, const char *salt);
+char *mc_password_decode (const char *encoded, const char *salt);
+
 /* --------------------------------------------------------------------------------------------- */
 /*** inline functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
