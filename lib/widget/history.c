@@ -66,6 +66,11 @@ typedef struct
     int x;
     size_t count;
     size_t max_width;
+    GString *filter;
+    GPtrArray *all_items;
+    WListbox *listbox;
+    char charbuf[MB_LEN_MAX];
+    size_t charpoint;
 } history_dlg_data;
 
 /*** forward declarations (file scope functions) *************************************************/
@@ -121,6 +126,57 @@ history_dlg_reposition (WDialog *dlg_head)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static void
+history_dlg_refilter (WDialog *dlg)
+{
+    history_dlg_data *data = (history_dlg_data *) dlg->data.p;
+    guint i;
+
+    listbox_remove_list (data->listbox);
+
+    for (i = 0; i < data->all_items->len; i++)
+    {
+        const char *item = (const char *) g_ptr_array_index (data->all_items, i);
+
+        if (data->filter->len == 0)
+            listbox_add_item (data->listbox, LISTBOX_APPEND_AT_END, 0, item, NULL, TRUE);
+        else
+        {
+            char *item_lower, *filter_lower;
+            gboolean match;
+
+            item_lower = g_utf8_strdown (item, -1);
+            filter_lower = g_utf8_strdown (data->filter->str, -1);
+            match = strstr (item_lower, filter_lower) != NULL;
+            g_free (item_lower);
+            g_free (filter_lower);
+
+            if (match)
+                listbox_add_item (data->listbox, LISTBOX_APPEND_AT_END, 0, item, NULL, TRUE);
+        }
+    }
+
+    data->count = (size_t) listbox_get_length (data->listbox);
+
+    if (data->filter->len == 0)
+        frame_set_title (FRAME (dlg->bg), _ ("History"));
+    else
+    {
+        char *title;
+
+        title = g_strdup_printf ("%s [%s]", _ ("History"), data->filter->str);
+        frame_set_title (FRAME (dlg->bg), title);
+        g_free (title);
+    }
+
+    listbox_select_first (data->listbox);
+    send_message (dlg, NULL, MSG_RESIZE, 0, NULL);
+    repaint_screen ();
+    widget_draw (WIDGET (dlg));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static cb_ret_t
 history_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
 {
@@ -151,6 +207,54 @@ history_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, voi
 
         dlg_close (d);
         return MSG_HANDLED;
+    }
+
+    case MSG_KEY:
+    {
+        history_dlg_data *hdata = (history_dlg_data *) DIALOG (w)->data.p;
+
+        if (parm == KEY_BACKSPACE)
+        {
+            if (hdata->filter->len > 0)
+            {
+                const char *end = hdata->filter->str + hdata->filter->len;
+                const char *prev = g_utf8_find_prev_char (hdata->filter->str, end);
+
+                if (prev != NULL)
+                    g_string_truncate (hdata->filter, prev - hdata->filter->str);
+                else
+                    g_string_truncate (hdata->filter, 0);
+
+                history_dlg_refilter (DIALOG (w));
+            }
+            return MSG_HANDLED;
+        }
+
+        if (parm >= 32 && parm < 256)
+        {
+            int res;
+
+            if (hdata->charpoint >= MB_LEN_MAX)
+                return MSG_HANDLED;
+
+            hdata->charbuf[hdata->charpoint] = (char) parm;
+            hdata->charpoint++;
+
+            res = str_is_valid_char (hdata->charbuf, hdata->charpoint);
+            if (res < 0)
+            {
+                if (res != -2)
+                    hdata->charpoint = 0;  // broken multibyte char, skip
+                return MSG_HANDLED;
+            }
+
+            g_string_append_len (hdata->filter, hdata->charbuf, hdata->charpoint);
+            hdata->charpoint = 0;
+            history_dlg_refilter (DIALOG (w));
+            return MSG_HANDLED;
+        }
+
+        return dlg_default_callback (w, sender, msg, parm, data);
     }
 
     default:
@@ -335,6 +439,14 @@ history_show (history_descriptor_t *hd)
             listbox_set_current (hd->listbox, hd->current);
     }
 
+    // init incremental filter
+    hist_data.filter = g_string_new ("");
+    hist_data.charpoint = 0;
+    hist_data.all_items = g_ptr_array_new_with_free_func (g_free);
+    hist_data.listbox = hd->listbox;
+    for (hi = listbox_get_first_link (hd->listbox); hi != NULL; hi = g_list_next (hi))
+        g_ptr_array_add (hist_data.all_items, g_strdup (LENTRY (hi->data)->text));
+
     dlg_ret = dlg_run (query_dlg);
     if (dlg_ret != B_CANCEL)
     {
@@ -365,6 +477,9 @@ history_show (history_descriptor_t *hd)
     // restore history direction
     if (WIDGET (query_dlg)->rect.y < hd->y)
         z = g_list_reverse (z);
+
+    g_string_free (hist_data.filter, TRUE);
+    g_ptr_array_free (hist_data.all_items, TRUE);
 
     widget_destroy (WIDGET (query_dlg));
 
