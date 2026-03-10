@@ -184,9 +184,8 @@ static mc_pp_result_t s3_handle_key (void *plugin_data, int key);
 #define S3_PANEL_KEY_EDIT         "hotkey_edit"
 #define S3_PANEL_KEY_EDIT_DEFAULT "f4"
 
-/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
-#define S3_KEY_F(n)      (1000 + (n))
-#define S3_XCTRL(c)      ((c) & 0x1f)
+/* sentinel value: hotkey is disabled */
+#define S3_KEY_NONE      0
 
 #define S3_DIR_CACHE_TTL 60
 
@@ -302,35 +301,13 @@ s3_read_config_string (const char *path, const char *key)
 static int
 s3_parse_hotkey (const char *str)
 {
-    int n;
-
     if (str == NULL || str[0] == '\0')
-        return -1;
+        return S3_KEY_NONE;
 
     if (g_ascii_strcasecmp (str, "none") == 0)
-        return -1;
+        return S3_KEY_NONE;
 
-    /* "f1" .. "f24" */
-    if ((str[0] == 'f' || str[0] == 'F') && str[1] >= '0' && str[1] <= '9')
-    {
-        n = atoi (str + 1);
-        if (n >= 1 && n <= 24)
-            return S3_KEY_F (n);
-    }
-
-    /* "ctrl-x" */
-    if (g_ascii_strncasecmp (str, "ctrl-", 5) == 0 && str[5] != '\0')
-        return S3_XCTRL (str[5]);
-
-    /* "shift-f7" etc. */
-    if (g_ascii_strncasecmp (str, "shift-", 6) == 0 && (str[6] == 'f' || str[6] == 'F'))
-    {
-        n = atoi (str + 7);
-        if (n >= 1 && n <= 24)
-            return S3_KEY_F (n + 12);
-    }
-
-    return -1;
+    return tty_keyname_to_keycode (str, NULL);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2221,7 +2198,7 @@ s3_open (mc_panel_host_t *host, const char *open_path)
     data->entries = NULL;
     data->title_buf = NULL;
     data->active_connection = NULL;
-    data->key_edit = s3_load_hotkey (S3_PANEL_KEY_EDIT, S3_PANEL_KEY_EDIT_DEFAULT, S3_KEY_F (4));
+    data->key_edit = s3_load_hotkey (S3_PANEL_KEY_EDIT, S3_PANEL_KEY_EDIT_DEFAULT, KEY_F (4));
 
     data->connections_file = s3_get_connections_file_path ();
     data->connections = s3_load_connections (data->connections_file);
@@ -3194,7 +3171,7 @@ s3_handle_key (void *plugin_data, int key)
 {
     s3_data_t *data = (s3_data_t *) plugin_data;
 
-    if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
+    if (key == CK_Edit || (data->key_edit != S3_KEY_NONE && key == data->key_edit))
         return s3_edit_connection (data);
 
     if (data->level == S3_LEVEL_CONNECTIONS

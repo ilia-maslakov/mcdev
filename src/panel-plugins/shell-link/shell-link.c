@@ -83,9 +83,8 @@ static mc_pp_result_t shell_handle_key (void *plugin_data, int key);
 #define SHELL_PANEL_KEY_CLONE         "hotkey_clone"
 #define SHELL_PANEL_KEY_CLONE_DEFAULT "shift-f5"
 
-/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
-#define SHELL_KEY_F(n)   (1000 + (n))
-#define SHELL_XCTRL(c)   ((c) & 0x1f)
+/* sentinel value: hotkey is disabled */
+#define SHELL_KEY_NONE   0
 
 #define SHELL_DLG_HEIGHT 16
 #define SHELL_DLG_WIDTH  52
@@ -187,44 +186,17 @@ shell_save_config_defaults (const char *path)
 static int
 shell_parse_hotkey (const char *value, int fallback)
 {
-    char *s;
-    int ret = fallback;
+    int key;
 
     if (value == NULL || value[0] == '\0')
         return fallback;
 
-    s = g_ascii_strdown (value, -1);
-    g_strstrip (s);
+    if (g_ascii_strcasecmp (value, "none") == 0)
+        return SHELL_KEY_NONE;
 
-    if (s[0] == '\0')
-    {
-        g_free (s);
-        return fallback;
-    }
+    key = tty_keyname_to_keycode (value, NULL);
 
-    if (strcmp (s, "none") == 0)
-        ret = -1;
-    else if (strncmp (s, "ctrl-", 5) == 0 && s[5] != '\0' && s[6] == '\0'
-             && g_ascii_isalpha ((guchar) s[5]))
-        ret = SHELL_XCTRL (g_ascii_tolower ((guchar) s[5]));
-    else if (s[0] == 'f' && s[1] != '\0' && g_ascii_isdigit ((guchar) s[1]) != 0)
-    {
-        int n = atoi (s + 1);
-
-        if (n >= 1 && n <= 24)
-            ret = SHELL_KEY_F (n);
-    }
-    else if ((strncmp (s, "shift-f", 7) == 0 || strncmp (s, "s-f", 3) == 0)
-             && g_ascii_isdigit ((guchar) s[strncmp (s, "shift-f", 7) == 0 ? 7 : 3]) != 0)
-    {
-        int base = atoi (s + (strncmp (s, "shift-f", 7) == 0 ? 7 : 3));
-
-        if (base >= 1 && base <= 12)
-            ret = SHELL_KEY_F (base + 10);
-    }
-
-    g_free (s);
-    return ret;
+    return key != 0 ? key : fallback;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -665,9 +637,9 @@ shell_open (mc_panel_host_t *host, const char *open_path)
     data->host = host;
     data->title_buf = NULL;
     data->key_edit =
-        shell_load_hotkey (SHELL_PANEL_KEY_EDIT, SHELL_PANEL_KEY_EDIT_DEFAULT, SHELL_KEY_F (4));
+        shell_load_hotkey (SHELL_PANEL_KEY_EDIT, SHELL_PANEL_KEY_EDIT_DEFAULT, KEY_F (4));
     data->key_clone =
-        shell_load_hotkey (SHELL_PANEL_KEY_CLONE, SHELL_PANEL_KEY_CLONE_DEFAULT, SHELL_KEY_F (15));
+        shell_load_hotkey (SHELL_PANEL_KEY_CLONE, SHELL_PANEL_KEY_CLONE_DEFAULT, KEY_F (15));
 
     data->connections_file = get_connections_file_path ();
     data->connections = load_connections (data->connections_file);
@@ -929,11 +901,11 @@ shell_handle_key (void *plugin_data, int key)
 {
     shell_data_t *data = (shell_data_t *) plugin_data;
 
-    if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
+    if (key == CK_Edit || (data->key_edit != SHELL_KEY_NONE && key == data->key_edit))
         return shell_edit_connection (data);
 
     if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle
-        || (data->key_clone >= 0 && key == data->key_clone))
+        || (data->key_clone != SHELL_KEY_NONE && key == data->key_clone))
         return shell_clone_connection (data);
 
     return MC_PPR_NOT_SUPPORTED;

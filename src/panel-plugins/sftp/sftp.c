@@ -42,6 +42,7 @@
 #include <libssh2_sftp.h>
 
 #include "lib/global.h"
+#include "lib/tty/key.h"
 #include "lib/keybind.h"
 #include "lib/util.h"
 #include "lib/mcconfig.h"
@@ -133,9 +134,8 @@ static void sftp_disconnect (sftp_data_t *data);
 #define SFTP_PANEL_KEY_EDIT         "hotkey_edit"
 #define SFTP_PANEL_KEY_EDIT_DEFAULT "f4"
 
-/* KEY_F(n) = 1000 + n, XCTRL(c) = c & 0x1f - matching lib/tty definitions */
-#define SFTP_KEY_F(n) (1000 + (n))
-#define SFTP_XCTRL(c) ((c) & 0x1f)
+/* sentinel value: hotkey is disabled */
+#define SFTP_KEY_NONE 0
 
 #ifndef LIBSSH2_INVALID_SOCKET
 #define LIBSSH2_INVALID_SOCKET -1
@@ -235,44 +235,17 @@ sftp_save_config_defaults (const char *path)
 static int
 sftp_parse_hotkey (const char *value, int fallback)
 {
-    char *s;
-    int ret = fallback;
+    int key;
 
     if (value == NULL || value[0] == '\0')
         return fallback;
 
-    s = g_ascii_strdown (value, -1);
-    g_strstrip (s);
+    if (g_ascii_strcasecmp (value, "none") == 0)
+        return SFTP_KEY_NONE;
 
-    if (s[0] == '\0')
-    {
-        g_free (s);
-        return fallback;
-    }
+    key = tty_keyname_to_keycode (value, NULL);
 
-    if (strcmp (s, "none") == 0)
-        ret = -1;
-    else if (strncmp (s, "ctrl-", 5) == 0 && s[5] != '\0' && s[6] == '\0'
-             && g_ascii_isalpha ((guchar) s[5]))
-        ret = SFTP_XCTRL (g_ascii_tolower ((guchar) s[5]));
-    else if (s[0] == 'f' && s[1] != '\0' && g_ascii_isdigit ((guchar) s[1]) != 0)
-    {
-        int n = atoi (s + 1);
-
-        if (n >= 1 && n <= 24)
-            ret = SFTP_KEY_F (n);
-    }
-    else if ((strncmp (s, "shift-f", 7) == 0 || strncmp (s, "s-f", 3) == 0)
-             && g_ascii_isdigit ((guchar) s[strncmp (s, "shift-f", 7) == 0 ? 7 : 3]) != 0)
-    {
-        int base = atoi (s + (strncmp (s, "shift-f", 7) == 0 ? 7 : 3));
-
-        if (base >= 1 && base <= 12)
-            ret = SFTP_KEY_F (base + 10);
-    }
-
-    g_free (s);
-    return ret;
+    return key != 0 ? key : fallback;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -623,32 +596,6 @@ find_entry (const sftp_data_t *data, const char *name)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-
-static char *
-sftp_join_path (const char *base, const char *name)
-{
-    if (strcmp (base, "/") == 0)
-        return g_strdup_printf ("/%s", name);
-
-    return g_strdup_printf ("%s/%s", base, name);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static char *
-sftp_path_up (const char *path)
-{
-    const char *last;
-
-    if (path == NULL || strcmp (path, "/") == 0)
-        return NULL;
-
-    last = strrchr (path, '/');
-    if (last == NULL || last == path)
-        return g_strdup ("/");
-
-    return g_strndup (path, (gsize) (last - path));
-}
 
 /* --------------------------------------------------------------------------------------------- */
 
@@ -1371,8 +1318,7 @@ sftp_open (mc_panel_host_t *host, const char *open_path)
     data->current_path = NULL;
     data->entries = NULL;
     data->title_buf = NULL;
-    data->key_edit =
-        sftp_load_hotkey (SFTP_PANEL_KEY_EDIT, SFTP_PANEL_KEY_EDIT_DEFAULT, SFTP_KEY_F (4));
+    data->key_edit = sftp_load_hotkey (SFTP_PANEL_KEY_EDIT, SFTP_PANEL_KEY_EDIT_DEFAULT, KEY_F (4));
 
     data->socket_handle = LIBSSH2_INVALID_SOCKET;
     data->session = NULL;
@@ -1481,7 +1427,7 @@ sftp_chdir (void *plugin_data, const char *path)
         }
 
         {
-            char *parent = sftp_path_up (data->current_path);
+            char *parent = mc_pp_path_up (data->current_path);
 
             if (parent == NULL)
             {
@@ -1524,7 +1470,7 @@ sftp_chdir (void *plugin_data, const char *path)
         if (entry == NULL || !entry->is_dir)
             return MC_PPR_FAILED;
 
-        new_path = sftp_join_path (data->current_path, path);
+        new_path = mc_pp_join_path (data->current_path, path);
 
         g_free (data->current_path);
         data->current_path = new_path;
@@ -1564,7 +1510,7 @@ sftp_enter (void *plugin_data, const char *name, const struct stat *st)
         {
             char *new_path;
 
-            new_path = sftp_join_path (data->current_path, name);
+            new_path = mc_pp_join_path (data->current_path, name);
             g_free (data->current_path);
             data->current_path = new_path;
 
@@ -1590,7 +1536,7 @@ sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     if (data->at_root || data->sftp_session == NULL || data->current_path == NULL)
         return MC_PPR_FAILED;
 
-    remote_path = sftp_join_path (data->current_path, fname);
+    remote_path = mc_pp_join_path (data->current_path, fname);
     fileh = libssh2_sftp_open (data->sftp_session, remote_path, LIBSSH2_FXF_READ, 0);
     g_free (remote_path);
 
@@ -1649,7 +1595,7 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
     if (local_fd < 0)
         return MC_PPR_FAILED;
 
-    remote_path = sftp_join_path (data->current_path, dest_name);
+    remote_path = mc_pp_join_path (data->current_path, dest_name);
     fileh = libssh2_sftp_open (
         data->sftp_session, remote_path, LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
         LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
@@ -1731,7 +1677,7 @@ sftp_delete_items (void *plugin_data, const char **names, int count)
         if (entry == NULL)
             continue;
 
-        remote_path = sftp_join_path (data->current_path, names[i]);
+        remote_path = mc_pp_join_path (data->current_path, names[i]);
 
         if (entry->is_dir)
             rc = libssh2_sftp_rmdir_ex (data->sftp_session, remote_path,
@@ -2004,7 +1950,7 @@ sftp_handle_key (void *plugin_data, int key)
 {
     sftp_data_t *data = (sftp_data_t *) plugin_data;
 
-    if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
+    if (key == CK_Edit || (data->key_edit != SFTP_KEY_NONE && key == data->key_edit))
         return sftp_edit_connection (data);
 
     if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle)

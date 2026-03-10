@@ -382,40 +382,17 @@ git_load_config_value (const char *key, const char *fallback)
 static int
 git_parse_hotkey (const char *value, int fallback)
 {
-    char *s;
-    int ret = fallback;
+    int key;
 
-    if (value == NULL)
+    if (value == NULL || value[0] == '\0')
         return fallback;
 
-    s = g_ascii_strdown (value, -1);
-    g_strstrip (s);
+    if (g_ascii_strcasecmp (value, "none") == 0)
+        return 0;
 
-    if (strcmp (s, "none") == 0)
-        ret = -1;
-    else if (strncmp (s, "ctrl-", 5) == 0 && s[5] != '\0' && s[6] == '\0'
-             && g_ascii_isalpha ((guchar) s[5]))
-        ret = XCTRL (g_ascii_tolower ((guchar) s[5]));
-    else if (strcmp (s, "shift-f3") == 0)
-        ret = KEY_F (13);
-    else if (strcmp (s, "insert") == 0)
-        ret = KEY_IC;
-    else if ((strncmp (s, "shift-f", 7) == 0 || strncmp (s, "s-f", 3) == 0)
-             && g_ascii_isdigit ((guchar) s[strncmp (s, "shift-f", 7) == 0 ? 7 : 3]) != 0)
-    {
-        int base = atoi (s + (strncmp (s, "shift-f", 7) == 0 ? 7 : 3));
-        if (base >= 1 && base <= 12)
-            ret = KEY_F (base + 10);
-    }
-    else if (s[0] == 'f' && g_ascii_isdigit ((guchar) s[1]) != 0)
-    {
-        int n = atoi (s + 1);
-        if (n >= 1 && n <= 24)
-            ret = KEY_F (n);
-    }
+    key = tty_keyname_to_keycode (value, NULL);
 
-    g_free (s);
-    return ret;
+    return key != 0 ? key : fallback;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2458,42 +2435,42 @@ git_handle_key (void *plugin_data, int key)
     git_debug_log ("git: key=%d view=%s current='%s'", key, git_view_name (data->view),
                    current != NULL && current->str != NULL ? current->str : "(null)");
 
-    if ((data->key_diff >= 0 && key == data->key_diff)
-        || (data->key_diff_alt >= 0 && key == data->key_diff_alt))
+    if ((data->key_diff != 0 && key == data->key_diff)
+        || (data->key_diff_alt != 0 && key == data->key_diff_alt))
     {
         if ((git_view_t) data->view != GIT_VIEW_COMMITS && git_show_diff_selected (data))
             return MC_PPR_OK;
         return MC_PPR_FAILED;
     }
 
-    if (data->key_refresh >= 0 && key == data->key_refresh)
+    if (data->key_refresh != 0 && key == data->key_refresh)
         return MC_PPR_OK;
 
     if ((git_view_t) data->view != GIT_VIEW_STATUS)
         return MC_PPR_FAILED;
 
-    if (data->key_stage >= 0 && key == data->key_stage)
+    if (data->key_stage != 0 && key == data->key_stage)
     {
         if (git_apply_selected (data, GIT_ACTION_STAGE))
             return MC_PPR_OK;
         return MC_PPR_FAILED;
     }
 
-    if (data->key_unstage >= 0 && key == data->key_unstage)
+    if (data->key_unstage != 0 && key == data->key_unstage)
     {
         if (git_apply_selected (data, GIT_ACTION_UNSTAGE))
             return MC_PPR_OK;
         return MC_PPR_FAILED;
     }
 
-    if (data->key_toggle >= 0 && key == data->key_toggle)
+    if (data->key_toggle != 0 && key == data->key_toggle)
     {
         if (git_apply_selected (data, GIT_ACTION_TOGGLE))
             return MC_PPR_OK;
         return MC_PPR_FAILED;
     }
 
-    if (data->key_reset >= 0 && key == data->key_reset)
+    if (data->key_reset != 0 && key == data->key_reset)
     {
         if (git_apply_selected (data, GIT_ACTION_RESET))
             return MC_PPR_OK;
