@@ -231,38 +231,17 @@ ftp_log (const char *fmt, ...)
 static int
 ftp_parse_hotkey (const char *value, int fallback)
 {
-    char *s;
-    int ret = fallback;
+    int key;
 
-    if (value == NULL)
+    if (value == NULL || value[0] == '\0')
         return fallback;
 
-    s = g_ascii_strdown (value, -1);
-    g_strstrip (s);
+    if (g_ascii_strcasecmp (value, "none") == 0)
+        return 0;
 
-    if (strcmp (s, "none") == 0)
-        ret = -1;
-    else if (strncmp (s, "ctrl-", 5) == 0 && s[5] != '\0' && s[6] == '\0'
-             && g_ascii_isalpha ((guchar) s[5]))
-        ret = XCTRL (g_ascii_tolower ((guchar) s[5]));
-    else if (s[0] == 'f' && g_ascii_isdigit ((guchar) s[1]) != 0)
-    {
-        int n = atoi (s + 1);
+    key = tty_keyname_to_keycode (value, NULL);
 
-        if (n >= 1 && n <= 24)
-            ret = KEY_F (n);
-    }
-    else if ((strncmp (s, "shift-f", 7) == 0 || strncmp (s, "s-f", 3) == 0)
-             && g_ascii_isdigit ((guchar) s[strncmp (s, "shift-f", 7) == 0 ? 7 : 3]) != 0)
-    {
-        int base = atoi (s + (strncmp (s, "shift-f", 7) == 0 ? 7 : 3));
-
-        if (base >= 1 && base <= 12)
-            ret = KEY_F (base + 10);
-    }
-
-    g_free (s);
-    return ret;
+    return key != 0 ? key : fallback;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -821,32 +800,6 @@ find_entry (const ftp_data_t *data, const char *name)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-
-static char *
-ftp_join_path (const char *base, const char *name)
-{
-    if (strcmp (base, "/") == 0)
-        return g_strdup_printf ("/%s", name);
-
-    return g_strdup_printf ("%s/%s", base, name);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static char *
-ftp_path_up (const char *path)
-{
-    const char *last;
-
-    if (path == NULL || strcmp (path, "/") == 0)
-        return NULL;
-
-    last = strrchr (path, '/');
-    if (last == NULL || last == path)
-        return g_strdup ("/");
-
-    return g_strndup (path, (gsize) (last - path));
-}
 
 /* --------------------------------------------------------------------------------------------- */
 
@@ -2583,7 +2536,7 @@ ftp_chdir (void *plugin_data, const char *path)
         }
 
         {
-            char *parent = ftp_path_up (data->current_path);
+            char *parent = mc_pp_path_up (data->current_path);
 
             if (parent == NULL)
             {
@@ -2627,7 +2580,7 @@ ftp_chdir (void *plugin_data, const char *path)
         if (entry == NULL || !entry->is_dir)
             return MC_PPR_FAILED;
 
-        new_path = ftp_join_path (data->current_path, path);
+        new_path = mc_pp_join_path (data->current_path, path);
 
         g_free (data->current_path);
         data->current_path = new_path;
@@ -2669,7 +2622,7 @@ ftp_enter (void *plugin_data, const char *name, const struct stat *st)
         {
             char *new_path;
 
-            new_path = ftp_join_path (data->current_path, name);
+            new_path = mc_pp_join_path (data->current_path, name);
             g_free (data->current_path);
             data->current_path = new_path;
 
@@ -2719,7 +2672,7 @@ ftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     if (data->at_root || data->active_connection == NULL || data->current_path == NULL)
         return MC_PPR_FAILED;
 
-    remote_path = ftp_join_path (data->current_path, fname);
+    remote_path = mc_pp_join_path (data->current_path, fname);
     url = ftp_build_url (data->active_connection, remote_path);
     g_free (remote_path);
 
@@ -2822,7 +2775,7 @@ ftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
         return MC_PPR_FAILED;
     }
 
-    remote_path = ftp_join_path (data->current_path, dest_name);
+    remote_path = mc_pp_join_path (data->current_path, dest_name);
     url = ftp_build_url (data->active_connection, remote_path);
     g_free (remote_path);
 
@@ -2908,7 +2861,7 @@ ftp_delete_items (void *plugin_data, const char **names, int count)
         if (entry == NULL)
             continue;
 
-        remote_path = ftp_join_path (data->current_path, names[i]);
+        remote_path = mc_pp_join_path (data->current_path, names[i]);
 
         /* build URL pointing to parent directory */
         {
@@ -3246,7 +3199,7 @@ ftp_handle_key (void *plugin_data, int key)
 {
     ftp_data_t *data = (ftp_data_t *) plugin_data;
 
-    if (key == CK_Edit || (data->key_edit >= 0 && key == data->key_edit))
+    if (key == CK_Edit || (data->key_edit != 0 && key == data->key_edit))
         return ftp_edit_connection (data);
 
     if (key == CK_Copy || key == CK_CopySingle || key == CK_Move || key == CK_MoveSingle)
@@ -3256,7 +3209,7 @@ ftp_handle_key (void *plugin_data, int key)
         return MC_PPR_NOT_SUPPORTED;
     }
 
-    if (data->key_refresh >= 0 && key == data->key_refresh)
+    if (data->key_refresh != 0 && key == data->key_refresh)
     {
         FTP_LOG ("handle_key: refresh, invalidating cache for '%s'",
                  data->current_path != NULL ? data->current_path : "(null)");

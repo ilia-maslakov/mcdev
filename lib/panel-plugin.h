@@ -174,4 +174,42 @@ void mc_panel_plugins_shutdown (void);
 
 /*** inline functions ****************************************************************************/
 
+/**
+ * Join two UNIX path components: base + "/" + name.
+ * Avoids double slash when base is "/".
+ * Returns newly allocated string.
+ */
+static inline char *
+mc_pp_join_path (const char *base, const char *name)
+{
+    if (strcmp (base, "/") == 0)
+        return g_strdup_printf ("/%s", name);
+
+    return g_strdup_printf ("%s/%s", base, name);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Return parent directory of a UNIX path.
+ * Returns NULL if path is "/" or NULL (already at root).
+ * Returns newly allocated string.
+ */
+static inline char *
+mc_pp_path_up (const char *path)
+{
+    const char *last;
+
+    if (path == NULL || strcmp (path, "/") == 0)
+        return NULL;
+
+    last = strrchr (path, '/');
+    if (last == NULL || last == path)
+        return g_strdup ("/");
+
+    return g_strndup (path, (gsize) (last - path));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 #endif /* MC__PANEL_PLUGIN_H */
