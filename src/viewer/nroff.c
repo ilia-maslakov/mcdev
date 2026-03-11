@@ -113,6 +113,9 @@ mcview__get_nroff_real_len (WView *view, off_t start, off_t length)
         case NROFF_TYPE_BOLD_UNDERLINE:
             ret += 2 + nroff->char_length + 1;  // '_' + '\b' + letter + '\b'
             break;
+        case NROFF_TYPE_HEADING:
+            ret += (nroff->char_length + 1) * 2;  // letter + '\b' + letter + '\b'
+            break;
         default:
             break;
         }
@@ -195,7 +198,14 @@ mcview_nroff_seq_info (mcview_nroff_t *nroff)
     }
     else if (nroff->current_char == next2)
     {
-        nroff->type = NROFF_TYPE_BOLD;
+        /* ch\bch -- bold, but check for ch\bch\bch -- heading */
+        if (mcview_get_byte (nroff->view, nroff->index + nroff->char_length * 2 + 1, &next3)
+            && next3 == '\b'
+            && mcview_nroff_get_char (nroff, &next4, nroff->index + nroff->char_length * 2 + 2)
+            && next4 == nroff->current_char)
+            nroff->type = NROFF_TYPE_HEADING;
+        else
+            nroff->type = NROFF_TYPE_BOLD;
     }
     else if (nroff->current_char == '_')
     {
@@ -225,6 +235,9 @@ mcview_nroff_seq_next (mcview_nroff_t *nroff)
         break;
     case NROFF_TYPE_BOLD_UNDERLINE:
         nroff->index += 2 + nroff->char_length + 1;  // '_' + '\b' + letter + '\b'
+        break;
+    case NROFF_TYPE_HEADING:
+        nroff->index += (nroff->char_length + 1) * 2;  // letter + '\b' + letter + '\b'
         break;
     default:
         break;

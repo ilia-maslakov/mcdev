@@ -12,6 +12,9 @@
 BEGIN {
     if (WRAP_WIDTH == 0) WRAP_WIDTH = 28
     if (MAX_ROW_LEN == 0) MAX_ROW_LEN = 75
+    BOX_H = "─"
+    BOX_V = "│"
+    BOX_X = "┼"
 }
 
 function push_seg(r, c, s,    k) {
@@ -133,14 +136,14 @@ END {
                 pad = colw[c] - length(cell)
                 if (row == 1)
                     cell = boldify(cell)
-                out = out (c == 1 ? "" : " | ") cell rep(" ", pad)
+                out = out (c == 1 ? "" : " " BOX_V " ") cell rep(" ", pad)
             }
             print out
         }
 
         sep = ""
         for (c = 1; c <= maxc; c++)
-            sep = sep (c == 1 ? "" : "-+-") rep("-", colw[c])
+            sep = sep (c == 1 ? "" : BOX_H BOX_X BOX_H) rep(BOX_H, colw[c])
         print sep
     }
 }

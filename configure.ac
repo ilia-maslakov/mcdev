@@ -16,7 +16,7 @@ AC_CONFIG_SRCDIR(src/main.c)
 AC_CONFIG_HEADERS(config.h)
 
 dnl Apply "no-define" to avoid defining the VERSION macro in config.h
-AM_INIT_AUTOMAKE([no-define])
+AM_INIT_AUTOMAKE([no-define subdir-objects])
 dnl PACKAGE macro isn't defined if "no-define" is applied
 AC_DEFINE([PACKAGE], ["mc"], [Name of package])
 

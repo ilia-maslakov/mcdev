@@ -177,12 +177,13 @@ LTLIBRARIES = $(panelplugin_LTLIBRARIES)
 am__DEPENDENCIES_1 =
 mc_panel_arcmc_la_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
+am__dirstamp = $(am__leading_dot)dirstamp
 am_mc_panel_arcmc_la_OBJECTS = mc_panel_arcmc_la-arcmc.lo \
 	mc_panel_arcmc_la-arcmc-config.lo \
 	mc_panel_arcmc_la-archive-io.lo mc_panel_arcmc_la-progress.lo \
 	mc_panel_arcmc_la-dialog-pack.lo \
 	mc_panel_arcmc_la-dialog-settings.lo \
-	mc_panel_arcmc_la-table.lo
+	$(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo
 mc_panel_arcmc_la_OBJECTS = $(am_mc_panel_arcmc_la_OBJECTS)
 AM_V_lt = $(am__v_lt_@AM_V@)
 am__v_lt_ = $(am__v_lt_@AM_DEFAULT_V@)
@@ -207,13 +208,13 @@ am__v_at_1 =
 DEFAULT_INCLUDES = -I.@am__isrc@ -I$(top_builddir)
 depcomp = $(SHELL) $(top_srcdir)/config/depcomp
 am__maybe_remake_depfiles = depfiles
-am__depfiles_remade = ./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo \
+am__depfiles_remade = $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Plo \
+	./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo \
 	./$(DEPDIR)/mc_panel_arcmc_la-arcmc-config.Plo \
 	./$(DEPDIR)/mc_panel_arcmc_la-arcmc.Plo \
 	./$(DEPDIR)/mc_panel_arcmc_la-dialog-pack.Plo \
 	./$(DEPDIR)/mc_panel_arcmc_la-dialog-settings.Plo \
-	./$(DEPDIR)/mc_panel_arcmc_la-progress.Plo \
-	./$(DEPDIR)/mc_panel_arcmc_la-table.Plo
+	./$(DEPDIR)/mc_panel_arcmc_la-progress.Plo
 am__mv = mv -f
 COMPILE = $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(AM_CPPFLAGS) \
 	$(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS)
@@ -541,23 +542,34 @@ clean-panelpluginLTLIBRARIES:
 	  echo rm -f $${locs}; \
 	  rm -f $${locs}; \
 	}
+$(top_builddir)/lib/widget/$(am__dirstamp):
+	@$(MKDIR_P) $(top_builddir)/lib/widget
+	@: > $(top_builddir)/lib/widget/$(am__dirstamp)
+$(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp):
+	@$(MKDIR_P) $(top_builddir)/lib/widget/$(DEPDIR)
+	@: > $(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp)
+$(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo:  \
+	$(top_builddir)/lib/widget/$(am__dirstamp) \
+	$(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp)
 
 mc-panel-arcmc.la: $(mc_panel_arcmc_la_OBJECTS) $(mc_panel_arcmc_la_DEPENDENCIES) $(EXTRA_mc_panel_arcmc_la_DEPENDENCIES) 
 	$(AM_V_CCLD)$(mc_panel_arcmc_la_LINK) -rpath $(panelplugindir) $(mc_panel_arcmc_la_OBJECTS) $(mc_panel_arcmc_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
+	-rm -f $(top_builddir)/lib/widget/*.$(OBJEXT)
+	-rm -f $(top_builddir)/lib/widget/*.lo
 
 distclean-compile:
 	-rm -f *.tab.c
 
+@AMDEP_TRUE@@am__include@ @am__quote@$(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-arcmc-config.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-arcmc.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-dialog-pack.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-dialog-settings.Plo@am__quote@ # am--include-marker
 @AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-progress.Plo@am__quote@ # am--include-marker
-@AMDEP_TRUE@@am__include@ @am__quote@./$(DEPDIR)/mc_panel_arcmc_la-table.Plo@am__quote@ # am--include-marker
 
 $(am__depfiles_remade):
 	@$(MKDIR_P) $(@D)
@@ -566,22 +578,25 @@ $(am__depfiles_remade):
 am--depfiles: $(am__depfiles_remade)
 
 .c.o:
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@am__fastdepCC_TRUE@	$(AM_V_CC)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.o$$||'`;\
+@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $$depbase.Tpo -c -o $@ $< &&\
+@am__fastdepCC_TRUE@	$(am__mv) $$depbase.Tpo $$depbase.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c -o $@ $<
 
 .c.obj:
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(COMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ `$(CYGPATH_W) '$<'`
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Po
+@am__fastdepCC_TRUE@	$(AM_V_CC)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.obj$$||'`;\
+@am__fastdepCC_TRUE@	$(COMPILE) -MT $@ -MD -MP -MF $$depbase.Tpo -c -o $@ `$(CYGPATH_W) '$<'` &&\
+@am__fastdepCC_TRUE@	$(am__mv) $$depbase.Tpo $$depbase.Po
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=no @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(COMPILE) -c -o $@ `$(CYGPATH_W) '$<'`
 
 .c.lo:
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LTCOMPILE) -MT $@ -MD -MP -MF $(DEPDIR)/$*.Tpo -c -o $@ $<
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/$*.Tpo $(DEPDIR)/$*.Plo
+@am__fastdepCC_TRUE@	$(AM_V_CC)depbase=`echo $@ | sed 's|[^/]*$$|$(DEPDIR)/&|;s|\.lo$$||'`;\
+@am__fastdepCC_TRUE@	$(LTCOMPILE) -MT $@ -MD -MP -MF $$depbase.Tpo -c -o $@ $< &&\
+@am__fastdepCC_TRUE@	$(am__mv) $$depbase.Tpo $$depbase.Plo
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$<' object='$@' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LTCOMPILE) -c -o $@ $<
@@ -628,17 +643,18 @@ mc_panel_arcmc_la-dialog-settings.lo: dialog-settings.c
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
 @am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mc_panel_arcmc_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mc_panel_arcmc_la-dialog-settings.lo `test -f 'dialog-settings.c' || echo '$(srcdir)/'`dialog-settings.c
 
-mc_panel_arcmc_la-table.lo: $(top_srcdir)/lib/widget/table.c
-@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mc_panel_arcmc_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT mc_panel_arcmc_la-table.lo -MD -MP -MF $(DEPDIR)/mc_panel_arcmc_la-table.Tpo -c -o mc_panel_arcmc_la-table.lo `test -f '$(top_srcdir)/lib/widget/table.c' || echo '$(srcdir)/'`$(top_srcdir)/lib/widget/table.c
-@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(DEPDIR)/mc_panel_arcmc_la-table.Tpo $(DEPDIR)/mc_panel_arcmc_la-table.Plo
-@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(top_srcdir)/lib/widget/table.c' object='mc_panel_arcmc_la-table.lo' libtool=yes @AMDEPBACKSLASH@
+$(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo: $(top_builddir)/lib/widget/table.c
+@am__fastdepCC_TRUE@	$(AM_V_CC)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mc_panel_arcmc_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -MT $(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo -MD -MP -MF $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Tpo -c -o $(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo `test -f '$(top_builddir)/lib/widget/table.c' || echo '$(srcdir)/'`$(top_builddir)/lib/widget/table.c
+@am__fastdepCC_TRUE@	$(AM_V_at)$(am__mv) $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Tpo $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Plo
+@AMDEP_TRUE@@am__fastdepCC_FALSE@	$(AM_V_CC)source='$(top_builddir)/lib/widget/table.c' object='$(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo' libtool=yes @AMDEPBACKSLASH@
 @AMDEP_TRUE@@am__fastdepCC_FALSE@	DEPDIR=$(DEPDIR) $(CCDEPMODE) $(depcomp) @AMDEPBACKSLASH@
-@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mc_panel_arcmc_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o mc_panel_arcmc_la-table.lo `test -f '$(top_srcdir)/lib/widget/table.c' || echo '$(srcdir)/'`$(top_srcdir)/lib/widget/table.c
+@am__fastdepCC_FALSE@	$(AM_V_CC@am__nodep@)$(LIBTOOL) $(AM_V_lt) --tag=CC $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=compile $(CC) $(DEFS) $(DEFAULT_INCLUDES) $(INCLUDES) $(mc_panel_arcmc_la_CPPFLAGS) $(CPPFLAGS) $(AM_CFLAGS) $(CFLAGS) -c -o $(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo `test -f '$(top_builddir)/lib/widget/table.c' || echo '$(srcdir)/'`$(top_builddir)/lib/widget/table.c
 
 mostlyclean-libtool:
 	-rm -f *.lo
 
 clean-libtool:
+	-rm -rf $(top_builddir)/lib/widget/.libs $(top_builddir)/lib/widget/_libs
 	-rm -rf .libs _libs
 
 ID: $(am__tagged_files)
@@ -758,6 +774,8 @@ clean-generic:
 distclean-generic:
 	-test -z "$(CONFIG_CLEAN_FILES)" || rm -f $(CONFIG_CLEAN_FILES)
 	-test . = "$(srcdir)" || test -z "$(CONFIG_CLEAN_VPATH_FILES)" || rm -f $(CONFIG_CLEAN_VPATH_FILES)
+	-test -z "$(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp)" || rm -f $(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp)
+	-test -z "$(top_builddir)/lib/widget/$(am__dirstamp)" || rm -f $(top_builddir)/lib/widget/$(am__dirstamp)
 
 maintainer-clean-generic:
 	@echo "This command is intended for maintainers to use"
@@ -768,13 +786,13 @@ clean-am: clean-generic clean-libtool clean-panelpluginLTLIBRARIES \
 	mostlyclean-am
 
 distclean: distclean-am
-		-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo
+		-rm -f $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Plo
+	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-arcmc-config.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-arcmc.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-dialog-pack.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-dialog-settings.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-progress.Plo
-	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-table.Plo
 	-rm -f Makefile
 distclean-am: clean-am distclean-compile distclean-generic \
 	distclean-tags
@@ -820,13 +838,13 @@ install-ps-am:
 installcheck-am:
 
 maintainer-clean: maintainer-clean-am
-		-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo
+		-rm -f $(top_builddir)/lib/widget/$(DEPDIR)/mc_panel_arcmc_la-table.Plo
+	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-archive-io.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-arcmc-config.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-arcmc.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-dialog-pack.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-dialog-settings.Plo
 	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-progress.Plo
-	-rm -f ./$(DEPDIR)/mc_panel_arcmc_la-table.Plo
 	-rm -f Makefile
 maintainer-clean-am: distclean-am maintainer-clean-generic
 

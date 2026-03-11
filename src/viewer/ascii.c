@@ -404,10 +404,24 @@ mcview_get_next_maybe_nroff_char (WView *view, mcview_state_machine_t *state, in
     }
     else if (*c == c3)
     {
-        *state = state_after_three_chars;
+        /* ch\bch -- bold; check for ch\bch\bch -- heading */
+        mcview_state_machine_t state_after_heading = state_after_three_chars;
+        int c_h1, c_h2;
+
+        if (mcview_get_next_char (view, &state_after_heading, &c_h1) && c_h1 == '\b'
+            && mcview_get_next_char (view, &state_after_heading, &c_h2) && c_h2 == *c)
+        {
+            *state = state_after_heading;
+            if (color != NULL)
+                *color = VIEWER_HEADING_COLOR;
+        }
+        else
+        {
+            *state = state_after_three_chars;
+            if (color != NULL)
+                *color = VIEWER_BOLD_COLOR;
+        }
         state->nroff_underscore_is_underlined = FALSE;
-        if (color != NULL)
-            *color = VIEWER_BOLD_COLOR;
     }
     else if (*c == '_')
     {
