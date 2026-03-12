@@ -2307,7 +2307,8 @@ typedef struct
     LIBSSH2_SESSION *ssh_session;
     char *remote_path;
     int write_fd;
-    gboolean open_ok; /* TRUE if sftp_open succeeded */
+    gboolean open_ok;   /* TRUE if sftp_open succeeded */
+    gboolean read_error; /* TRUE if sftp_read failed (not EOF, not EPIPE) */
 } sftp_stream_ctx_t;
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2347,11 +2348,15 @@ sftp_stream_thread (gpointer arg)
                 ssize_t written = write (ctx->write_fd, p, (size_t) left);
 
                 if (written <= 0)
-                    goto close_fh;
+                    goto close_fh; /* EPIPE = viewer closed, not an error */
                 p += written;
                 left -= written;
             }
         }
+
+        /* n < 0 means libssh2 read error (n == 0 is normal EOF) */
+        if (n < 0)
+            ctx->read_error = TRUE;
     }
 
 close_fh:
@@ -2385,9 +2390,7 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
     ctx.remote_path = mc_pp_join_path (data->current_path, fname);
     ctx.write_fd = pipefd[1];
     ctx.open_ok = FALSE;
-
-    /* Temporarily reduce session timeout so join() won't block too long on early viewer close */
-    libssh2_session_set_timeout (data->session, 3000);
+    ctx.read_error = FALSE;
 
     thread = g_thread_new ("sftp-stream", sftp_stream_thread, &ctx);
     if (thread == NULL)
@@ -2397,6 +2400,9 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
         g_free (ctx.remote_path);
         return MC_PPR_FAILED;
     }
+
+    /* Temporarily reduce session timeout so join() won't block too long on early viewer close */
+    libssh2_session_set_timeout (data->session, 3000);
 
     (void) mcview_viewer_fd (pipefd[0]);
 
@@ -2411,10 +2417,18 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
         libssh2_session_set_timeout (data->session, tout);
     }
 
-    result = ctx.open_ok ? MC_PPR_OK : MC_PPR_FAILED;
-
     if (!ctx.open_ok)
+    {
         message (D_ERROR, _ ("SFTP"), _ ("Cannot open remote file\n%s"), ctx.remote_path);
+        result = MC_PPR_FAILED;
+    }
+    else if (ctx.read_error)
+    {
+        message (D_ERROR, _ ("SFTP"), _ ("Error reading remote file\n%s"), ctx.remote_path);
+        result = MC_PPR_FAILED;
+    }
+    else
+        result = MC_PPR_OK;
 
     g_free (ctx.remote_path);
 
