@@ -853,8 +853,7 @@ sftp_connect_status_update_cb (status_msg_t *sm)
 
 /* --------------------------------------------------------------------------------------------- */
 
-static gboolean
-sftp_connect_status_set_stage (sftp_connect_status_msg_t *fsm, const char *fmt, ...)
+static gboolean sftp_connect_status_set_stage (sftp_connect_status_msg_t *fsm, const char *fmt, ...)
     G_GNUC_PRINTF (2, 3);
 
 static gboolean
@@ -891,9 +890,8 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
 
     memset (&status, 0, sizeof (status));
     status.log = g_string_new (NULL);
-    status_msg_init (STATUS_MSG (&status), _ ("SFTP connection"), 0.0,
-                     sftp_connect_status_init_cb, sftp_connect_status_update_cb,
-                     sftp_connect_status_deinit_cb);
+    status_msg_init (STATUS_MSG (&status), _ ("SFTP connection"), 0.0, sftp_connect_status_init_cb,
+                     sftp_connect_status_update_cb, sftp_connect_status_deinit_cb);
     status_inited = TRUE;
 
     if (!sftp_connect_status_set_stage (&status, _ ("Connecting to %s:%d..."), conn->host,
@@ -2306,8 +2304,10 @@ sftp_edit_connection (sftp_data_t *data)
 typedef struct
 {
     LIBSSH2_SFTP *sftp;
+    LIBSSH2_SESSION *ssh_session;
     char *remote_path;
     int write_fd;
+    gboolean open_ok; /* TRUE if sftp_open succeeded */
 } sftp_stream_ctx_t;
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2325,7 +2325,14 @@ sftp_stream_thread (gpointer arg)
     pthread_sigmask (SIG_BLOCK, &block_set, &old_set);
 
     fh = libssh2_sftp_open (ctx->sftp, ctx->remote_path, LIBSSH2_FXF_READ, 0);
-    if (fh != NULL)
+    if (fh == NULL)
+    {
+        ctx->open_ok = FALSE;
+        goto out;
+    }
+
+    ctx->open_ok = TRUE;
+
     {
         char buf[64 * 1024];
         ssize_t n;
@@ -2340,18 +2347,18 @@ sftp_stream_thread (gpointer arg)
                 ssize_t written = write (ctx->write_fd, p, (size_t) left);
 
                 if (written <= 0)
-                    goto done;
+                    goto close_fh;
                 p += written;
                 left -= written;
             }
         }
-
-      done:
-        libssh2_sftp_close (fh);
     }
 
-    close (ctx->write_fd);
+close_fh:
+    libssh2_sftp_close (fh);
 
+out:
+    close (ctx->write_fd);
     pthread_sigmask (SIG_SETMASK, &old_set, NULL);
 
     return NULL;
@@ -2365,6 +2372,7 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
     int pipefd[2];
     sftp_stream_ctx_t ctx;
     GThread *thread;
+    mc_pp_result_t result;
 
     if (data->sftp_session == NULL || data->current_path == NULL || fname == NULL)
         return MC_PPR_FAILED;
@@ -2373,8 +2381,13 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
         return MC_PPR_FAILED;
 
     ctx.sftp = data->sftp_session;
+    ctx.ssh_session = data->session;
     ctx.remote_path = mc_pp_join_path (data->current_path, fname);
     ctx.write_fd = pipefd[1];
+    ctx.open_ok = FALSE;
+
+    /* Temporarily reduce session timeout so join() won't block too long on early viewer close */
+    libssh2_session_set_timeout (data->session, 3000);
 
     thread = g_thread_new ("sftp-stream", sftp_stream_thread, &ctx);
     if (thread == NULL)
@@ -2390,9 +2403,22 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
     /* Wait for thread to finish before returning (ensures no use-after-free of sftp session) */
     g_thread_join (thread);
 
+    /* Restore original session timeout */
+    {
+        const sftp_connection_t *conn = data->active_connection;
+        long tout = (conn != NULL && conn->timeout > 0) ? (long) conn->timeout * 1000 : 30000;
+
+        libssh2_session_set_timeout (data->session, tout);
+    }
+
+    result = ctx.open_ok ? MC_PPR_OK : MC_PPR_FAILED;
+
+    if (!ctx.open_ok)
+        message (D_ERROR, _ ("SFTP"), _ ("Cannot open remote file\n%s"), ctx.remote_path);
+
     g_free (ctx.remote_path);
 
-    return MC_PPR_OK;
+    return result;
 }
 
 /* --------------------------------------------------------------------------------------------- */
