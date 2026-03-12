@@ -2028,15 +2028,36 @@ sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         if (n == 0)
             break;
 
-        if (n < 0 || write (local_fd, buf, (size_t) n) != n)
+        if (n < 0)
         {
             result = MC_PPR_FAILED;
             break;
         }
 
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = write (local_fd, p, (size_t) left);
+
+                if (w < 0 && errno == EINTR)
+                    continue;
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto download_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
         transferred += n;
     }
 
+download_done:
     sftp_progress_destroy (progress);
 
     close (local_fd);
@@ -2107,15 +2128,34 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
         if (n == 0)
             break;
 
-        if (n < 0 || libssh2_sftp_write (fileh, buf, (size_t) n) != n)
+        if (n < 0)
         {
             result = MC_PPR_FAILED;
             break;
         }
 
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = libssh2_sftp_write (fileh, p, (size_t) left);
+
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto upload_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
         transferred += n;
     }
 
+upload_done:
     sftp_progress_destroy (progress);
 
     close (local_fd);
