@@ -141,6 +141,8 @@ static mc_pp_result_t sftp_get_items (void *plugin_data, void *list_ptr);
 static mc_pp_result_t sftp_chdir (void *plugin_data, const char *path);
 static mc_pp_result_t sftp_enter (void *plugin_data, const char *name, const struct stat *st);
 static mc_pp_result_t sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path);
+static mc_pp_result_t sftp_copy_to_local (void *plugin_data, const char *fname,
+                                          const char *local_path);
 static mc_pp_result_t sftp_put_file (void *plugin_data, const char *local_path,
                                      const char *dest_name);
 static mc_pp_result_t sftp_delete_items (void *plugin_data, const char **names, int count);
@@ -185,6 +187,7 @@ static const mc_panel_plugin_t sftp_plugin = {
     .chdir = sftp_chdir,
     .enter = sftp_enter,
     .get_local_copy = sftp_get_local_copy,
+    .copy_to_local = sftp_copy_to_local,
     .put_file = sftp_put_file,
     .save_file = sftp_put_file,
     .delete_items = sftp_delete_items,
@@ -2076,6 +2079,113 @@ download_done:
 /* --------------------------------------------------------------------------------------------- */
 
 static mc_pp_result_t
+sftp_copy_to_local (void *plugin_data, const char *fname, const char *local_path)
+{
+    sftp_data_t *data = (sftp_data_t *) plugin_data;
+    LIBSSH2_SFTP_HANDLE *fileh;
+    char *remote_path;
+    int local_fd;
+    LIBSSH2_SFTP_ATTRIBUTES attrs;
+    off_t total_size = 0;
+    off_t transferred = 0;
+    sftp_progress_t *progress;
+    mc_pp_result_t result = MC_PPR_OK;
+
+    if (data->at_root || data->sftp_session == NULL || data->current_path == NULL)
+        return MC_PPR_FAILED;
+
+    /* Check if destination exists and ask for overwrite */
+    if (g_file_test (local_path, G_FILE_TEST_EXISTS))
+    {
+        if (query_dialog (_ ("Copy"), _ ("Local file already exists. Overwrite?"), D_NORMAL, 2,
+                          _ ("&Yes"), _ ("&No"))
+            != 0)
+            return MC_PPR_NOT_SUPPORTED;
+    }
+
+    remote_path = mc_pp_join_path (data->current_path, fname);
+    fileh = libssh2_sftp_open (data->sftp_session, remote_path, LIBSSH2_FXF_READ, 0);
+
+    if (fileh == NULL)
+    {
+        g_free (remote_path);
+        return MC_PPR_FAILED;
+    }
+
+    /* Get file size for progress */
+    if (libssh2_sftp_stat (data->sftp_session, remote_path, &attrs) == 0
+        && (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) != 0)
+        total_size = (off_t) attrs.filesize;
+    g_free (remote_path);
+
+    local_fd = open (local_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (local_fd == -1)
+    {
+        libssh2_sftp_close (fileh);
+        return MC_PPR_FAILED;
+    }
+
+    progress = sftp_progress_create (_ ("Downloading"), fname);
+
+    while (TRUE)
+    {
+        char buf[64 * 1024];
+        ssize_t n;
+
+        if (!sftp_progress_update (progress, total_size, transferred))
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
+
+        n = libssh2_sftp_read (fileh, buf, sizeof (buf));
+        if (n == 0)
+            break;
+
+        if (n < 0)
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
+
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = write (local_fd, p, (size_t) left);
+
+                if (w < 0 && errno == EINTR)
+                    continue;
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto copy_to_local_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
+        transferred += n;
+    }
+
+copy_to_local_done:
+    sftp_progress_destroy (progress);
+
+    close (local_fd);
+    libssh2_sftp_close (fileh);
+
+    if (result != MC_PPR_OK)
+        unlink (local_path);
+
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
 sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
 {
     sftp_data_t *data = (sftp_data_t *) plugin_data;
@@ -2100,6 +2210,24 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
         total_size = st.st_size;
 
     remote_path = mc_pp_join_path (data->current_path, dest_name);
+
+    /* Check if remote file already exists */
+    {
+        LIBSSH2_SFTP_ATTRIBUTES attrs;
+
+        if (libssh2_sftp_stat (data->sftp_session, remote_path, &attrs) == 0)
+        {
+            if (query_dialog (_ ("SFTP"), _ ("Remote file already exists. Overwrite?"), D_NORMAL, 2,
+                              _ ("&Yes"), _ ("&No"))
+                != 0)
+            {
+                close (local_fd);
+                g_free (remote_path);
+                return MC_PPR_FAILED;
+            }
+        }
+    }
+
     fileh = libssh2_sftp_open (
         data->sftp_session, remote_path, LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
         LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
@@ -2344,10 +2472,9 @@ sftp_edit_connection (sftp_data_t *data)
 typedef struct
 {
     LIBSSH2_SFTP *sftp;
-    LIBSSH2_SESSION *ssh_session;
     char *remote_path;
     int write_fd;
-    gboolean open_ok;   /* TRUE if sftp_open succeeded */
+    gboolean open_ok;    /* TRUE if sftp_open succeeded */
     gboolean read_error; /* TRUE if sftp_read failed (not EOF, not EPIPE) */
 } sftp_stream_ctx_t;
 
@@ -2426,7 +2553,6 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
         return MC_PPR_FAILED;
 
     ctx.sftp = data->sftp_session;
-    ctx.ssh_session = data->session;
     ctx.remote_path = mc_pp_join_path (data->current_path, fname);
     ctx.write_fd = pipefd[1];
     ctx.open_ok = FALSE;
