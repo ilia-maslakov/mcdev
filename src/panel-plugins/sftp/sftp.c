@@ -23,6 +23,8 @@
 #include <config.h>
 
 #include <errno.h>
+#include <pthread.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -992,8 +994,7 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
                                                           conn->privkey, passphrase);
                 if (rc == 0)
                 {
-                    g_free (conn->password);
-                    conn->password = passphrase;
+                    g_free (passphrase);
                     g_free (pubkey_auto);
                     goto auth_ok;
                 }
@@ -2316,6 +2317,12 @@ sftp_stream_thread (gpointer arg)
 {
     sftp_stream_ctx_t *ctx = (sftp_stream_ctx_t *) arg;
     LIBSSH2_SFTP_HANDLE *fh;
+    sigset_t block_set, old_set;
+
+    /* Block SIGPIPE in this thread so write() returns EPIPE instead of killing the process */
+    sigemptyset (&block_set);
+    sigaddset (&block_set, SIGPIPE);
+    pthread_sigmask (SIG_BLOCK, &block_set, &old_set);
 
     fh = libssh2_sftp_open (ctx->sftp, ctx->remote_path, LIBSSH2_FXF_READ, 0);
     if (fh != NULL)
@@ -2344,8 +2351,9 @@ sftp_stream_thread (gpointer arg)
     }
 
     close (ctx->write_fd);
-    g_free (ctx->remote_path);
-    g_free (ctx);
+
+    pthread_sigmask (SIG_SETMASK, &old_set, NULL);
+
     return NULL;
 }
 
@@ -2355,7 +2363,7 @@ static mc_pp_result_t
 sftp_view_stream (sftp_data_t *data, const char *fname)
 {
     int pipefd[2];
-    sftp_stream_ctx_t *ctx;
+    sftp_stream_ctx_t ctx;
     GThread *thread;
 
     if (data->sftp_session == NULL || data->current_path == NULL || fname == NULL)
@@ -2364,23 +2372,25 @@ sftp_view_stream (sftp_data_t *data, const char *fname)
     if (pipe (pipefd) != 0)
         return MC_PPR_FAILED;
 
-    ctx = g_new (sftp_stream_ctx_t, 1);
-    ctx->sftp = data->sftp_session;
-    ctx->remote_path = mc_pp_join_path (data->current_path, fname);
-    ctx->write_fd = pipefd[1];
+    ctx.sftp = data->sftp_session;
+    ctx.remote_path = mc_pp_join_path (data->current_path, fname);
+    ctx.write_fd = pipefd[1];
 
-    thread = g_thread_new ("sftp-stream", sftp_stream_thread, ctx);
+    thread = g_thread_new ("sftp-stream", sftp_stream_thread, &ctx);
     if (thread == NULL)
     {
         close (pipefd[0]);
         close (pipefd[1]);
-        g_free (ctx->remote_path);
-        g_free (ctx);
+        g_free (ctx.remote_path);
         return MC_PPR_FAILED;
     }
-    g_thread_unref (thread);
 
     (void) mcview_viewer_fd (pipefd[0]);
+
+    /* Wait for thread to finish before returning (ensures no use-after-free of sftp session) */
+    g_thread_join (thread);
+
+    g_free (ctx.remote_path);
 
     return MC_PPR_OK;
 }

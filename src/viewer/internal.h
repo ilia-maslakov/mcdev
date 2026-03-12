@@ -33,6 +33,7 @@ enum view_ds
     DS_NONE,        // No data available
     DS_STDIO_PIPE,  // Data comes from a pipe using popen/pclose
     DS_VFS_PIPE,    // Data comes from a piped-in VFS file
+    DS_RAW_PIPE,    // Data comes from a raw (non-VFS) pipe fd
     DS_FILE,        // Data comes from a VFS file
     DS_STRING       // Data comes from a string in memory
 };
@@ -105,6 +106,9 @@ struct WView
 
     // vfs pipe data source
     int ds_vfs_pipe;  // Non-seekable vfs file descriptor
+
+    // raw pipe data source (non-VFS, e.g. from plugin streaming)
+    int ds_raw_pipe;  // Raw POSIX pipe fd
 
     // vfs file data source
     int ds_file_fd;           // File with random access
@@ -251,6 +255,7 @@ void mcview_close_datasource (WView *view);
 void mcview_set_datasource_file (WView *view, int fd, const struct stat *st);
 gboolean mcview_load_command_output (WView *view, const char *command);
 void mcview_set_datasource_vfs_pipe (WView *view, int fd);
+void mcview_set_datasource_raw_pipe (WView *view, int fd);
 void mcview_set_datasource_string (WView *view, const char *s);
 
 /* dialog.c: */
@@ -398,6 +403,7 @@ mcview_get_byte (WView *view, off_t offset, int *retval)
     {
     case DS_STDIO_PIPE:
     case DS_VFS_PIPE:
+    case DS_RAW_PIPE:
         return mcview_get_byte_growing_buffer (view, offset, retval);
     case DS_FILE:
         return mcview_get_byte_file (view, offset, retval);

@@ -305,7 +305,7 @@ mcview_viewer_fd (int fd)
 
     view_dlg->get_title = mcview_get_title;
 
-    mcview_set_datasource_vfs_pipe (lc_mcview, fd);
+    mcview_set_datasource_raw_pipe (lc_mcview, fd);
     mcview_display (lc_mcview);
 
     dlg_run (view_dlg);
