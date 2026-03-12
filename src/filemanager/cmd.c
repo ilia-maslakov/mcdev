@@ -1683,7 +1683,7 @@ plugin_panel_copy_cmd (WPanel *panel)
     if (panel->plugin == NULL || panel->plugin_data == NULL)
         return;
 
-    if (panel->plugin->get_local_copy == NULL)
+    if (panel->plugin->copy_to_local == NULL && panel->plugin->get_local_copy == NULL)
     {
         message (D_ERROR, MSG_ERROR, _ ("This plugin does not support copying files"));
         return;
@@ -1703,28 +1703,35 @@ plugin_panel_copy_cmd (WPanel *panel)
     for (i = 0; i < names->len; i++)
     {
         const char *name = (const char *) g_ptr_array_index (names, i);
-        char *local_path = NULL;
-        char *base_name = NULL;
-        mc_pp_result_t r;
+        char *base_name;
         char *dest_path;
-
-        r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
-        if (r == MC_PPR_NOT_SUPPORTED)
-            continue;
-        if (r != MC_PPR_OK || local_path == NULL)
-        {
-            message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);
-            continue;
-        }
+        mc_pp_result_t r;
 
         base_name = g_path_get_basename (name);
         dest_path = mc_build_filename (dest_dir, base_name, (char *) NULL);
 
-        if (!copy_local_file (local_path, dest_path))
-            message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
+        if (panel->plugin->copy_to_local != NULL)
+        {
+            r = panel->plugin->copy_to_local (panel->plugin_data, name, dest_path);
+            if (r != MC_PPR_OK && r != MC_PPR_NOT_SUPPORTED)
+                message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
+        }
+        else
+        {
+            char *local_path = NULL;
 
-        unlink (local_path);
-        g_free (local_path);
+            r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
+            if (r == MC_PPR_OK && local_path != NULL)
+            {
+                if (!copy_local_file (local_path, dest_path))
+                    message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
+                unlink (local_path);
+                g_free (local_path);
+            }
+            else if (r != MC_PPR_NOT_SUPPORTED)
+                message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);
+        }
+
         g_free (dest_path);
         g_free (base_name);
     }
@@ -1843,7 +1850,8 @@ plugin_panel_move_cmd (WPanel *panel)
     if (panel->plugin == NULL || panel->plugin_data == NULL)
         return;
 
-    if (panel->plugin->get_local_copy == NULL || panel->plugin->delete_items == NULL)
+    if ((panel->plugin->copy_to_local == NULL && panel->plugin->get_local_copy == NULL)
+        || panel->plugin->delete_items == NULL)
     {
         message (D_ERROR, MSG_ERROR, _ ("This plugin does not support moving files"));
         return;
@@ -1864,38 +1872,45 @@ plugin_panel_move_cmd (WPanel *panel)
     for (i = 0; i < names->len; i++)
     {
         const char *name = (const char *) g_ptr_array_index (names, i);
-        char *local_path = NULL;
-        char *base_name = NULL;
-        mc_pp_result_t r;
+        char *base_name;
         char *dest_path;
-
-        r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
-        if (r == MC_PPR_NOT_SUPPORTED)
-            continue;
-        if (r != MC_PPR_OK || local_path == NULL)
-        {
-            message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);
-            continue;
-        }
+        mc_pp_result_t r;
+        gboolean ok = FALSE;
 
         base_name = g_path_get_basename (name);
         dest_path = mc_build_filename (dest_dir, base_name, (char *) NULL);
 
-        if (!copy_local_file (local_path, dest_path))
+        if (panel->plugin->copy_to_local != NULL)
         {
-            message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
-            unlink (local_path);
-            g_free (local_path);
-            g_free (dest_path);
-            g_free (base_name);
-            continue;
+            r = panel->plugin->copy_to_local (panel->plugin_data, name, dest_path);
+            if (r == MC_PPR_OK)
+                ok = TRUE;
+            else if (r != MC_PPR_NOT_SUPPORTED)
+                message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
+        }
+        else
+        {
+            char *local_path = NULL;
+
+            r = panel->plugin->get_local_copy (panel->plugin_data, name, &local_path);
+            if (r == MC_PPR_OK && local_path != NULL)
+            {
+                if (copy_local_file (local_path, dest_path))
+                    ok = TRUE;
+                else
+                    message (D_ERROR, MSG_ERROR, _ ("Cannot copy %s"), name);
+                unlink (local_path);
+                g_free (local_path);
+            }
+            else if (r != MC_PPR_NOT_SUPPORTED)
+                message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), name);
         }
 
-        unlink (local_path);
-        g_free (local_path);
         g_free (dest_path);
         g_free (base_name);
-        g_ptr_array_add (moved_names, g_strdup (name));
+
+        if (ok)
+            g_ptr_array_add (moved_names, g_strdup (name));
     }
 
     /* Delete successfully moved files from the plugin */

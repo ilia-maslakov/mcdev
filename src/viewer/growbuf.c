@@ -82,10 +82,15 @@ mcview_growbuf_done (WView *view)
         mc_pclose (view->ds_stdio_pipe, NULL);
         view->ds_stdio_pipe = NULL;
     }
-    else  // view->datasource == DS_VFS_PIPE
+    else if (view->datasource == DS_VFS_PIPE)
     {
         (void) mc_close (view->ds_vfs_pipe);
         view->ds_vfs_pipe = -1;
+    }
+    else  // DS_RAW_PIPE
+    {
+        (void) close (view->ds_raw_pipe);
+        view->ds_raw_pipe = -1;
     }
 }
 
@@ -221,12 +226,23 @@ mcview_growbuf_read_until (WView *view, off_t ofs)
         }
         else
         {
-            g_assert (view->datasource == DS_VFS_PIPE);
-            do
+            if (view->datasource == DS_VFS_PIPE)
             {
-                nread = mc_read (view->ds_vfs_pipe, p, bytesfree);
+                do
+                {
+                    nread = mc_read (view->ds_vfs_pipe, p, bytesfree);
+                }
+                while (nread == -1 && errno == EINTR);
             }
-            while (nread == -1 && errno == EINTR);
+            else
+            {
+                g_assert (view->datasource == DS_RAW_PIPE);
+                do
+                {
+                    nread = read (view->ds_raw_pipe, p, bytesfree);
+                }
+                while (nread == -1 && errno == EINTR);
+            }
 
             if (nread <= 0)
             {

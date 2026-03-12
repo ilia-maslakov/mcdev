@@ -23,6 +23,8 @@
 #include <config.h>
 
 #include <errno.h>
+#include <pthread.h>
+#include <signal.h>
 #include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
@@ -107,6 +109,30 @@ typedef struct
     char *title_buf;
 } sftp_data_t;
 
+/* connection status dialog */
+typedef struct
+{
+    simple_status_msg_t status_msg; /* base class */
+    GString *log;
+    Widget *hline_w;
+    Widget *button_w;
+} sftp_connect_status_msg_t;
+
+/* progress dialog context for file transfers */
+typedef struct
+{
+    WDialog *dlg;
+    WLabel *lbl_file;
+    WLabel *lbl_size;
+    WGauge *gauge;
+    gboolean visible;
+    gboolean aborted;
+    gint64 start_time;
+    const char *direction; /* "Downloading" or "Uploading" */
+    int gauge_cols;
+    int last_col;
+} sftp_progress_t;
+
 /*** forward declarations (file scope functions) *************************************************/
 
 static void *sftp_open (mc_panel_host_t *host, const char *open_path);
@@ -115,6 +141,8 @@ static mc_pp_result_t sftp_get_items (void *plugin_data, void *list_ptr);
 static mc_pp_result_t sftp_chdir (void *plugin_data, const char *path);
 static mc_pp_result_t sftp_enter (void *plugin_data, const char *name, const struct stat *st);
 static mc_pp_result_t sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path);
+static mc_pp_result_t sftp_copy_to_local (void *plugin_data, const char *fname,
+                                          const char *local_path);
 static mc_pp_result_t sftp_put_file (void *plugin_data, const char *local_path,
                                      const char *dest_name);
 static mc_pp_result_t sftp_delete_items (void *plugin_data, const char **names, int count);
@@ -159,6 +187,7 @@ static const mc_panel_plugin_t sftp_plugin = {
     .chdir = sftp_chdir,
     .enter = sftp_enter,
     .get_local_copy = sftp_get_local_copy,
+    .copy_to_local = sftp_copy_to_local,
     .put_file = sftp_put_file,
     .save_file = sftp_put_file,
     .delete_items = sftp_delete_items,
@@ -730,19 +759,151 @@ sftp_auth_agent (sftp_data_t *data, const char *user)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/* Connection status dialog                                                                      */
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sftp_connect_status_init_cb (status_msg_t *sm)
+{
+    simple_status_msg_t *ssm = SIMPLE_STATUS_MSG (sm);
+    sftp_connect_status_msg_t *fsm = (sftp_connect_status_msg_t *) sm;
+    Widget *wd = WIDGET (sm->dlg);
+    WGroup *wg = GROUP (sm->dlg);
+    WRect r;
+    const char *b_name = _ ("&Abort");
+    int b_width, wd_width, y;
+
+    b_width = str_term_width1 (b_name) + 4;
+    wd_width = MAX (wd->rect.cols, b_width + 6);
+
+    y = 2;
+    ssm->label = label_new (y++, 3, NULL);
+    group_add_widget_autopos (wg, ssm->label, WPOS_KEEP_TOP | WPOS_CENTER_HORZ, NULL);
+
+    fsm->hline_w = WIDGET (hline_new (y++, -1, -1));
+    group_add_widget (wg, fsm->hline_w);
+
+    fsm->button_w = WIDGET (button_new (y++, 3, B_CANCEL, NORMAL_BUTTON, b_name, NULL));
+    group_add_widget_autopos (wg, fsm->button_w, WPOS_KEEP_TOP | WPOS_CENTER_HORZ, NULL);
+
+    r = wd->rect;
+    r.lines = y + 2;
+    r.cols = wd_width;
+    widget_set_size_rect (wd, &r);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sftp_connect_status_deinit_cb (status_msg_t *sm)
+{
+    (void) sm;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+sftp_connect_status_update_cb (status_msg_t *sm)
+{
+    simple_status_msg_t *ssm = SIMPLE_STATUS_MSG (sm);
+    sftp_connect_status_msg_t *fsm = (sftp_connect_status_msg_t *) sm;
+    Widget *wd = WIDGET (sm->dlg);
+    Widget *lw = WIDGET (ssm->label);
+    const char *text;
+    int label_lines;
+    WRect r;
+
+    text = (fsm->log != NULL && fsm->log->len > 0) ? fsm->log->str : _ ("Please wait...");
+    label_set_text (ssm->label, text);
+
+    label_lines = lw->rect.lines;
+    r = wd->rect;
+    r.lines = MAX (r.lines, label_lines + 6);
+    r.cols = MAX (r.cols, lw->rect.cols + 6);
+    r.y = (LINES - r.lines) / 2;
+    r.x = (COLS - r.cols) / 2;
+    widget_set_size_rect (wd, &r);
+
+    /* recenter label */
+    {
+        WRect lr = lw->rect;
+
+        lr.x = r.x + (r.cols - lr.cols) / 2;
+        widget_set_size_rect (lw, &lr);
+    }
+
+    /* reposition hline */
+    if (fsm->hline_w != NULL)
+    {
+        WRect hr = fsm->hline_w->rect;
+
+        hr.y = r.y + 2 + label_lines;
+        widget_set_size_rect (fsm->hline_w, &hr);
+    }
+
+    /* reposition button */
+    if (fsm->button_w != NULL)
+    {
+        WRect br = fsm->button_w->rect;
+
+        br.y = r.y + 3 + label_lines;
+        br.x = r.x + (r.cols - br.cols) / 2;
+        widget_set_size_rect (fsm->button_w, &br);
+    }
+
+    return status_msg_common_update (sm);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean sftp_connect_status_set_stage (sftp_connect_status_msg_t *fsm, const char *fmt, ...)
+    G_GNUC_PRINTF (2, 3);
+
+static gboolean
+sftp_connect_status_set_stage (sftp_connect_status_msg_t *fsm, const char *fmt, ...)
+{
+    va_list ap;
+    char *line;
+
+    va_start (ap, fmt);
+    line = g_strdup_vprintf (fmt, ap);
+    va_end (ap);
+
+    if (fsm->log->len > 0)
+        g_string_append_c (fsm->log, '\n');
+    g_string_append (fsm->log, line);
+    g_free (line);
+
+    return (STATUS_MSG (fsm)->update (STATUS_MSG (fsm)) != B_CANCEL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 static gboolean
 sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
 {
     const char *user;
     const char *auth_list;
+    sftp_connect_status_msg_t status;
+    gboolean status_inited = FALSE;
+    gboolean result = FALSE;
 
     if (data == NULL || conn == NULL)
         return FALSE;
 
+    memset (&status, 0, sizeof (status));
+    status.log = g_string_new (NULL);
+    status_msg_init (STATUS_MSG (&status), _ ("SFTP connection"), 0.0, sftp_connect_status_init_cb,
+                     sftp_connect_status_update_cb, sftp_connect_status_deinit_cb);
+    status_inited = TRUE;
+
+    if (!sftp_connect_status_set_stage (&status, _ ("Connecting to %s:%d..."), conn->host,
+                                        conn->port))
+        goto out;
+
     data->socket_handle = sftp_open_socket (conn);
     if (data->socket_handle == LIBSSH2_INVALID_SOCKET)
-        return FALSE;
+        goto out;
 
     data->session = libssh2_session_init ();
     if (data->session == NULL)
@@ -750,12 +911,19 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
 
     libssh2_session_set_blocking (data->session, 1);
 
+    /* Prefer zlib compression if available */
+    libssh2_session_method_pref (data->session, LIBSSH2_METHOD_COMP_CS, "zlib,none");
+    libssh2_session_method_pref (data->session, LIBSSH2_METHOD_COMP_SC, "zlib,none");
+
     /* Timeouts */
     {
         long tout = (conn->timeout > 0) ? (long) conn->timeout * 1000 : 30000;
 
         libssh2_session_set_timeout (data->session, tout);
     }
+
+    if (!sftp_connect_status_set_stage (&status, _ ("SSH handshake...")))
+        goto fail;
 
     if (libssh2_session_handshake (data->session, (libssh2_socket_t) data->socket_handle) != 0)
         goto fail;
@@ -773,6 +941,9 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
 
     if (conn->use_agent && sftp_auth_has_method (auth_list, "publickey"))
     {
+        if (!sftp_connect_status_set_stage (&status, _ ("Authenticating via ssh-agent...")))
+            goto fail;
+
         if (sftp_auth_agent (data, user))
             goto auth_ok;
     }
@@ -780,15 +951,68 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
     if (conn->privkey != NULL && conn->privkey[0] != '\0'
         && sftp_auth_has_method (auth_list, "publickey"))
     {
-        if (libssh2_userauth_publickey_fromfile (data->session, user, conn->pubkey, conn->privkey,
-                                                 conn->password)
-            == 0)
+        int rc;
+        const char *pubkey_path = conn->pubkey;
+        char *pubkey_auto = NULL;
+
+        /* If no public key specified, try privkey + ".pub" */
+        if (pubkey_path == NULL || pubkey_path[0] == '\0')
+        {
+            pubkey_auto = g_strdup_printf ("%s.pub", conn->privkey);
+            if (g_file_test (pubkey_auto, G_FILE_TEST_EXISTS))
+                pubkey_path = pubkey_auto;
+            else
+                pubkey_path = NULL; /* let libssh2 derive it */
+        }
+
+        if (!sftp_connect_status_set_stage (&status, _ ("Authenticating with public key...")))
+        {
+            g_free (pubkey_auto);
+            goto fail;
+        }
+
+        rc = libssh2_userauth_publickey_fromfile (data->session, user, pubkey_path, conn->privkey,
+                                                  conn->password);
+        if (rc == 0)
+        {
+            g_free (pubkey_auto);
             goto auth_ok;
+        }
+
+        /* If key auth failed (wrong passphrase, encrypted key, etc.), ask for passphrase */
+        {
+            char *passphrase;
+            char *prompt;
+
+            prompt = g_strdup_printf (_ ("Enter passphrase for key %s"), conn->privkey);
+            passphrase = input_dialog (_ ("SFTP key passphrase"), prompt, "sftp-passphrase",
+                                       INPUT_PASSWORD, INPUT_COMPLETE_NONE);
+            g_free (prompt);
+
+            if (passphrase != NULL && passphrase[0] != '\0')
+            {
+                rc = libssh2_userauth_publickey_fromfile (data->session, user, pubkey_path,
+                                                          conn->privkey, passphrase);
+                if (rc == 0)
+                {
+                    g_free (passphrase);
+                    g_free (pubkey_auto);
+                    goto auth_ok;
+                }
+            }
+
+            g_free (passphrase);
+        }
+
+        g_free (pubkey_auto);
     }
 
     if (conn->password != NULL && conn->password[0] != '\0'
         && sftp_auth_has_method (auth_list, "password"))
     {
+        if (!sftp_connect_status_set_stage (&status, _ ("Authenticating with password...")))
+            goto fail;
+
         if (libssh2_userauth_password (data->session, user, conn->password) == 0)
             goto auth_ok;
     }
@@ -817,16 +1041,28 @@ sftp_connect (sftp_data_t *data, sftp_connection_t *conn)
     goto fail;
 
 auth_ok:
+    if (!sftp_connect_status_set_stage (&status, _ ("Initializing SFTP session...")))
+        goto fail;
+
     data->sftp_session = libssh2_sftp_init (data->session);
     if (data->sftp_session == NULL)
         goto fail;
 
+    (void) sftp_connect_status_set_stage (&status, _ ("Connected."));
+
     data->active_connection = conn;
-    return TRUE;
+    result = TRUE;
+    goto out;
 
 fail:
     sftp_disconnect (data);
-    return FALSE;
+
+out:
+    if (status_inited)
+        status_msg_deinit (STATUS_MSG (&status));
+    if (status.log != NULL)
+        g_string_free (status.log, TRUE);
+    return result;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1523,6 +1759,219 @@ sftp_enter (void *plugin_data, const char *name, const struct stat *st)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/* Progress dialog                                                                               */
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sftp_format_size (off_t size, char *buf, size_t buf_size)
+{
+    if (size < 1024)
+        g_snprintf (buf, buf_size, "%d B", (int) size);
+    else if (size < 1024 * 1024)
+        g_snprintf (buf, buf_size, "%.1f KiB", (double) size / 1024.0);
+    else if (size < (off_t) 1024 * 1024 * 1024)
+        g_snprintf (buf, buf_size, "%.1f MiB", (double) size / (1024.0 * 1024.0));
+    else
+        g_snprintf (buf, buf_size, "%.1f GiB", (double) size / (1024.0 * 1024.0 * 1024.0));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t
+sftp_progress_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
+{
+    if (msg == MSG_ACTION && parm == CK_Cancel)
+    {
+        DIALOG (w)->ret_value = B_CANCEL;
+        return MSG_HANDLED;
+    }
+
+    return dlg_default_callback (w, sender, msg, parm, data);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+sftp_progress_btn_callback (MC_UNUSED WButton *button, MC_UNUSED int action)
+{
+    return 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static sftp_progress_t *
+sftp_progress_create (const char *direction, const char *fname)
+{
+    sftp_progress_t *p;
+    WGroup *g;
+    WButton *abort_btn;
+    int dlg_width = 56;
+    int y = 2, x = 3;
+    int gauge_width;
+    int btn_width;
+    char title[128];
+
+    p = g_new0 (sftp_progress_t, 1);
+    p->direction = direction;
+    p->start_time = g_get_monotonic_time ();
+    p->visible = FALSE;
+    p->aborted = FALSE;
+    p->last_col = -1;
+
+    gauge_width = dlg_width - 2 * x;
+    p->gauge_cols = gauge_width - 7;
+
+    g_snprintf (title, sizeof (title), " %s ", direction);
+    p->dlg = dlg_create (TRUE, 0, 0, 10, dlg_width, WPOS_CENTER, FALSE, dialog_colors,
+                         sftp_progress_dlg_callback, NULL, NULL, title);
+    g = GROUP (p->dlg);
+
+    /* filename */
+    p->lbl_file = label_new (y++, x, fname);
+    group_add_widget (g, p->lbl_file);
+
+    /* size info */
+    p->lbl_size = label_new (y++, x, "");
+    group_add_widget (g, p->lbl_size);
+
+    /* gauge */
+    p->gauge = gauge_new (y++, x, gauge_width, FALSE, 100, 0);
+    group_add_widget_autopos (g, p->gauge, WPOS_KEEP_TOP | WPOS_KEEP_HORZ, NULL);
+
+    /* separator */
+    group_add_widget (g, hline_new (y++, -1, -1));
+
+    /* Abort button */
+    abort_btn =
+        button_new (y, 0, B_CANCEL, NORMAL_BUTTON, N_ ("&Abort"), sftp_progress_btn_callback);
+    btn_width = button_get_width (abort_btn);
+    WIDGET (abort_btn)->rect.x = (dlg_width - btn_width) / 2;
+    group_add_widget (g, abort_btn);
+    widget_select (WIDGET (abort_btn));
+
+    return p;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sftp_progress_destroy (sftp_progress_t *p)
+{
+    if (p == NULL)
+        return;
+
+    if (p->visible)
+        dlg_run_done (p->dlg);
+
+    widget_destroy (WIDGET (p->dlg));
+    g_free (p);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+sftp_progress_check_buttons (sftp_progress_t *p)
+{
+    int c;
+    Gpm_Event event;
+
+    if (p == NULL || p->aborted || !p->visible)
+        return (p == NULL || !p->aborted);
+
+    event.x = -1;
+    c = tty_get_event (&event, FALSE, FALSE);
+    if (c == EV_NONE)
+        return TRUE;
+
+    p->dlg->ret_value = 0;
+    dlg_process_event (p->dlg, c, &event);
+
+    if (p->dlg->ret_value == B_CANCEL)
+    {
+        if (query_dialog (N_ ("SFTP"), N_ ("Abort current transfer?"), D_NORMAL, 2, N_ ("&Yes"),
+                          N_ ("&No"))
+            == 0)
+        {
+            p->aborted = TRUE;
+            return FALSE;
+        }
+        p->dlg->ret_value = 0;
+    }
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+sftp_progress_update (sftp_progress_t *p, off_t total, off_t now)
+{
+    char buf_done[32], buf_total[32], buf_speed[32];
+    char line[256];
+    int col;
+    gint64 now_time;
+    double elapsed;
+
+    if (p == NULL)
+        return TRUE;
+    if (p->aborted)
+        return FALSE;
+
+    now_time = g_get_monotonic_time ();
+
+    /* defer display for 0.5 second */
+    if (!p->visible)
+    {
+        if (now_time - p->start_time < G_USEC_PER_SEC / 2)
+            return TRUE;
+
+        dlg_init (p->dlg);
+        p->visible = TRUE;
+    }
+
+    if (!sftp_progress_check_buttons (p))
+        return FALSE;
+
+    col = (total > 0) ? (int) ((gint64) p->gauge_cols * now / total) : 0;
+    if (col == p->last_col)
+        return TRUE;
+    p->last_col = col;
+
+    sftp_format_size (now, buf_done, sizeof (buf_done));
+    elapsed = (double) (now_time - p->start_time) / G_USEC_PER_SEC;
+
+    if (total > 0)
+    {
+        sftp_format_size (total, buf_total, sizeof (buf_total));
+
+        if (elapsed > 0.5 && now > 0)
+        {
+            double speed = (double) now / elapsed;
+            double eta = (total > now) ? (double) (total - now) / speed : 0;
+            int eta_sec = (int) eta;
+
+            sftp_format_size ((off_t) speed, buf_speed, sizeof (buf_speed));
+            g_snprintf (line, sizeof (line), " %s / %s @ %s/s - %d:%02d", buf_done, buf_total,
+                        buf_speed, eta_sec / 60, eta_sec % 60);
+        }
+        else
+            g_snprintf (line, sizeof (line), " %s / %s", buf_done, buf_total);
+
+        gauge_set_value (p->gauge, p->gauge_cols, col);
+        gauge_show (p->gauge, TRUE);
+    }
+    else
+    {
+        g_snprintf (line, sizeof (line), " %s", buf_done);
+        gauge_show (p->gauge, FALSE);
+    }
+
+    label_set_text (p->lbl_size, line);
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 static mc_pp_result_t
 sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
@@ -1532,16 +1981,29 @@ sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     char *remote_path;
     int local_fd;
     GError *error = NULL;
+    LIBSSH2_SFTP_ATTRIBUTES attrs;
+    off_t total_size = 0;
+    off_t transferred = 0;
+    sftp_progress_t *progress;
+    mc_pp_result_t result = MC_PPR_OK;
 
     if (data->at_root || data->sftp_session == NULL || data->current_path == NULL)
         return MC_PPR_FAILED;
 
     remote_path = mc_pp_join_path (data->current_path, fname);
     fileh = libssh2_sftp_open (data->sftp_session, remote_path, LIBSSH2_FXF_READ, 0);
-    g_free (remote_path);
 
     if (fileh == NULL)
+    {
+        g_free (remote_path);
         return MC_PPR_FAILED;
+    }
+
+    /* Get file size for progress */
+    if (libssh2_sftp_stat (data->sftp_session, remote_path, &attrs) == 0
+        && (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) != 0)
+        total_size = (off_t) attrs.filesize;
+    g_free (remote_path);
 
     local_fd = g_file_open_tmp ("mc-pp-sftp-XXXXXX", local_path, &error);
     if (local_fd == -1)
@@ -1552,30 +2014,173 @@ sftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         return MC_PPR_FAILED;
     }
 
+    progress = sftp_progress_create (_ ("Downloading"), fname);
+
     while (TRUE)
     {
-        char buf[8192];
+        char buf[64 * 1024];
         ssize_t n;
+
+        if (!sftp_progress_update (progress, total_size, transferred))
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
 
         n = libssh2_sftp_read (fileh, buf, sizeof (buf));
         if (n == 0)
             break;
 
-        if (n < 0 || write (local_fd, buf, (size_t) n) != n)
+        if (n < 0)
         {
-            close (local_fd);
-            libssh2_sftp_close (fileh);
-            unlink (*local_path);
-            g_free (*local_path);
-            *local_path = NULL;
-            return MC_PPR_FAILED;
+            result = MC_PPR_FAILED;
+            break;
         }
+
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = write (local_fd, p, (size_t) left);
+
+                if (w < 0 && errno == EINTR)
+                    continue;
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto download_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
+        transferred += n;
     }
+
+download_done:
+    sftp_progress_destroy (progress);
 
     close (local_fd);
     libssh2_sftp_close (fileh);
 
-    return MC_PPR_OK;
+    if (result != MC_PPR_OK)
+    {
+        unlink (*local_path);
+        g_free (*local_path);
+        *local_path = NULL;
+    }
+
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+sftp_copy_to_local (void *plugin_data, const char *fname, const char *local_path)
+{
+    sftp_data_t *data = (sftp_data_t *) plugin_data;
+    LIBSSH2_SFTP_HANDLE *fileh;
+    char *remote_path;
+    int local_fd;
+    LIBSSH2_SFTP_ATTRIBUTES attrs;
+    off_t total_size = 0;
+    off_t transferred = 0;
+    sftp_progress_t *progress;
+    mc_pp_result_t result = MC_PPR_OK;
+
+    if (data->at_root || data->sftp_session == NULL || data->current_path == NULL)
+        return MC_PPR_FAILED;
+
+    /* Check if destination exists and ask for overwrite */
+    if (g_file_test (local_path, G_FILE_TEST_EXISTS))
+    {
+        if (query_dialog (_ ("Copy"), _ ("Local file already exists. Overwrite?"), D_NORMAL, 2,
+                          _ ("&Yes"), _ ("&No"))
+            != 0)
+            return MC_PPR_NOT_SUPPORTED;
+    }
+
+    remote_path = mc_pp_join_path (data->current_path, fname);
+    fileh = libssh2_sftp_open (data->sftp_session, remote_path, LIBSSH2_FXF_READ, 0);
+
+    if (fileh == NULL)
+    {
+        g_free (remote_path);
+        return MC_PPR_FAILED;
+    }
+
+    /* Get file size for progress */
+    if (libssh2_sftp_stat (data->sftp_session, remote_path, &attrs) == 0
+        && (attrs.flags & LIBSSH2_SFTP_ATTR_SIZE) != 0)
+        total_size = (off_t) attrs.filesize;
+    g_free (remote_path);
+
+    local_fd = open (local_path, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (local_fd == -1)
+    {
+        libssh2_sftp_close (fileh);
+        return MC_PPR_FAILED;
+    }
+
+    progress = sftp_progress_create (_ ("Downloading"), fname);
+
+    while (TRUE)
+    {
+        char buf[64 * 1024];
+        ssize_t n;
+
+        if (!sftp_progress_update (progress, total_size, transferred))
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
+
+        n = libssh2_sftp_read (fileh, buf, sizeof (buf));
+        if (n == 0)
+            break;
+
+        if (n < 0)
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
+
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = write (local_fd, p, (size_t) left);
+
+                if (w < 0 && errno == EINTR)
+                    continue;
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto copy_to_local_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
+        transferred += n;
+    }
+
+copy_to_local_done:
+    sftp_progress_destroy (progress);
+
+    close (local_fd);
+    libssh2_sftp_close (fileh);
+
+    if (result != MC_PPR_OK)
+        unlink (local_path);
+
+    return result;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1587,6 +2192,11 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
     LIBSSH2_SFTP_HANDLE *fileh;
     char *remote_path;
     int local_fd;
+    struct stat st;
+    off_t total_size = 0;
+    off_t transferred = 0;
+    sftp_progress_t *progress;
+    mc_pp_result_t result = MC_PPR_OK;
 
     if (data->at_root || data->sftp_session == NULL || data->current_path == NULL)
         return MC_PPR_FAILED;
@@ -1595,7 +2205,29 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
     if (local_fd < 0)
         return MC_PPR_FAILED;
 
+    /* Get file size for progress */
+    if (fstat (local_fd, &st) == 0)
+        total_size = st.st_size;
+
     remote_path = mc_pp_join_path (data->current_path, dest_name);
+
+    /* Check if remote file already exists */
+    {
+        LIBSSH2_SFTP_ATTRIBUTES attrs;
+
+        if (libssh2_sftp_stat (data->sftp_session, remote_path, &attrs) == 0)
+        {
+            if (query_dialog (_ ("SFTP"), _ ("Remote file already exists. Overwrite?"), D_NORMAL, 2,
+                              _ ("&Yes"), _ ("&No"))
+                != 0)
+            {
+                close (local_fd);
+                g_free (remote_path);
+                return MC_PPR_FAILED;
+            }
+        }
+    }
+
     fileh = libssh2_sftp_open (
         data->sftp_session, remote_path, LIBSSH2_FXF_WRITE | LIBSSH2_FXF_CREAT | LIBSSH2_FXF_TRUNC,
         LIBSSH2_SFTP_S_IRUSR | LIBSSH2_SFTP_S_IWUSR | LIBSSH2_SFTP_S_IRGRP | LIBSSH2_SFTP_S_IROTH);
@@ -1607,29 +2239,60 @@ sftp_put_file (void *plugin_data, const char *local_path, const char *dest_name)
         return MC_PPR_FAILED;
     }
 
+    progress = sftp_progress_create (_ ("Uploading"), dest_name);
+
     while (TRUE)
     {
-        char buf[8192];
+        char buf[64 * 1024];
         ssize_t n;
+
+        if (!sftp_progress_update (progress, total_size, transferred))
+        {
+            result = MC_PPR_FAILED;
+            break;
+        }
 
         n = read (local_fd, buf, sizeof (buf));
         if (n == 0)
             break;
 
-        if (n < 0 || libssh2_sftp_write (fileh, buf, (size_t) n) != n)
+        if (n < 0)
         {
-            close (local_fd);
-            libssh2_sftp_close (fileh);
-            return MC_PPR_FAILED;
+            result = MC_PPR_FAILED;
+            break;
         }
+
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t w = libssh2_sftp_write (fileh, p, (size_t) left);
+
+                if (w <= 0)
+                {
+                    result = MC_PPR_FAILED;
+                    goto upload_done;
+                }
+                p += w;
+                left -= w;
+            }
+        }
+
+        transferred += n;
     }
+
+upload_done:
+    sftp_progress_destroy (progress);
 
     close (local_fd);
     libssh2_sftp_close (fileh);
 
-    sftp_reload_entries (data);
+    if (result == MC_PPR_OK)
+        sftp_reload_entries (data);
 
-    return MC_PPR_OK;
+    return result;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1803,6 +2466,142 @@ sftp_edit_connection (sftp_data_t *data)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/* Streaming view via pipe + thread                                                              */
+/* --------------------------------------------------------------------------------------------- */
+
+typedef struct
+{
+    LIBSSH2_SFTP *sftp;
+    char *remote_path;
+    int write_fd;
+    gboolean open_ok;    /* TRUE if sftp_open succeeded */
+    gboolean read_error; /* TRUE if sftp_read failed (not EOF, not EPIPE) */
+} sftp_stream_ctx_t;
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gpointer
+sftp_stream_thread (gpointer arg)
+{
+    sftp_stream_ctx_t *ctx = (sftp_stream_ctx_t *) arg;
+    LIBSSH2_SFTP_HANDLE *fh;
+    sigset_t block_set, old_set;
+
+    /* Block SIGPIPE in this thread so write() returns EPIPE instead of killing the process */
+    sigemptyset (&block_set);
+    sigaddset (&block_set, SIGPIPE);
+    pthread_sigmask (SIG_BLOCK, &block_set, &old_set);
+
+    fh = libssh2_sftp_open (ctx->sftp, ctx->remote_path, LIBSSH2_FXF_READ, 0);
+    if (fh == NULL)
+    {
+        ctx->open_ok = FALSE;
+        goto out;
+    }
+
+    ctx->open_ok = TRUE;
+
+    {
+        char buf[64 * 1024];
+        ssize_t n;
+
+        while ((n = libssh2_sftp_read (fh, buf, sizeof (buf))) > 0)
+        {
+            const char *p = buf;
+            ssize_t left = n;
+
+            while (left > 0)
+            {
+                ssize_t written = write (ctx->write_fd, p, (size_t) left);
+
+                if (written <= 0)
+                    goto close_fh; /* EPIPE = viewer closed, not an error */
+                p += written;
+                left -= written;
+            }
+        }
+
+        /* n < 0 means libssh2 read error (n == 0 is normal EOF) */
+        if (n < 0)
+            ctx->read_error = TRUE;
+    }
+
+close_fh:
+    libssh2_sftp_close (fh);
+
+out:
+    close (ctx->write_fd);
+    pthread_sigmask (SIG_SETMASK, &old_set, NULL);
+
+    return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+sftp_view_stream (sftp_data_t *data, const char *fname)
+{
+    int pipefd[2];
+    sftp_stream_ctx_t ctx;
+    GThread *thread;
+    mc_pp_result_t result;
+
+    if (data->sftp_session == NULL || data->current_path == NULL || fname == NULL)
+        return MC_PPR_FAILED;
+
+    if (pipe (pipefd) != 0)
+        return MC_PPR_FAILED;
+
+    ctx.sftp = data->sftp_session;
+    ctx.remote_path = mc_pp_join_path (data->current_path, fname);
+    ctx.write_fd = pipefd[1];
+    ctx.open_ok = FALSE;
+    ctx.read_error = FALSE;
+
+    thread = g_thread_new ("sftp-stream", sftp_stream_thread, &ctx);
+    if (thread == NULL)
+    {
+        close (pipefd[0]);
+        close (pipefd[1]);
+        g_free (ctx.remote_path);
+        return MC_PPR_FAILED;
+    }
+
+    /* Temporarily reduce session timeout so join() won't block too long on early viewer close */
+    libssh2_session_set_timeout (data->session, 3000);
+
+    (void) mcview_viewer_fd (pipefd[0]);
+
+    /* Wait for thread to finish before returning (ensures no use-after-free of sftp session) */
+    g_thread_join (thread);
+
+    /* Restore original session timeout */
+    {
+        const sftp_connection_t *conn = data->active_connection;
+        long tout = (conn != NULL && conn->timeout > 0) ? (long) conn->timeout * 1000 : 30000;
+
+        libssh2_session_set_timeout (data->session, tout);
+    }
+
+    if (!ctx.open_ok)
+    {
+        message (D_ERROR, _ ("SFTP"), _ ("Cannot open remote file\n%s"), ctx.remote_path);
+        result = MC_PPR_FAILED;
+    }
+    else if (ctx.read_error)
+    {
+        message (D_ERROR, _ ("SFTP"), _ ("Error reading remote file\n%s"), ctx.remote_path);
+        result = MC_PPR_FAILED;
+    }
+    else
+        result = MC_PPR_OK;
+
+    g_free (ctx.remote_path);
+
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 static mc_pp_result_t
 sftp_view_item (void *plugin_data, const char *fname, const struct stat *st, gboolean plain_view)
@@ -1815,10 +2614,11 @@ sftp_view_item (void *plugin_data, const char *fname, const struct stat *st, gbo
     int fd;
 
     (void) st;
+
     (void) plain_view;
 
     if (!data->at_root)
-        return MC_PPR_NOT_SUPPORTED;
+        return sftp_view_stream (data, fname);
 
     if (fname == NULL)
         return MC_PPR_FAILED;

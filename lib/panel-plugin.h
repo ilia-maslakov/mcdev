@@ -15,7 +15,7 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 4
+#define MC_PANEL_PLUGIN_API_VERSION 5
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
 
 /*** enums ***************************************************************************************/
@@ -122,6 +122,10 @@ typedef struct mc_panel_plugin_t
        filename may be NULL to use default help file; node may be NULL for default node. */
     mc_pp_result_t (*get_help_info) (void *plugin_data, const char **filename, const char **node);
     mc_pp_result_t (*get_local_copy) (void *plugin_data, const char *fname, char **local_path);
+    /* Download remote file directly to the given local path.
+       Plugin should handle overwrite confirmation internally.
+       If NULL, core falls back to get_local_copy + copy. */
+    mc_pp_result_t (*copy_to_local) (void *plugin_data, const char *fname, const char *local_path);
     mc_pp_result_t (*put_file) (void *plugin_data, const char *local_path, const char *dest_name);
     mc_pp_result_t (*save_file) (void *plugin_data, const char *local_path,
                                  const char *remote_name);

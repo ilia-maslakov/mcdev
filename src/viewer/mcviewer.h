@@ -50,6 +50,9 @@ extern gboolean mcview_viewer (const char *command, const vfs_path_t *file_vpath
 extern gboolean mcview_load (WView *view, const char *command, const char *file, int start_line,
                              off_t search_start, off_t search_end);
 
+/* View data from a pipe fd (growing buffer, no temp file needed). */
+extern gboolean mcview_viewer_fd (int fd);
+
 extern void mcview_clear_mode_flags (mcview_mode_flags_t *flags);
 
 /*** inline functions ****************************************************************************/
