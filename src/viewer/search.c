@@ -458,6 +458,10 @@ mcview_search_cmd_callback (const void *user_data, off_t char_offset, int *curre
             view->search_numNeedSkipChar =
                 2 + view->search_nroff_seq->char_length + 1;  // '_' + '\b' + letter + '\b'
             break;
+        case NROFF_TYPE_HEADING:
+            view->search_numNeedSkipChar =
+                (view->search_nroff_seq->char_length + 1) * 2;  // letter + '\b' + letter + '\b'
+            break;
         default:
             break;
         }

@@ -80,6 +80,7 @@ mc_skin_hardcoded_blackwhite_colors (mc_skin_t *mc_skin)
     mc_config_set_string (mc_skin->config, "help", "helpslink", ";;bold");
     mc_config_set_string (mc_skin->config, "viewer", "viewbold", ";;bold");
     mc_config_set_string (mc_skin->config, "viewer", "viewunderline", ";;bold");
+    mc_config_set_string (mc_skin->config, "viewer", "viewheading", ";;bold+reverse");
     mc_config_set_string (mc_skin->config, "editor", "editbold", ";;bold");
     mc_config_set_string (mc_skin->config, "editor", "editmarked", ";;reverse");
     mc_config_set_string (mc_skin->config, "editor", "editframeactive", ";;bold");

@@ -310,6 +310,7 @@ mc_skin_color_cache_init (void)
     VIEWER_BOLD_UNDERLINED_COLOR = mc_skin_color_get ("viewer", "viewboldunderline");
     VIEWER_SELECTED_COLOR = mc_skin_color_get ("viewer", "viewselected");
     VIEWER_FRAME_COLOR = mc_skin_color_get ("viewer", "viewframe");
+    VIEWER_HEADING_COLOR = mc_skin_color_get ("viewer", "viewheading");
 
     EDITOR_NORMAL_COLOR = mc_skin_color_get ("editor", "_default_");
     EDITOR_BOLD_COLOR = mc_skin_color_get ("editor", "editbold");

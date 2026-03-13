@@ -57,18 +57,18 @@ do_view_action() {
             cat "${MC_EXT_FILENAME}"
             ;;
         *)
-            MANROFFOPT=-c MAN_KEEP_FORMATTING=1 man -P cat "${MC_EXT_FILENAME}"
+            MANROFFOPT=-c MAN_KEEP_FORMATTING=1 man -P cat "${MC_EXT_FILENAME}" 2>/dev/null
             ;;
         esac
         ;;
     pod)
-        pod2man "${MC_EXT_FILENAME}" | nroff @MAN_FLAGS@ @MANDOC@
+        pod2man "${MC_EXT_FILENAME}" 2>/dev/null | nroff @MAN_FLAGS@ @MANDOC@ 2>/dev/null
         ;;
     nroff.me)
-        nroff @MAN_FLAGS@ -me "${MC_EXT_FILENAME}"
+        nroff @MAN_FLAGS@ -me "${MC_EXT_FILENAME}" 2>/dev/null
         ;;
     nroff.ms)
-        nroff @MAN_FLAGS@ -ms "${MC_EXT_FILENAME}"
+        nroff @MAN_FLAGS@ -ms "${MC_EXT_FILENAME}" 2>/dev/null
         ;;
     man.gz|man.bz|man.bz2|man.lz|man.lz4|man.lzma|man.lzo|man.xz|man.zst)
         case "${MC_EXT_FILENAME}" in
@@ -78,7 +78,7 @@ do_view_action() {
         *)
             # "man" takes care of uncompressing.
             # This way the stdin is left intact so the correct width is used.
-            MANROFFOPT=-c MAN_KEEP_FORMATTING=1 man -P cat "${MC_EXT_FILENAME}"
+            MANROFFOPT=-c MAN_KEEP_FORMATTING=1 man -P cat "${MC_EXT_FILENAME}" 2>/dev/null
             ;;
         esac
         ;;
@@ -104,18 +104,18 @@ do_open_action() {
             ;;
         *)
             { zsoelim "${MC_EXT_FILENAME}" 2>/dev/null || cat "${MC_EXT_FILENAME}"; } | \
-                nroff @MAN_FLAGS@ @MANDOC@
+                nroff @MAN_FLAGS@ @MANDOC@ 2>/dev/null
             ;;
         esac | ${pager}
         ;;
     pod)
-        pod2man "${MC_EXT_FILENAME}" | nroff @MAN_FLAGS@ @MANDOC@ | ${pager}
+        pod2man "${MC_EXT_FILENAME}" 2>/dev/null | nroff @MAN_FLAGS@ @MANDOC@ 2>/dev/null | ${pager}
         ;;
     nroff.me)
-        nroff @MAN_FLAGS@ -me "${MC_EXT_FILENAME}" | ${pager}
+        nroff @MAN_FLAGS@ -me "${MC_EXT_FILENAME}" 2>/dev/null | ${pager}
         ;;
     nroff.ms)
-        nroff @MAN_FLAGS@ -ms "${MC_EXT_FILENAME}" | ${pager}
+        nroff @MAN_FLAGS@ -ms "${MC_EXT_FILENAME}" 2>/dev/null | ${pager}
         ;;
     man.gz|man.bz|man.bz2|man.lz|man.lz4|man.lzma|man.lzo|man.xz|man.zst)
         case "${MC_EXT_FILENAME}" in
@@ -123,7 +123,7 @@ do_open_action() {
             ${unpacker} "${MC_EXT_FILENAME}"
             ;;
         *)
-            ${unpacker} "${MC_EXT_FILENAME}" | nroff @MAN_FLAGS@ @MANDOC@
+            ${unpacker} "${MC_EXT_FILENAME}" | nroff @MAN_FLAGS@ @MANDOC@ 2>/dev/null
             ;;
         esac | ${pager}
         ;;

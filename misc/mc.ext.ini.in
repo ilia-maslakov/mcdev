@@ -806,7 +806,7 @@ Include=editor
 [markdown]
 Regex=\\.(mk?d|markdown)$
 RegexIgnoreCase=true
-View=%view{ascii,nroff} @EXTHELPERSDIR@/doc.sh view markdown
+View=%view{ascii,nroff} @EXTHELPERSDIR@/markdown.sh view markdown
 Include=editor
 
 [djvu]

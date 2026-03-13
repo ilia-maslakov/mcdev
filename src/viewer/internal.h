@@ -49,7 +49,8 @@ typedef enum
     NROFF_TYPE_NONE,
     NROFF_TYPE_BOLD,
     NROFF_TYPE_UNDERLINE,
-    NROFF_TYPE_BOLD_UNDERLINE
+    NROFF_TYPE_BOLD_UNDERLINE,
+    NROFF_TYPE_HEADING
 } nroff_type_t;
 
 /*** structures declarations (and typedefs of structures)*****************************************/

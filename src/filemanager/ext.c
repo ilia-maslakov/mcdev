@@ -1052,6 +1052,11 @@ regex_command_for (void *target, const vfs_path_t *filename_vpath, const char *a
         gchar *action_value;
 
         action_value = mc_config_get_string_raw (ext_ini, current_group, action, NULL);
+        if (action_value == NULL && include_group != NULL)
+        {
+            // Not found in Include group, try the original matched group
+            action_value = mc_config_get_string_raw (ext_ini, *group_iter, action, NULL);
+        }
         if (action_value == NULL)
         {
             // Not found, try the action from default section
