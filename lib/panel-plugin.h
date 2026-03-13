@@ -37,7 +37,8 @@ typedef enum
     MC_PPF_CUSTOM_TITLE = 1 << 3,
     MC_PPF_CREATE = 1 << 4,      /* supports Shift+F4 (create item) */
     MC_PPF_PUT_FILES = 1 << 5,   /* can accept files (put_file/save_file) */
-    MC_PPF_SHOW_IN_MENU = 1 << 6 /* add entry to left/right panel menu */
+    MC_PPF_SHOW_IN_MENU = 1 << 6,      /* add entry to left/right panel menu */
+    MC_PPF_SHOW_IN_DRIVE_MENU = 1 << 7 /* show in Alt-F1/Alt-F2 drive menu */
 } mc_pp_flags_t;
 
 /*** structures declarations (and typedefs of structures)*****************************************/

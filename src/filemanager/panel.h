@@ -173,6 +173,7 @@ int set_panel_formats (WPanel *p);
 void panel_set_filter (WPanel *panel, const file_filter_t *filter);
 
 file_entry_t *panel_current_entry (const WPanel *panel);
+void panel_set_current (WPanel *panel, int i);
 void panel_set_current_by_name (WPanel *panel, const char *name);
 
 void unmark_files (WPanel *panel);
@@ -206,12 +207,15 @@ void panel_panelize_save (WPanel *panel);
 void panel_init (void);
 void panel_deinit (void);
 
+void panel_plugin_apply_default_columns_format (WPanel *panel);
+void panel_plugin_reload (WPanel *panel);
 void panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path);
 gboolean panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name,
                                         const char *open_path);
 void panel_plugin_close (WPanel *panel);
 void panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int action_index);
 void panel_plugin_select_and_activate (WPanel *panel);
+gboolean panel_plugin_drive_change (WPanel *panel);
 
 /* --------------------------------------------------------------------------------------------- */
 /*** inline functions ****************************************************************************/

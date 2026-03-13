@@ -245,7 +245,7 @@ static const mc_panel_plugin_t s3_plugin = {
     .proto = "s3",
     .prefix = NULL,
     .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_DELETE | MC_PPF_CUSTOM_TITLE
-        | MC_PPF_CREATE | MC_PPF_PUT_FILES | MC_PPF_SHOW_IN_MENU,
+        | MC_PPF_CREATE | MC_PPF_PUT_FILES | MC_PPF_SHOW_IN_MENU | MC_PPF_SHOW_IN_DRIVE_MENU,
 
     .open = s3_open,
     .close = s3_close,

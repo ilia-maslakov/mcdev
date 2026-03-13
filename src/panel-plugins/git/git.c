@@ -110,7 +110,7 @@ static const mc_panel_plugin_t git_plugin = {
     .display_name = "Git status",
     .proto = "git",
     .prefix = "git:",
-    .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_CUSTOM_TITLE,
+    .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_CUSTOM_TITLE | MC_PPF_SHOW_IN_DRIVE_MENU,
 
     .open = git_open,
     .close = git_close,
