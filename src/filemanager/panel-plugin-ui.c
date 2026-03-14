@@ -509,8 +509,8 @@ panel_plugin_drive_change (WPanel *panel)
     center_y = r->y + r->lines / 2;
     center_x = r->x + r->cols / 2;
 
-    listbox = listbox_window_centered_new (center_y, center_x, lines, cols, title_str,
-                                           "[Panel Plugins]");
+    listbox =
+        listbox_window_centered_new (center_y, center_x, lines, cols, title_str, "[Panel Plugins]");
 
     /* second pass: populate */
     for (iter = plugins; iter != NULL; iter = g_slist_next (iter))
@@ -573,9 +573,8 @@ panel_plugin_drive_change (WPanel *panel)
 
             action_cols = MAX (action_max_len + 4, str_term_width1 (action_title) + 4);
 
-            action_lb = listbox_window_centered_new (center_y, center_x,
-                                                     selected->action_count, action_cols,
-                                                     action_title, "[Panel Plugins]");
+            action_lb = listbox_window_centered_new (center_y, center_x, selected->action_count,
+                                                     action_cols, action_title, "[Panel Plugins]");
 
             for (ai = 0; ai < selected->action_count; ai++)
                 listbox_add_item (action_lb->list, LISTBOX_APPEND_AT_END, 0,
