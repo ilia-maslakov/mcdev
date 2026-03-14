@@ -69,22 +69,15 @@ module_filename_has_native_suffix (const gchar *filename)
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-void
-mc_panel_plugins_load (void)
+static void
+mc_panel_plugins_load_from_dir (const gchar *plugins_dir)
 {
     GDir *dir;
     const gchar *filename;
-    gchar *plugins_dir;
 
-    plugins_dir = g_build_filename (MC_PANEL_PLUGINS_DIR, (char *) NULL);
     dir = g_dir_open (plugins_dir, 0, NULL);
     if (dir == NULL)
-    {
-        g_free (plugins_dir);
-        return;  // no plugins dir - OK, nothing to load
-    }
-
-    panel_plugin_modules = g_ptr_array_new ();
+        return;
 
     while ((filename = g_dir_read_name (dir)) != NULL)
     {
@@ -117,43 +110,53 @@ mc_panel_plugins_load (void)
         plugin = register_fn ();
         if (plugin == NULL || !mc_panel_plugin_add (plugin))
         {
-            fprintf (stderr, "Panel plugin %s: registration failed\n", filename);
+            /* duplicate name from user dir overriding system dir is expected, stay silent */
             g_module_close (module);
             g_free (path);
             continue;
         }
 
-        g_module_make_resident (module);  // prevent unload - plugin descriptor lives in .so
+        g_module_make_resident (module); /* prevent unload - plugin descriptor lives in .so */
         g_ptr_array_add (panel_plugin_modules, module);
         g_free (path);
     }
 
     g_dir_close (dir);
-    g_free (plugins_dir);
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 void
-mc_editor_plugins_load (void)
+mc_panel_plugins_load (void)
+{
+    gchar *system_dir;
+    gchar *user_dir;
+
+    panel_plugin_modules = g_ptr_array_new ();
+
+    /* load from system plugin directory */
+    system_dir = g_build_filename (MC_PANEL_PLUGINS_DIR, (char *) NULL);
+    mc_panel_plugins_load_from_dir (system_dir);
+    g_free (system_dir);
+
+    /* load from user plugin directory (~/.local/lib/mc/panel-plugins) */
+    user_dir =
+        g_build_filename (g_get_home_dir (), ".local", "lib", "mc", "panel-plugins", (char *) NULL);
+    mc_panel_plugins_load_from_dir (user_dir);
+    g_free (user_dir);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_editor_plugins_load_from_dir (const gchar *plugins_dir)
 {
     GDir *dir;
     const gchar *filename;
-    gchar *plugins_dir;
 
-    if (editor_plugins_loaded)
-        return;
-
-    editor_plugins_loaded = TRUE;
-    plugins_dir = g_build_filename (MC_EDITOR_PLUGINS_DIR, (char *) NULL);
     dir = g_dir_open (plugins_dir, 0, NULL);
     if (dir == NULL)
-    {
-        g_free (plugins_dir);
         return;
-    }
-
-    editor_plugin_modules = g_ptr_array_new ();
 
     while ((filename = g_dir_read_name (dir)) != NULL)
     {
@@ -186,7 +189,6 @@ mc_editor_plugins_load (void)
         plugin = register_fn ();
         if (plugin == NULL || !mc_editor_plugin_add (plugin))
         {
-            fprintf (stderr, "Editor plugin %s: registration failed\n", filename);
             g_module_close (module);
             g_free (path);
             continue;
@@ -198,7 +200,32 @@ mc_editor_plugins_load (void)
     }
 
     g_dir_close (dir);
-    g_free (plugins_dir);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mc_editor_plugins_load (void)
+{
+    gchar *system_dir;
+    gchar *user_dir;
+
+    if (editor_plugins_loaded)
+        return;
+
+    editor_plugins_loaded = TRUE;
+    editor_plugin_modules = g_ptr_array_new ();
+
+    /* load from system plugin directory */
+    system_dir = g_build_filename (MC_EDITOR_PLUGINS_DIR, (char *) NULL);
+    mc_editor_plugins_load_from_dir (system_dir);
+    g_free (system_dir);
+
+    /* load from user plugin directory (~/.local/lib/mc/editor-plugins) */
+    user_dir = g_build_filename (g_get_home_dir (), ".local", "lib", "mc", "editor-plugins",
+                                 (char *) NULL);
+    mc_editor_plugins_load_from_dir (user_dir);
+    g_free (user_dir);
 }
 
 /* --------------------------------------------------------------------------------------------- */
