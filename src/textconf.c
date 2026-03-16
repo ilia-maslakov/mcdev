@@ -209,12 +209,40 @@ print_plugins_in_dir (const char *label, const char *dir_path)
 
         while ((name = g_dir_read_name (dir)) != NULL)
         {
+            gchar *entry_path;
+
+            entry_path = g_build_filename (dir_path, name, (char *) NULL);
+
             if (g_str_has_suffix (name, ".so") || g_str_has_suffix (name, ".dylib")
                 || g_str_has_suffix (name, ".dll"))
             {
                 (void) printf ("                   %s\n", name);
                 found = TRUE;
             }
+            else if (g_file_test (entry_path, G_FILE_TEST_IS_DIR))
+            {
+                GDir *subdir;
+
+                subdir = g_dir_open (entry_path, 0, NULL);
+                if (subdir != NULL)
+                {
+                    const gchar *sub_name;
+
+                    while ((sub_name = g_dir_read_name (subdir)) != NULL)
+                    {
+                        if (g_str_has_suffix (sub_name, ".so")
+                            || g_str_has_suffix (sub_name, ".dylib")
+                            || g_str_has_suffix (sub_name, ".dll"))
+                        {
+                            (void) printf ("                   %s/%s\n", name, sub_name);
+                            found = TRUE;
+                        }
+                    }
+                    g_dir_close (subdir);
+                }
+            }
+
+            g_free (entry_path);
         }
         g_dir_close (dir);
         if (!found)
