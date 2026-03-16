@@ -232,6 +232,8 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME (CdChild),
     ADD_KEYMAP_NAME (Panelize),
     ADD_KEYMAP_NAME (PanelPlugin),
+    ADD_KEYMAP_NAME (PluginDriveLeft),
+    ADD_KEYMAP_NAME (PluginDriveRight),
     ADD_KEYMAP_NAME (PanelOtherSync),
     ADD_KEYMAP_NAME (SortNext),
     ADD_KEYMAP_NAME (SortPrev),

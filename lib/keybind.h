@@ -193,6 +193,8 @@ enum
     CK_PanelOtherCdLink,
     CK_Panelize,
     CK_PanelPlugin,
+    CK_PluginDriveLeft,
+    CK_PluginDriveRight,
     CK_CopySingle,
     CK_MoveSingle,
     CK_DeleteSingle,
