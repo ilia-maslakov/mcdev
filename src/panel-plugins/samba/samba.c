@@ -39,6 +39,7 @@
 
 #include "lib/global.h"
 #include "lib/keybind.h"
+#include "lib/util.h"
 #include "lib/panel-plugin.h"
 #include "lib/widget.h"
 
@@ -83,6 +84,7 @@ typedef struct
     char *auth_workgroup;
 
     char *title_buf;
+    char *help_filename;
 } samba_data_t;
 
 typedef struct
@@ -107,6 +109,8 @@ static mc_pp_result_t samba_delete_items (void *plugin_data, const char **names,
 static const char *samba_get_title (void *plugin_data);
 static mc_pp_result_t samba_create_item (void *plugin_data);
 static mc_pp_result_t samba_handle_key (void *plugin_data, int key);
+static mc_pp_result_t samba_get_help_info (void *plugin_data, const char **filename,
+                                           const char **node);
 static void samba_update_title (samba_data_t *data);
 
 /*** file scope variables ************************************************************************/
@@ -133,6 +137,7 @@ static const mc_panel_plugin_t samba_plugin = {
     .get_title = samba_get_title,
     .handle_key = samba_handle_key,
     .create_item = samba_create_item,
+    .get_help_info = samba_get_help_info,
 };
 
 /*** file scope functions ************************************************************************/
@@ -539,7 +544,7 @@ smb_url_up (const char *url)
 
     last_slash = strrchr (after_scheme, '/');
     if (last_slash == NULL)
-        return g_strdup ("smb://");
+        return NULL; /* at smb://SERVER level -- no parent */
 
     return g_strndup (url, (gsize) (last_slash - url));
 }
@@ -764,7 +769,8 @@ enter_connection (samba_data_t *data, const smb_connection_t *conn)
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-show_connection_dialog (char **label, char **address, char **username, char **password)
+show_connection_dialog (char **label, char **address, char **username, char **password,
+                        const char *help_file)
 {
     /* clang-format off */
     quick_widget_t quick_widgets[] = {
@@ -793,7 +799,8 @@ show_connection_dialog (char **label, char **address, char **username, char **pa
     quick_dialog_t qdlg = {
         .rect = r,
         .title = N_ ("SMB Connection"),
-        .help = "[Samba Plugin]",
+        .help = "[Samba Connection]",
+        .help_file = help_file,
         .widgets = quick_widgets,
         .callback = NULL,
         .mouse_callback = NULL,
@@ -825,6 +832,8 @@ samba_open (mc_panel_host_t *host, const char *open_path)
     data->auth_password = NULL;
     data->auth_workgroup = NULL;
     samba_update_title (data);
+
+    data->help_filename = g_build_filename (MC_PLUGIN_DIR, "samba_panel.hlp", (char *) NULL);
 
     /* Load saved connections */
     data->connections_file = get_connections_file_path ();
@@ -888,6 +897,7 @@ samba_close (void *plugin_data)
     g_free (data->auth_username);
     g_free (data->auth_password);
     g_free (data->auth_workgroup);
+    g_free (data->help_filename);
     g_free (data);
 }
 
@@ -1380,7 +1390,7 @@ samba_edit_connection (samba_data_t *data)
     username = g_strdup (conn->username);
     password = g_strdup (conn->password);
 
-    if (!show_connection_dialog (&label, &address, &username, &password))
+    if (!show_connection_dialog (&label, &address, &username, &password, data->help_filename))
     {
         g_free (label);
         g_free (address);
@@ -1450,7 +1460,7 @@ samba_clone_connection (samba_data_t *data)
     username = g_strdup (src->username);
     password = g_strdup (src->password);
 
-    if (!show_connection_dialog (&label, &address, &username, &password))
+    if (!show_connection_dialog (&label, &address, &username, &password, data->help_filename))
     {
         g_free (label);
         g_free (address);
@@ -1525,7 +1535,7 @@ samba_create_item (void *plugin_data)
     if (!data->at_root)
         return MC_PPR_NOT_SUPPORTED;
 
-    if (!show_connection_dialog (&label, &address, &username, &password))
+    if (!show_connection_dialog (&label, &address, &username, &password, data->help_filename))
     {
         g_free (label);
         g_free (address);
@@ -1569,6 +1579,27 @@ samba_create_item (void *plugin_data)
                conn->label != NULL ? conn->label : "", conn->server != NULL ? conn->server : "",
                conn->share != NULL ? conn->share : "",
                conn->username != NULL ? conn->username : "");
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+samba_get_help_info (void *plugin_data, const char **filename, const char **node)
+{
+    samba_data_t *data = (samba_data_t *) plugin_data;
+
+    if (filename != NULL && data != NULL && data->help_filename != NULL
+        && exist_file (data->help_filename))
+        *filename = data->help_filename;
+    else if (filename != NULL)
+        *filename = NULL;
+    if (node != NULL)
+        *node = "[Samba Plugin]";
+
+    if (filename != NULL && *filename == NULL)
+        return MC_PPR_NOT_SUPPORTED;
 
     return MC_PPR_OK;
 }

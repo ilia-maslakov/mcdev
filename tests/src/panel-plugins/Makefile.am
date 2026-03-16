@@ -1,1 +1,1 @@
-SUBDIRS = ftp arcmc
+SUBDIRS = ftp arcmc samba
