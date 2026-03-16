@@ -1333,6 +1333,14 @@ midnight_execute_cmd (Widget *sender, long command)
         panel_plugin_select_and_activate (target_panel);
         break;
     }
+    case CK_PluginDriveLeft:
+        if (panel_plugin_drive_change (left_panel) && current_panel != left_panel)
+            change_panel ();
+        break;
+    case CK_PluginDriveRight:
+        if (panel_plugin_drive_change (right_panel) && current_panel != right_panel)
+            change_panel ();
+        break;
     case CK_Help:
         if (current_panel != NULL && current_panel->is_plugin_panel && current_panel->plugin != NULL
             && current_panel->plugin_data != NULL && current_panel->plugin->get_help_info != NULL)

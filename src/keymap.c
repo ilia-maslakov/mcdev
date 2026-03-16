@@ -149,6 +149,9 @@ static const global_keymap_ini_t default_filemanager_keymap[] = {
     { "SelectInvert", "kpasterisk" },
     // List of screens
     { "ScreenList", "alt-prime" },
+    // Drive change (like Far Manager Alt-F1/Alt-F2)
+    { "PluginDriveLeft", "alt-f1" },
+    { "PluginDriveRight", "alt-f2" },
     {
         NULL,
         NULL,

@@ -95,7 +95,8 @@ static const mc_panel_plugin_t shell_plugin = {
     .display_name = "Shell link (FISH)",
     .proto = "sh",
     .prefix = NULL,
-    .flags = MC_PPF_CUSTOM_TITLE | MC_PPF_CREATE | MC_PPF_DELETE | MC_PPF_SHOW_IN_MENU,
+    .flags = MC_PPF_CUSTOM_TITLE | MC_PPF_CREATE | MC_PPF_DELETE | MC_PPF_SHOW_IN_MENU
+        | MC_PPF_SHOW_IN_DRIVE_MENU,
 
     .open = shell_open,
     .close = shell_close,
