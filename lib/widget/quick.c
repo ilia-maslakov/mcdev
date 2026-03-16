@@ -463,6 +463,8 @@ quick_dialog_skip (quick_dialog_t *quick_dlg, int nskip)
                              quick_dlg->rect.cols, WPOS_KEEP_DEFAULT, FALSE, dialog_colors,
                              quick_dlg->callback, quick_dlg->mouse_callback, quick_dlg->help,
                              quick_dlg->title);
+
+        dd->help_file = quick_dlg->help_file;
     }
 
     // add widgets into the dialog

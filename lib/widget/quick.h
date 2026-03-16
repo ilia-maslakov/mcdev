@@ -352,6 +352,7 @@ typedef struct
                  * rect.lines if > 0 is used as minimum dialog height */
     const char *title;
     const char *help;
+    const char *help_file; /* path to help file (NULL = default mc.hlp) */
     quick_widget_t *widgets;
     widget_cb_fn callback;
     widget_mouse_cb_fn mouse_callback;

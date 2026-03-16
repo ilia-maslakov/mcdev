@@ -69,56 +69,90 @@ module_filename_has_native_suffix (const gchar *filename)
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
+/**
+ * Try to load a single .so from the given directory.
+ */
+static void
+mc_panel_plugin_try_load (const gchar *so_path, const gchar *filename)
+{
+    GModule *module;
+    mc_panel_plugin_register_fn register_fn;
+    const mc_panel_plugin_t *plugin;
+
+    module = g_module_open (so_path, G_MODULE_BIND_LAZY);
+    if (module == NULL)
+    {
+        fprintf (stderr, "Panel plugin %s: %s\n", filename, g_module_error ());
+        return;
+    }
+
+    if (!g_module_symbol (module, MC_PANEL_PLUGIN_ENTRY, (gpointer *) &register_fn))
+    {
+        fprintf (stderr, "Panel plugin %s: symbol %s not found\n", filename, MC_PANEL_PLUGIN_ENTRY);
+        g_module_close (module);
+        return;
+    }
+
+    plugin = register_fn ();
+    if (plugin == NULL || !mc_panel_plugin_add (plugin))
+    {
+        /* duplicate name from user dir overriding system dir is expected, stay silent */
+        g_module_close (module);
+        return;
+    }
+
+    g_module_make_resident (module); /* prevent unload - plugin descriptor lives in .so */
+    g_ptr_array_add (panel_plugin_modules, module);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Scan plugins_dir for subdirectories containing .so files.
+ * Each plugin lives in its own subdirectory (e.g. panel-plugins/s3/mc-panel-s3.so).
+ */
 static void
 mc_panel_plugins_load_from_dir (const gchar *plugins_dir)
 {
     GDir *dir;
-    const gchar *filename;
+    const gchar *entry_name;
 
     dir = g_dir_open (plugins_dir, 0, NULL);
     if (dir == NULL)
         return;
 
-    while ((filename = g_dir_read_name (dir)) != NULL)
+    while ((entry_name = g_dir_read_name (dir)) != NULL)
     {
-        GModule *module;
-        mc_panel_plugin_register_fn register_fn;
-        const mc_panel_plugin_t *plugin;
-        gchar *path;
+        gchar *entry_path;
+        GDir *subdir;
+        const gchar *sub_name;
 
-        if (!module_filename_has_native_suffix (filename))
-            continue;
+        entry_path = g_build_filename (plugins_dir, entry_name, (char *) NULL);
 
-        path = g_build_filename (plugins_dir, filename, (char *) NULL);
-        module = g_module_open (path, G_MODULE_BIND_LAZY);
-        if (module == NULL)
+        if (!g_file_test (entry_path, G_FILE_TEST_IS_DIR))
         {
-            fprintf (stderr, "Panel plugin %s: %s\n", filename, g_module_error ());
-            g_free (path);
+            g_free (entry_path);
             continue;
         }
 
-        if (!g_module_symbol (module, MC_PANEL_PLUGIN_ENTRY, (gpointer *) &register_fn))
+        subdir = g_dir_open (entry_path, 0, NULL);
+        if (subdir != NULL)
         {
-            fprintf (stderr, "Panel plugin %s: symbol %s not found\n", filename,
-                     MC_PANEL_PLUGIN_ENTRY);
-            g_module_close (module);
-            g_free (path);
-            continue;
+            while ((sub_name = g_dir_read_name (subdir)) != NULL)
+            {
+                if (module_filename_has_native_suffix (sub_name))
+                {
+                    gchar *so_path;
+
+                    so_path = g_build_filename (entry_path, sub_name, (char *) NULL);
+                    mc_panel_plugin_try_load (so_path, sub_name);
+                    g_free (so_path);
+                }
+            }
+            g_dir_close (subdir);
         }
 
-        plugin = register_fn ();
-        if (plugin == NULL || !mc_panel_plugin_add (plugin))
-        {
-            /* duplicate name from user dir overriding system dir is expected, stay silent */
-            g_module_close (module);
-            g_free (path);
-            continue;
-        }
-
-        g_module_make_resident (module); /* prevent unload - plugin descriptor lives in .so */
-        g_ptr_array_add (panel_plugin_modules, module);
-        g_free (path);
+        g_free (entry_path);
     }
 
     g_dir_close (dir);

@@ -64,9 +64,10 @@ struct WDialog
     WGroup group;  // base class
 
     // Set by the user
-    gboolean compact;      // Suppress spaces around the frame
-    const char *help_ctx;  // Name of the help entry
-    const int *colors;     // Color set. Unused in viewer and editor
+    gboolean compact;       // Suppress spaces around the frame
+    const char *help_ctx;   // Name of the help entry
+    const char *help_file;  // Path to help file (NULL = default mc.hlp)
+    const int *colors;      // Color set. Unused in viewer and editor
 
     // Set and received by the user
     int ret_value;  // Result of dlg_run()
