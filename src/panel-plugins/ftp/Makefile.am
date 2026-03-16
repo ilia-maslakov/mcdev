@@ -1,5 +1,5 @@
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-ftp.la
+ftpdir = $(panel_plugins_dir)/ftp
+ftp_LTLIBRARIES = mc-panel-ftp.la
 
 mc_panel_ftp_la_SOURCES = ftp.c
 mc_panel_ftp_la_CPPFLAGS = $(GLIB_CFLAGS) $(LIBCURL_CFLAGS) -I$(top_srcdir)

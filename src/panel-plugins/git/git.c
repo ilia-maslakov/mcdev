@@ -1773,8 +1773,7 @@ git_open (mc_panel_host_t *host, const char *open_path)
     data->host = host;
     data->repo_root = repo_root;
     data->title = g_strdup (repo_root);
-    data->help_filename =
-        g_build_filename (mc_global.share_data_dir, "help", "git-panel.hlp", (char *) NULL);
+    data->help_filename = g_build_filename (MC_PLUGIN_DIR, "git_panel.hlp", (char *) NULL);
     data->display_to_info =
         g_hash_table_new_full (g_str_hash, g_str_equal, g_free, git_entry_info_free);
     data->default_format = git_load_default_format ();

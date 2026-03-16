@@ -46,19 +46,9 @@
 
 #include "src/viewer/mcviewer.h"
 
-/*** file scope type declarations ****************************************************************/
+#include "s3_types.h"
 
-typedef struct
-{
-    char *label;             /* display name */
-    char *access_key;        /* AWS access key ID */
-    char *secret_key;        /* stored XOR+base64 encoded */
-    char *region;            /* default "us-east-1" */
-    char *endpoint;          /* custom URL for MinIO/Ceph, NULL = AWS */
-    gboolean use_path_style; /* path-style URLs */
-    int timeout;             /* response timeout, sec (0 = 30s default) */
-    int connect_timeout;     /* connect timeout, sec (0 = 10s default) */
-} s3_connection_t;
+/*** file scope type declarations ****************************************************************/
 
 typedef enum
 {
@@ -80,6 +70,8 @@ typedef struct
     mc_pp_dir_cache_t dir_cache;
     int key_edit;
     char *title_buf;
+    char *help_filename;
+    char *focus_name; /* item to focus after navigation */
 } s3_data_t;
 
 /* XML parser context for list buckets */
@@ -114,22 +106,6 @@ typedef struct
     char *next_continuation_token;
     const char *strip_prefix; /* prefix to strip from keys */
 } s3_xml_list_objects_t;
-
-/* XML parser context for S3 error responses */
-typedef struct
-{
-    gboolean in_code;
-    gboolean in_message;
-    GString *text;
-    char *code;
-    char *message;
-} s3_xml_error_t;
-
-/* curl write callback context */
-typedef struct
-{
-    GString *buf;
-} s3_buf_ctx_t;
 
 /* curl file write callback context */
 typedef struct
@@ -176,6 +152,11 @@ static mc_pp_result_t s3_create_item (void *plugin_data);
 static mc_pp_result_t s3_view_item (void *plugin_data, const char *fname, const struct stat *st,
                                     gboolean plain_view);
 static mc_pp_result_t s3_handle_key (void *plugin_data, int key);
+static mc_pp_result_t s3_get_help_info (void *plugin_data, const char **filename,
+                                        const char **node);
+static const char *s3_get_focus_name (void *plugin_data);
+static const GMarkupParser s3_xml_buckets_parser;
+static GPtrArray *s3_build_bucket_entries_from_string (const char *bucket_list);
 
 /*** file scope variables ************************************************************************/
 
@@ -253,6 +234,7 @@ static const mc_panel_plugin_t s3_plugin = {
 
     .chdir = s3_chdir,
     .enter = s3_enter,
+    .get_help_info = s3_get_help_info,
     .get_local_copy = s3_get_local_copy,
     .put_file = s3_put_file,
     .save_file = s3_put_file,
@@ -261,6 +243,7 @@ static const mc_panel_plugin_t s3_plugin = {
     .view = s3_view_item,
     .handle_key = s3_handle_key,
     .create_item = s3_create_item,
+    .get_focus_name = s3_get_focus_name,
 };
 
 /*** file scope functions ************************************************************************/
@@ -336,64 +319,6 @@ s3_load_hotkey (const char *key, const char *default_str, int default_val)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Connection management                                                                         */
-/* --------------------------------------------------------------------------------------------- */
-
-static void
-s3_connection_free (gpointer p)
-{
-    s3_connection_t *c = (s3_connection_t *) p;
-
-    g_free (c->label);
-    g_free (c->access_key);
-    g_free (c->secret_key);
-    g_free (c->region);
-    g_free (c->endpoint);
-    g_free (c);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static s3_connection_t *
-s3_connection_dup (const s3_connection_t *src)
-{
-    s3_connection_t *dst;
-
-    dst = g_new0 (s3_connection_t, 1);
-    dst->label = g_strdup (src->label);
-    dst->access_key = g_strdup (src->access_key);
-    dst->secret_key = g_strdup (src->secret_key);
-    dst->region = g_strdup (src->region);
-    dst->endpoint = g_strdup (src->endpoint);
-    dst->use_path_style = src->use_path_style;
-    dst->timeout = src->timeout;
-    dst->connect_timeout = src->connect_timeout;
-
-    return dst;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static void
-s3_connection_copy_from (s3_connection_t *dst, const s3_connection_t *src)
-{
-    g_free (dst->label);
-    g_free (dst->access_key);
-    g_free (dst->secret_key);
-    g_free (dst->region);
-    g_free (dst->endpoint);
-
-    dst->label = g_strdup (src->label);
-    dst->access_key = g_strdup (src->access_key);
-    dst->secret_key = g_strdup (src->secret_key);
-    dst->region = g_strdup (src->region);
-    dst->endpoint = g_strdup (src->endpoint);
-    dst->use_path_style = src->use_path_style;
-    dst->timeout = src->timeout;
-    dst->connect_timeout = src->connect_timeout;
-}
-
-/* --------------------------------------------------------------------------------------------- */
 
 /* --------------------------------------------------------------------------------------------- */
 /* Connection persistence                                                                        */
@@ -463,6 +388,13 @@ s3_load_connections (const char *filepath)
         {
             g_error_free (error);
             conn->connect_timeout = 0;
+        }
+
+        conn->buckets = g_key_file_get_string (kf, groups[i], "buckets", NULL);
+        if (conn->buckets != NULL && conn->buckets[0] == '\0')
+        {
+            g_free (conn->buckets);
+            conn->buckets = NULL;
         }
 
         if (conn->access_key == NULL || conn->access_key[0] == '\0')
@@ -535,6 +467,8 @@ s3_save_connections (const char *filepath, GPtrArray *connections)
             g_key_file_set_integer (kf, conn->label, "timeout", conn->timeout);
         if (conn->connect_timeout > 0)
             g_key_file_set_integer (kf, conn->label, "connect_timeout", conn->connect_timeout);
+        if (conn->buckets != NULL && conn->buckets[0] != '\0')
+            g_key_file_set_string (kf, conn->label, "buckets", conn->buckets);
     }
 
     data = g_key_file_to_data (kf, &length, NULL);
@@ -1043,6 +977,112 @@ s3_progress_update (s3_progress_t *p, curl_off_t total, curl_off_t now)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static void
+s3_xml_error_start (GMarkupParseContext *context, const gchar *element_name,
+                    const gchar **attribute_names, const gchar **attribute_values,
+                    gpointer user_data, GError **error)
+{
+    s3_xml_error_t *ctx = (s3_xml_error_t *) user_data;
+
+    (void) context;
+    (void) attribute_names;
+    (void) attribute_values;
+    (void) error;
+
+    g_string_truncate (ctx->text, 0);
+
+    if (strcmp (element_name, "Code") == 0)
+        ctx->in_code = TRUE;
+    else if (strcmp (element_name, "Message") == 0)
+        ctx->in_message = TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+s3_xml_error_end (GMarkupParseContext *context, const gchar *element_name, gpointer user_data,
+                  GError **error)
+{
+    s3_xml_error_t *ctx = (s3_xml_error_t *) user_data;
+
+    (void) context;
+    (void) error;
+
+    if (ctx->in_code && strcmp (element_name, "Code") == 0)
+    {
+        g_free (ctx->code);
+        ctx->code = g_strdup (ctx->text->str);
+        ctx->in_code = FALSE;
+    }
+    else if (ctx->in_message && strcmp (element_name, "Message") == 0)
+    {
+        g_free (ctx->message);
+        ctx->message = g_strdup (ctx->text->str);
+        ctx->in_message = FALSE;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+s3_xml_error_text (GMarkupParseContext *context, const gchar *text, gsize text_len,
+                   gpointer user_data, GError **error)
+{
+    s3_xml_error_t *ctx = (s3_xml_error_t *) user_data;
+
+    (void) context;
+    (void) error;
+
+    g_string_append_len (ctx->text, text, (gssize) text_len);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const GMarkupParser s3_xml_error_parser = {
+    .start_element = s3_xml_error_start,
+    .end_element = s3_xml_error_end,
+    .text = s3_xml_error_text,
+    .passthrough = NULL,
+    .error = NULL,
+};
+
+/* --------------------------------------------------------------------------------------------- */
+
+static char *
+s3_parse_error_message (const char *body)
+{
+    s3_xml_error_t ctx;
+    GMarkupParseContext *xml;
+    char *result = NULL;
+
+    if (body == NULL || *body == '\0')
+        return NULL;
+
+    memset (&ctx, 0, sizeof (ctx));
+    ctx.text = g_string_new ("");
+
+    xml = g_markup_parse_context_new (&s3_xml_error_parser, 0, &ctx, NULL);
+    if (g_markup_parse_context_parse (xml, body, (gssize) strlen (body), NULL)
+        && g_markup_parse_context_end_parse (xml, NULL))
+    {
+        if (ctx.code != NULL && ctx.message != NULL)
+            result = g_strdup_printf ("%s: %s", ctx.code, ctx.message);
+        else if (ctx.message != NULL)
+            result = g_strdup (ctx.message);
+        else if (ctx.code != NULL)
+            result = g_strdup (ctx.code);
+    }
+    g_markup_parse_context_free (xml);
+
+    g_string_free (ctx.text, TRUE);
+    g_free (ctx.code);
+    g_free (ctx.message);
+
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static int
 s3_progress_cb (void *clientp, curl_off_t dltotal, curl_off_t dlnow, curl_off_t ultotal,
                 curl_off_t ulnow)
@@ -1149,6 +1189,124 @@ s3_perform_get (const s3_connection_t *conn, const char *url, long *http_code_ou
     }
 
     return ctx.buf;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static GPtrArray *
+s3_api_list_buckets_connect (const s3_connection_t *conn, s3_connect_status_msg_t *status,
+                             char **error_out)
+{
+    CURL *curl;
+    s3_buf_ctx_t ctx;
+    s3_connect_progress_t progress;
+    CURLcode res;
+    long http_code = 0;
+    char *url;
+    GPtrArray *entries = NULL;
+    s3_xml_list_buckets_t xml_ctx;
+    GMarkupParseContext *xml;
+
+    if (error_out != NULL)
+        *error_out = NULL;
+
+    url = s3_build_url_service (conn);
+
+    if (status != NULL && !s3_connect_status_set_stage (status, _ ("Preparing signed request...")))
+    {
+        g_free (url);
+        return NULL;
+    }
+
+    curl = curl_easy_init ();
+    if (curl == NULL)
+    {
+        if (error_out != NULL)
+            *error_out = g_strdup (_ ("Failed to initialize network session."));
+        g_free (url);
+        return NULL;
+    }
+
+    ctx.buf = g_string_new ("");
+    progress.sm = status != NULL ? STATUS_MSG (status) : NULL;
+
+    curl_easy_setopt (curl, CURLOPT_URL, url);
+    curl_easy_setopt (curl, CURLOPT_WRITEFUNCTION, s3_write_cb);
+    curl_easy_setopt (curl, CURLOPT_WRITEDATA, &ctx);
+    curl_easy_setopt (curl, CURLOPT_NOPROGRESS, 0L);
+    s3_setup_curl (curl, conn);
+
+#if LIBCURL_VERSION_NUM >= 0x072000
+    curl_easy_setopt (curl, CURLOPT_XFERINFOFUNCTION, s3_connect_progress_cb);
+    curl_easy_setopt (curl, CURLOPT_XFERINFODATA, &progress);
+#else
+    curl_easy_setopt (curl, CURLOPT_PROGRESSFUNCTION, s3_connect_progress_cb);
+    curl_easy_setopt (curl, CURLOPT_PROGRESSDATA, &progress);
+#endif
+
+    if (status != NULL
+        && !s3_connect_status_set_stage (status, _ ("Signing request and contacting endpoint...")))
+    {
+        curl_easy_cleanup (curl);
+        g_string_free (ctx.buf, TRUE);
+        g_free (url);
+        return NULL;
+    }
+
+    res = curl_easy_perform (curl);
+    curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
+    curl_easy_cleanup (curl);
+    g_free (url);
+
+    if (res == CURLE_ABORTED_BY_CALLBACK)
+    {
+        g_string_free (ctx.buf, TRUE);
+        return NULL;
+    }
+
+    if (res != CURLE_OK || http_code < 200 || http_code >= 300)
+    {
+        char *detail;
+
+        detail = s3_parse_error_message (ctx.buf->str);
+        if (detail == NULL)
+        {
+            if (res != CURLE_OK)
+                detail = g_strdup (curl_easy_strerror (res));
+            else
+                detail = g_strdup_printf (_ ("HTTP error %ld"), http_code);
+        }
+
+        if (error_out != NULL)
+            *error_out = detail;
+        else
+            g_free (detail);
+
+        g_string_free (ctx.buf, TRUE);
+        return NULL;
+    }
+
+    if (status != NULL && !s3_connect_status_set_stage (status, _ ("Reading bucket list...")))
+    {
+        g_string_free (ctx.buf, TRUE);
+        return NULL;
+    }
+
+    memset (&xml_ctx, 0, sizeof (xml_ctx));
+    xml_ctx.entries = g_ptr_array_new_with_free_func (mc_pp_dir_entry_free);
+    xml_ctx.text = g_string_new ("");
+
+    xml = g_markup_parse_context_new (&s3_xml_buckets_parser, 0, &xml_ctx, NULL);
+    g_markup_parse_context_parse (xml, ctx.buf->str, (gssize) ctx.buf->len, NULL);
+    g_markup_parse_context_end_parse (xml, NULL);
+    g_markup_parse_context_free (xml);
+
+    g_string_free (ctx.buf, TRUE);
+    g_string_free (xml_ctx.text, TRUE);
+    g_free (xml_ctx.bucket_name);
+
+    entries = xml_ctx.entries;
+    return entries;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1880,10 +2038,20 @@ s3_reload_entries (s3_data_t *data)
             return;
         }
 
-        data->entries = s3_api_list_buckets (data->active_connection);
-        S3_LOG ("reload_entries: list_buckets returned %s (%u entries)",
-                data->entries != NULL ? "OK" : "NULL",
-                data->entries != NULL ? data->entries->len : 0);
+        if (data->active_connection->buckets != NULL && data->active_connection->buckets[0] != '\0')
+        {
+            data->entries = s3_build_bucket_entries_from_string (data->active_connection->buckets);
+            S3_LOG ("reload_entries: using pre-configured buckets, %u entries",
+                    data->entries != NULL ? data->entries->len : 0);
+        }
+        else
+        {
+            data->entries = s3_api_list_buckets (data->active_connection);
+            S3_LOG ("reload_entries: list_buckets returned %s (%u entries)",
+                    data->entries != NULL ? "OK" : "NULL",
+                    data->entries != NULL ? data->entries->len : 0);
+        }
+
         if (data->entries != NULL)
             mc_pp_dir_cache_store (&data->dir_cache, cache_key, data->entries);
 
@@ -1933,102 +2101,55 @@ s3_invalidate_current (s3_data_t *data)
     }
 }
 
-/* --------------------------------------------------------------------------------------------- */
-/* Connection dialog                                                                             */
+/* (connection dialog moved to s3_connection.c) */
+
 /* --------------------------------------------------------------------------------------------- */
 
-#define S3_DLG_HEIGHT 18
-#define S3_DLG_WIDTH  56
-
-static gboolean
-s3_show_connection_dialog (s3_connection_t *conn)
+/**
+ * Build a bucket entry list from a comma-separated string.
+ * Returns a GPtrArray of mc_pp_dir_entry_t or NULL if input is empty.
+ */
+static GPtrArray *
+s3_build_bucket_entries_from_string (const char *bucket_list)
 {
-    s3_connection_t *backup;
-    char *label = g_strdup (conn->label != NULL ? conn->label : "");
-    char *access_key = g_strdup (conn->access_key != NULL ? conn->access_key : "");
-    char *secret_key = g_strdup (conn->secret_key != NULL ? conn->secret_key : "");
-    char *region = g_strdup (conn->region != NULL ? conn->region : "us-east-1");
-    char *endpoint = g_strdup (conn->endpoint != NULL ? conn->endpoint : "");
-    gboolean use_path_style = conn->use_path_style;
-    int ret;
+    GPtrArray *entries;
+    char **tokens;
+    int i;
 
-    backup = s3_connection_dup (conn);
+    if (bucket_list == NULL || bucket_list[0] == '\0')
+        return NULL;
 
-    /* clang-format off */
-    quick_widget_t quick_widgets[] = {
-        QUICK_LABELED_INPUT (N_("Connection name:"), input_label_above,
-                            label, "s3-conn-label",
-                            &label, NULL, FALSE, FALSE, INPUT_COMPLETE_NONE),
-        QUICK_LABELED_INPUT (N_("Access Key:"), input_label_above,
-                            access_key, "s3-conn-access-key",
-                            &access_key, NULL, FALSE, FALSE, INPUT_COMPLETE_NONE),
-        QUICK_LABELED_INPUT (N_("Secret Key:"), input_label_above,
-                            secret_key, "s3-conn-secret-key",
-                            &secret_key, NULL, TRUE, TRUE, INPUT_COMPLETE_NONE),
-        QUICK_LABELED_INPUT (N_("Region:"), input_label_above,
-                            region, "s3-conn-region",
-                            &region, NULL, FALSE, FALSE, INPUT_COMPLETE_NONE),
-        QUICK_LABELED_INPUT (N_("Endpoint URL (for MinIO/Ceph):"), input_label_above,
-                            endpoint, "s3-conn-endpoint",
-                            &endpoint, NULL, FALSE, FALSE, INPUT_COMPLETE_NONE),
-        QUICK_CHECKBOX (N_("Use &path-style URLs"), &use_path_style, NULL),
-        QUICK_BUTTONS_OK_CANCEL,
-        QUICK_END,
-    };
-    /* clang-format on */
+    entries = g_ptr_array_new_with_free_func (mc_pp_dir_entry_free);
+    tokens = g_strsplit (bucket_list, ",", -1);
 
-    WRect r = { -1, -1, S3_DLG_HEIGHT, S3_DLG_WIDTH };
-
-    quick_dialog_t qdlg = {
-        .rect = r,
-        .title = N_ ("S3 Connection"),
-        .help = "[S3 Plugin]",
-        .widgets = quick_widgets,
-        .callback = NULL,
-        .mouse_callback = NULL,
-    };
-
-    ret = quick_dialog (&qdlg);
-
-    if (ret == B_ENTER)
+    for (i = 0; tokens[i] != NULL; i++)
     {
-        g_free (conn->label);
-        conn->label = label;
+        mc_pp_dir_entry_t *e;
+        char *name;
 
-        g_free (conn->access_key);
-        conn->access_key = access_key;
+        name = g_strstrip (g_strdup (tokens[i]));
+        if (name[0] == '\0')
+        {
+            g_free (name);
+            continue;
+        }
 
-        g_free (conn->secret_key);
-        conn->secret_key = (secret_key != NULL && secret_key[0] != '\0') ? secret_key : NULL;
-        if (conn->secret_key == NULL)
-            g_free (secret_key);
-
-        g_free (conn->region);
-        conn->region = (region != NULL && region[0] != '\0') ? region : g_strdup ("us-east-1");
-        if (conn->region != region)
-            g_free (region);
-
-        g_free (conn->endpoint);
-        conn->endpoint = (endpoint != NULL && endpoint[0] != '\0') ? endpoint : NULL;
-        if (conn->endpoint == NULL)
-            g_free (endpoint);
-
-        conn->use_path_style = use_path_style;
-
-        s3_connection_free (backup);
-        return TRUE;
+        e = g_new0 (mc_pp_dir_entry_t, 1);
+        e->name = name;
+        e->is_dir = TRUE;
+        e->st.st_mode = S_IFDIR | 0755;
+        g_ptr_array_add (entries, e);
     }
 
-    /* Cancel - rollback */
-    g_free (label);
-    g_free (access_key);
-    g_free (secret_key);
-    g_free (region);
-    g_free (endpoint);
+    g_strfreev (tokens);
 
-    s3_connection_copy_from (conn, backup);
-    s3_connection_free (backup);
-    return FALSE;
+    if (entries->len == 0)
+    {
+        g_ptr_array_free (entries, TRUE);
+        return NULL;
+    }
+
+    return entries;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2060,19 +2181,121 @@ s3_disconnect (s3_data_t *data)
 static gboolean
 s3_activate_connection (s3_data_t *data, s3_connection_t *conn)
 {
-    s3_disconnect (data);
+    s3_connect_status_msg_t status;
+    gboolean status_inited = FALSE;
+    gboolean ok = FALSE;
+    char *error_detail = NULL;
+    char *target;
 
-    data->active_connection = conn;
-    data->level = S3_LEVEL_BUCKETS;
+    s3_disconnect (data);
 
     S3_LOG ("activate_connection: label='%s' region='%s' endpoint='%s'", conn->label,
             conn->region != NULL ? conn->region : "(null)",
             conn->endpoint != NULL ? conn->endpoint : "(null)");
 
-    s3_reload_entries (data);
+    memset (&status, 0, sizeof (status));
+    status.log = g_string_new (NULL);
+    status_msg_init (STATUS_MSG (&status), _ ("S3 connection"), 0.0, s3_connect_status_init_cb,
+                     s3_connect_status_update_cb, s3_connect_status_deinit_cb);
+    status_inited = TRUE;
+
+    target = (conn->endpoint != NULL && conn->endpoint[0] != '\0')
+        ? g_strdup (conn->endpoint)
+        : g_strdup_printf ("https://s3.%s.amazonaws.com/", conn->region);
+
+    if (!s3_connect_status_set_stage (&status, _ ("Connecting to %s..."), target))
+        goto out;
+
+    g_free (target);
+    target = NULL;
+
+    data->active_connection = conn;
+    data->level = S3_LEVEL_BUCKETS;
+
+    /* If buckets are pre-configured, skip ListBuckets API call */
+    if (conn->buckets != NULL && conn->buckets[0] != '\0')
+    {
+        (void) s3_connect_status_set_stage (&status, "%s", _ ("Using pre-configured bucket list."));
+        data->entries = s3_build_bucket_entries_from_string (conn->buckets);
+        ok = (data->entries != NULL);
+        if (!ok)
+        {
+            data->active_connection = NULL;
+            data->level = S3_LEVEL_CONNECTIONS;
+            (void) s3_connect_status_set_stage (&status, "%s",
+                                                _ ("No valid bucket names in configuration."));
+            s3_connect_status_wait_close (&status);
+        }
+        goto out;
+    }
+
+    data->entries = s3_api_list_buckets_connect (conn, &status, &error_detail);
+    ok = (data->entries != NULL);
+
+    if (!ok)
+    {
+        char *bucket_name;
+
+        if (data->entries != NULL)
+        {
+            g_ptr_array_free (data->entries, TRUE);
+            data->entries = NULL;
+        }
+        data->active_connection = NULL;
+        data->level = S3_LEVEL_CONNECTIONS;
+
+        if (error_detail != NULL)
+            (void) s3_connect_status_set_stage (&status, _ ("ListBuckets failed: %s"),
+                                                error_detail);
+        else
+            (void) s3_connect_status_set_stage (&status, "%s", _ ("ListBuckets failed."));
+
+        (void) s3_connect_status_set_stage (&status, "%s",
+                                            _ ("Hint: set Buckets field in connection settings"
+                                               " to avoid auto-detection."));
+
+        s3_connect_status_wait_close (&status);
+
+        if (status_inited)
+            status_msg_deinit (STATUS_MSG (&status));
+        if (status.log != NULL)
+        {
+            g_string_free (status.log, TRUE);
+            status.log = NULL;
+        }
+        status_inited = FALSE;
+
+        bucket_name = input_dialog (_ ("S3: enter bucket name"),
+                                    _ ("ListBuckets is not available.\n"
+                                       "Enter bucket name manually:"),
+                                    "s3-manual-bucket", "", INPUT_COMPLETE_NONE);
+        if (bucket_name != NULL && bucket_name[0] != '\0')
+        {
+            data->entries = s3_build_bucket_entries_from_string (bucket_name);
+            if (data->entries != NULL)
+            {
+                data->active_connection = conn;
+                data->level = S3_LEVEL_BUCKETS;
+                ok = TRUE;
+            }
+        }
+        g_free (bucket_name);
+        goto out;
+    }
+
+    (void) s3_connect_status_set_stage (&status, "%s", _ ("Bucket list loaded."));
+
+out:
+    g_free (target);
+    g_free (error_detail);
+
+    if (status_inited)
+        status_msg_deinit (STATUS_MSG (&status));
+    if (status.log != NULL)
+        g_string_free (status.log, TRUE);
 
     S3_LOG ("activate_connection: entries=%s", data->entries != NULL ? "loaded" : "NULL (failed)");
-    return (data->entries != NULL);
+    return ok;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2202,6 +2425,7 @@ s3_open (mc_panel_host_t *host, const char *open_path)
 
     data->connections_file = s3_get_connections_file_path ();
     data->connections = s3_load_connections (data->connections_file);
+    data->help_filename = g_build_filename (MC_PLUGIN_DIR, "s3_panel.hlp", (char *) NULL);
 
     mc_pp_dir_cache_init (&data->dir_cache, S3_DIR_CACHE_TTL);
 
@@ -2226,6 +2450,8 @@ s3_close (void *plugin_data)
     g_free (data->current_prefix);
     g_free (data->title_buf);
     g_free (data->connections_file);
+    g_free (data->help_filename);
+    g_free (data->focus_name);
     g_free (data);
 
     if (s3_curl_refcount > 0)
@@ -2297,10 +2523,30 @@ s3_chdir (void *plugin_data, const char *path)
             return MC_PPR_CLOSE;
 
         case S3_LEVEL_BUCKETS:
+            g_free (data->focus_name);
+            data->focus_name =
+                (data->active_connection != NULL && data->active_connection->label != NULL)
+                ? g_strdup (data->active_connection->label)
+                : NULL;
             s3_disconnect (data);
             return MC_PPR_OK;
 
         case S3_LEVEL_OBJECTS:
+            g_free (data->focus_name);
+            if (data->current_prefix == NULL || data->current_prefix[0] == '\0')
+                data->focus_name = g_strdup (data->current_bucket);
+            else
+            {
+                char *tmp = g_strdup (data->current_prefix);
+                size_t len = strlen (tmp);
+                char *slash;
+
+                if (len > 0 && tmp[len - 1] == '/')
+                    tmp[len - 1] = '\0';
+                slash = strrchr (tmp, '/');
+                data->focus_name = g_strdup (slash != NULL ? slash + 1 : tmp);
+                g_free (tmp);
+            }
             s3_go_up_prefix (data);
             return MC_PPR_OK;
 
@@ -2674,7 +2920,7 @@ s3_create_item (void *plugin_data)
         conn = g_new0 (s3_connection_t, 1);
         conn->region = g_strdup ("us-east-1");
 
-        if (!s3_show_connection_dialog (conn))
+        if (!s3_show_connection_dialog (conn, data->help_filename))
         {
             s3_connection_free (conn);
             return MC_PPR_FAILED;
@@ -2744,7 +2990,7 @@ s3_edit_connection (s3_data_t *data)
     if (conn == NULL)
         return MC_PPR_FAILED;
 
-    if (!s3_show_connection_dialog (conn))
+    if (!s3_show_connection_dialog (conn, data->help_filename))
         return MC_PPR_OK;
 
     if (conn->label == NULL || conn->label[0] == '\0' || conn->access_key == NULL
@@ -2783,7 +3029,7 @@ s3_clone_connection (s3_data_t *data)
     g_free (clone->label);
     clone->label = new_label;
 
-    if (!s3_show_connection_dialog (clone))
+    if (!s3_show_connection_dialog (clone, data->help_filename))
     {
         s3_connection_free (clone);
         return MC_PPR_OK;
@@ -3187,6 +3433,36 @@ s3_handle_key (void *plugin_data, int key)
     }
 
     return MC_PPR_NOT_SUPPORTED;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const char *
+s3_get_focus_name (void *plugin_data)
+{
+    s3_data_t *data = (s3_data_t *) plugin_data;
+    return data->focus_name;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+s3_get_help_info (void *plugin_data, const char **filename, const char **node)
+{
+    s3_data_t *data = (s3_data_t *) plugin_data;
+
+    if (filename != NULL && data != NULL && data->help_filename != NULL
+        && exist_file (data->help_filename))
+        *filename = data->help_filename;
+    else if (filename != NULL)
+        *filename = NULL;
+    if (node != NULL)
+        *node = "[S3 Plugin]";
+
+    if (filename != NULL && *filename == NULL)
+        return MC_PPR_NOT_SUPPORTED;
+
+    return MC_PPR_OK;
 }
 
 /* --------------------------------------------------------------------------------------------- */
