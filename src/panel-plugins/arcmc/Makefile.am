@@ -1,5 +1,5 @@
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-arcmc.la
+arcmcdir = $(panel_plugins_dir)/arcmc
+arcmc_LTLIBRARIES = mc-panel-arcmc.la
 
 mc_panel_arcmc_la_SOURCES = \
     arcmc.c \

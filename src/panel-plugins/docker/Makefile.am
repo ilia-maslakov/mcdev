@@ -1,5 +1,5 @@
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-docker.la
+dockerdir = $(panel_plugins_dir)/docker
+docker_LTLIBRARIES = mc-panel-docker.la
 
 mc_panel_docker_la_SOURCES = docker.c
 mc_panel_docker_la_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir)

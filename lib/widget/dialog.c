@@ -94,7 +94,7 @@ refresh_cmd (void)
 static void
 dlg_help (const WDialog *h)
 {
-    ev_help_t event_data = { NULL, h->help_ctx };
+    ev_help_t event_data = { h->help_file, h->help_ctx };
 
     mc_event_raise (MCEVENT_GROUP_CORE, "help", &event_data);
 }

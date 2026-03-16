@@ -172,8 +172,8 @@ am__uninstall_files_from_dir = { \
     || { echo " ( cd '$$dir' && rm -f" $$files ")"; \
          $(am__cd) "$$dir" && rm -f $$files; }; \
   }
-am__installdirs = "$(DESTDIR)$(panelplugindir)"
-LTLIBRARIES = $(panelplugin_LTLIBRARIES)
+am__installdirs = "$(DESTDIR)$(arcmcdir)"
+LTLIBRARIES = $(arcmc_LTLIBRARIES)
 am__DEPENDENCIES_1 =
 mc_panel_arcmc_la_DEPENDENCIES = $(am__DEPENDENCIES_1) \
 	$(am__DEPENDENCIES_1) $(am__DEPENDENCIES_1)
@@ -460,8 +460,8 @@ top_build_prefix = @top_build_prefix@
 top_builddir = @top_builddir@
 top_srcdir = @top_srcdir@
 vfs_plugins_dir = @vfs_plugins_dir@
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-arcmc.la
+arcmcdir = $(panel_plugins_dir)/arcmc
+arcmc_LTLIBRARIES = mc-panel-arcmc.la
 mc_panel_arcmc_la_SOURCES = \
     arcmc.c \
     arcmc-config.c \
@@ -508,33 +508,33 @@ $(ACLOCAL_M4): @MAINTAINER_MODE_TRUE@ $(am__aclocal_m4_deps)
 	cd $(top_builddir) && $(MAKE) $(AM_MAKEFLAGS) am--refresh
 $(am__aclocal_m4_deps):
 
-install-panelpluginLTLIBRARIES: $(panelplugin_LTLIBRARIES)
+install-arcmcLTLIBRARIES: $(arcmc_LTLIBRARIES)
 	@$(NORMAL_INSTALL)
-	@list='$(panelplugin_LTLIBRARIES)'; test -n "$(panelplugindir)" || list=; \
+	@list='$(arcmc_LTLIBRARIES)'; test -n "$(arcmcdir)" || list=; \
 	list2=; for p in $$list; do \
 	  if test -f $$p; then \
 	    list2="$$list2 $$p"; \
 	  else :; fi; \
 	done; \
 	test -z "$$list2" || { \
-	  echo " $(MKDIR_P) '$(DESTDIR)$(panelplugindir)'"; \
-	  $(MKDIR_P) "$(DESTDIR)$(panelplugindir)" || exit 1; \
-	  echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(INSTALL) $(INSTALL_STRIP_FLAG) $$list2 '$(DESTDIR)$(panelplugindir)'"; \
-	  $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(INSTALL) $(INSTALL_STRIP_FLAG) $$list2 "$(DESTDIR)$(panelplugindir)"; \
+	  echo " $(MKDIR_P) '$(DESTDIR)$(arcmcdir)'"; \
+	  $(MKDIR_P) "$(DESTDIR)$(arcmcdir)" || exit 1; \
+	  echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(INSTALL) $(INSTALL_STRIP_FLAG) $$list2 '$(DESTDIR)$(arcmcdir)'"; \
+	  $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=install $(INSTALL) $(INSTALL_STRIP_FLAG) $$list2 "$(DESTDIR)$(arcmcdir)"; \
 	}
 
-uninstall-panelpluginLTLIBRARIES:
+uninstall-arcmcLTLIBRARIES:
 	@$(NORMAL_UNINSTALL)
-	@list='$(panelplugin_LTLIBRARIES)'; test -n "$(panelplugindir)" || list=; \
+	@list='$(arcmc_LTLIBRARIES)'; test -n "$(arcmcdir)" || list=; \
 	for p in $$list; do \
 	  $(am__strip_dir) \
-	  echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f '$(DESTDIR)$(panelplugindir)/$$f'"; \
-	  $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f "$(DESTDIR)$(panelplugindir)/$$f"; \
+	  echo " $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f '$(DESTDIR)$(arcmcdir)/$$f'"; \
+	  $(LIBTOOL) $(AM_LIBTOOLFLAGS) $(LIBTOOLFLAGS) --mode=uninstall rm -f "$(DESTDIR)$(arcmcdir)/$$f"; \
 	done
 
-clean-panelpluginLTLIBRARIES:
-	-test -z "$(panelplugin_LTLIBRARIES)" || rm -f $(panelplugin_LTLIBRARIES)
-	@list='$(panelplugin_LTLIBRARIES)'; \
+clean-arcmcLTLIBRARIES:
+	-test -z "$(arcmc_LTLIBRARIES)" || rm -f $(arcmc_LTLIBRARIES)
+	@list='$(arcmc_LTLIBRARIES)'; \
 	locs=`for p in $$list; do echo $$p; done | \
 	      sed 's|^[^/]*$$|.|; s|/[^/]*$$||; s|$$|/so_locations|' | \
 	      sort -u`; \
@@ -553,7 +553,7 @@ $(top_builddir)/lib/widget/mc_panel_arcmc_la-table.lo:  \
 	$(top_builddir)/lib/widget/$(DEPDIR)/$(am__dirstamp)
 
 mc-panel-arcmc.la: $(mc_panel_arcmc_la_OBJECTS) $(mc_panel_arcmc_la_DEPENDENCIES) $(EXTRA_mc_panel_arcmc_la_DEPENDENCIES) 
-	$(AM_V_CCLD)$(mc_panel_arcmc_la_LINK) -rpath $(panelplugindir) $(mc_panel_arcmc_la_OBJECTS) $(mc_panel_arcmc_la_LIBADD) $(LIBS)
+	$(AM_V_CCLD)$(mc_panel_arcmc_la_LINK) -rpath $(arcmcdir) $(mc_panel_arcmc_la_OBJECTS) $(mc_panel_arcmc_la_LIBADD) $(LIBS)
 
 mostlyclean-compile:
 	-rm -f *.$(OBJEXT)
@@ -745,7 +745,7 @@ check-am: all-am
 check: check-am
 all-am: Makefile $(LTLIBRARIES)
 installdirs:
-	for dir in "$(DESTDIR)$(panelplugindir)"; do \
+	for dir in "$(DESTDIR)$(arcmcdir)"; do \
 	  test -z "$$dir" || $(MKDIR_P) "$$dir"; \
 	done
 install: install-am
@@ -782,7 +782,7 @@ maintainer-clean-generic:
 	@echo "it deletes files that may require special tools to rebuild."
 clean: clean-am
 
-clean-am: clean-generic clean-libtool clean-panelpluginLTLIBRARIES \
+clean-am: clean-arcmcLTLIBRARIES clean-generic clean-libtool \
 	mostlyclean-am
 
 distclean: distclean-am
@@ -809,7 +809,7 @@ info: info-am
 
 info-am:
 
-install-data-am: install-panelpluginLTLIBRARIES
+install-data-am: install-arcmcLTLIBRARIES
 
 install-dvi: install-dvi-am
 
@@ -861,25 +861,24 @@ ps: ps-am
 
 ps-am:
 
-uninstall-am: uninstall-panelpluginLTLIBRARIES
+uninstall-am: uninstall-arcmcLTLIBRARIES
 
 .MAKE: install-am install-strip
 
 .PHONY: CTAGS GTAGS TAGS all all-am am--depfiles check check-am clean \
-	clean-generic clean-libtool clean-panelpluginLTLIBRARIES \
+	clean-arcmcLTLIBRARIES clean-generic clean-libtool \
 	cscopelist-am ctags ctags-am distclean distclean-compile \
 	distclean-generic distclean-libtool distclean-tags distdir dvi \
 	dvi-am html html-am info info-am install install-am \
-	install-data install-data-am install-dvi install-dvi-am \
-	install-exec install-exec-am install-html install-html-am \
-	install-info install-info-am install-man \
-	install-panelpluginLTLIBRARIES install-pdf install-pdf-am \
-	install-ps install-ps-am install-strip installcheck \
-	installcheck-am installdirs maintainer-clean \
-	maintainer-clean-generic mostlyclean mostlyclean-compile \
-	mostlyclean-generic mostlyclean-libtool pdf pdf-am ps ps-am \
-	tags tags-am uninstall uninstall-am \
-	uninstall-panelpluginLTLIBRARIES
+	install-arcmcLTLIBRARIES install-data install-data-am \
+	install-dvi install-dvi-am install-exec install-exec-am \
+	install-html install-html-am install-info install-info-am \
+	install-man install-pdf install-pdf-am install-ps \
+	install-ps-am install-strip installcheck installcheck-am \
+	installdirs maintainer-clean maintainer-clean-generic \
+	mostlyclean mostlyclean-compile mostlyclean-generic \
+	mostlyclean-libtool pdf pdf-am ps ps-am tags tags-am uninstall \
+	uninstall-am uninstall-arcmcLTLIBRARIES
 
 .PRECIOUS: Makefile
 

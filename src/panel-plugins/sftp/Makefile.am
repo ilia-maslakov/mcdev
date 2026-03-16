@@ -1,5 +1,5 @@
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-sftp.la
+sftpdir = $(panel_plugins_dir)/sftp
+sftp_LTLIBRARIES = mc-panel-sftp.la
 
 mc_panel_sftp_la_SOURCES = sftp.c
 mc_panel_sftp_la_CPPFLAGS = $(GLIB_CFLAGS) $(LIBSSH_CFLAGS) -I$(top_srcdir)
