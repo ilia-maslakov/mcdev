@@ -3319,7 +3319,7 @@ dview_get_title (const WDialog *h, const ssize_t width)
 
 /* --------------------------------------------------------------------------------------------- */
 
-static int
+int
 diff_view (const char *file1, const char *file2, const char *label1, const char *label2)
 {
     int error;

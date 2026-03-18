@@ -11,6 +11,7 @@
 
 /*** declarations of public functions ************************************************************/
 
+int diff_view (const char *file1, const char *file2, const char *label1, const char *label2);
 gboolean dview_diff_cmd (const void *f0, const void *f1);
 
 #endif

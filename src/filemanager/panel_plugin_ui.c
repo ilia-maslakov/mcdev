@@ -39,6 +39,9 @@
 #include "lib/panel-plugin.h"
 
 #include "src/execute.h"
+#ifdef USE_DIFF_VIEW
+#include "src/diffviewer/ydiff.h"
+#endif
 
 #include "dir.h"
 #include "layout.h"
@@ -99,30 +102,16 @@ host_run_command_impl (mc_panel_host_t *host, const char *command, int flags)
 static gboolean
 host_open_diff_impl (mc_panel_host_t *host, const char *left_path, const char *right_path)
 {
-    char *q_left, *q_right, *cmd;
-
     (void) host;
 
     if (left_path == NULL || right_path == NULL || *left_path == '\0' || *right_path == '\0')
         return FALSE;
 
-    {
-        char *mcdiff_path = g_find_program_in_path ("mcdiff");
-
-        if (mcdiff_path == NULL)
-            return FALSE;
-        g_free (mcdiff_path);
-    }
-
-    q_left = g_shell_quote (left_path);
-    q_right = g_shell_quote (right_path);
-    cmd = g_strdup_printf ("mcdiff %s %s", q_left, q_right);
-    shell_execute (cmd, EXECUTE_INTERNAL);
-    g_free (cmd);
-    g_free (q_right);
-    g_free (q_left);
-
-    return TRUE;
+#ifdef USE_DIFF_VIEW
+    return (diff_view (left_path, right_path, left_path, right_path) != 0);
+#else
+    return FALSE;
+#endif
 }
 
 /* --------------------------------------------------------------------------------------------- */
