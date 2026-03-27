@@ -207,12 +207,12 @@ const key_code_name_t key_name_conv_tab[] = {
     { (int) '@', "at", N_ ("At sign"), "@" },
 
     // meta keys
-    { KEY_M_CTRL, "control", N_ ("Ctrl"), "C" },
-    { KEY_M_CTRL, "ctrl", N_ ("Ctrl"), "C" },
-    { KEY_M_ALT, "meta", N_ ("Alt"), "M" },
-    { KEY_M_ALT, "alt", N_ ("Alt"), "M" },
-    { KEY_M_ALT, "ralt", N_ ("Alt"), "M" },
-    { KEY_M_SHIFT, "shift", N_ ("Shift"), "S" },
+    { KEY_M_CTRL, "control", N_ ("Ctrl"), "Ctrl" },
+    { KEY_M_CTRL, "ctrl", N_ ("Ctrl"), "Ctrl" },
+    { KEY_M_ALT, "meta", N_ ("Alt"), "Alt" },
+    { KEY_M_ALT, "alt", N_ ("Alt"), "Alt" },
+    { KEY_M_ALT, "ralt", N_ ("RAlt"), "RAlt" },
+    { KEY_M_SHIFT, "shift", N_ ("Shift"), "Shift" },
 
     { 0, NULL, NULL, NULL },
 };
@@ -693,6 +693,62 @@ define_sequences (const key_define_t *kd)
 
     for (i = 0; kd[i].code != 0; i++)
         define_sequence (kd[i].code, kd[i].seq, kd[i].action);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+lookup_sequence_recursive (const key_def *node, int code, GString *buf)
+{
+    const key_def *p;
+
+    for (p = node; p != NULL; p = p->next)
+    {
+        g_string_append_c (buf, p->ch);
+
+        if (p->child == NULL && p->code == code)
+            return TRUE;
+
+        if (p->child != NULL && lookup_sequence_recursive (p->child, code, buf))
+            return TRUE;
+
+        g_string_truncate (buf, buf->len - 1);
+    }
+
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Match raw bytes against the key trie. Walk the trie character by character.
+ * Returns keycode if found, or 0 if not found.
+ */
+static int
+match_seq_in_trie (const key_def *node, const char *seq, int len, int pos)
+{
+    const key_def *p;
+
+    if (pos >= len)
+        return 0;
+
+    for (p = node; p != NULL; p = p->next)
+    {
+        if (p->ch == seq[pos])
+        {
+            if (pos + 1 == len && p->code != 0)
+                return p->code;
+            if (p->child != NULL)
+            {
+                int result = match_seq_in_trie (p->child, seq, len, pos + 1);
+
+                if (result != 0)
+                    return result;
+            }
+        }
+    }
+
+    return 0;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1549,12 +1605,6 @@ tty_keycode_to_keyname (const int keycode)
 
     if (lookup_keycode (k, &key_idx) || (k > 0 && k < 256))
     {
-        if ((mod & KEY_M_ALT) != 0 && lookup_keycode (KEY_M_ALT, &idx))
-        {
-            g_string_append (s, key_conv_tab_sorted[idx]->name);
-            g_string_append_c (s, '-');
-        }
-
         if ((mod & KEY_M_CTRL) != 0)
         {
             // non printeble chars like a CTRL-[A..Z]
@@ -1563,22 +1613,31 @@ tty_keycode_to_keyname (const int keycode)
 
             if (lookup_keycode (KEY_M_CTRL, &idx))
             {
-                g_string_append (s, key_conv_tab_sorted[idx]->name);
+                g_string_append (s, key_conv_tab_sorted[idx]->shortcut);
                 g_string_append_c (s, '-');
             }
         }
 
+        if ((mod & KEY_M_ALT) != 0 && lookup_keycode (KEY_M_ALT, &idx))
+        {
+            g_string_append (s, key_conv_tab_sorted[idx]->shortcut);
+            g_string_append_c (s, '-');
+        }
+
         if ((mod & KEY_M_SHIFT) != 0)
         {
-            if (lookup_keycode (KEY_M_ALT, &idx))
+            if (lookup_keycode (KEY_M_SHIFT, &idx))
             {
-                if (k < 127)
+                if (k >= ' ' && k < 127)
                     g_string_append_c (s, (gchar) g_ascii_toupper ((gchar) k));
                 else
                 {
-                    g_string_append (s, key_conv_tab_sorted[idx]->name);
+                    g_string_append (s, key_conv_tab_sorted[idx]->shortcut);
                     g_string_append_c (s, '-');
-                    g_string_append (s, key_conv_tab_sorted[key_idx]->name);
+                    if (key_idx >= 0 && key_conv_tab_sorted[key_idx]->shortcut != NULL)
+                        g_string_append (s, key_conv_tab_sorted[key_idx]->shortcut);
+                    else
+                        g_string_append_c (s, (gchar) k);
                 }
             }
         }
@@ -1793,12 +1852,45 @@ nodelay_try_again:
     {
         if (c == this->ch)
         {
-            if (this->child == NULL)
+            if (this->child == NULL || this->code != 0)
             {
-                // We got a complete match, return and reset search
-                pending_keys = seq_append = NULL;
-                c = this->code;
-                goto done;
+                if (this->child == NULL)
+                {
+                    // We got a complete match, return and reset search
+                    pending_keys = seq_append = NULL;
+                    c = this->code;
+                    goto done;
+                }
+
+                /* Node has both code and children (prefix of longer seq).
+                 * Peek ahead: if nothing follows quickly, return this code. */
+                {
+                    int next_c;
+
+                    if (!push_char (c))
+                    {
+                        pending_keys = seq_buffer;
+                        goto pend_send;
+                    }
+
+                    tty_nodelay (TRUE);
+                    next_c = tty_lowlevel_getch ();
+                    tty_nodelay (FALSE);
+
+                    if (next_c == -1)
+                    {
+                        /* no more bytes -- return this node's code */
+                        pending_keys = seq_append = NULL;
+                        c = this->code;
+                        goto done;
+                    }
+
+                    /* got another byte -- continue matching in children */
+                    parent = this;
+                    this = this->child;
+                    c = next_c;
+                    continue;
+                }
             }
 
             // No match yet, but it may be a prefix for a valid seq
@@ -2155,6 +2247,87 @@ learn_key (void)
 
     return g_string_free (buffer, buffer->len == 0);
 #undef LEARN_TIMEOUT
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Look up the escape sequence registered for a given keycode.
+ * Returns a newly allocated escaped string (e.g. "\\e[1;5P") or NULL.
+ */
+char *
+tty_key_lookup_sequence (int code)
+{
+    GString *buf;
+
+    if (keys == NULL || code <= 0)
+        return NULL;
+
+    buf = g_string_sized_new (16);
+    if (lookup_sequence_recursive (keys, code, buf))
+    {
+        /* convert raw bytes to printable escape notation */
+        char *result;
+        GString *out;
+        gsize i;
+
+        out = g_string_sized_new (buf->len * 2);
+        for (i = 0; i < buf->len; i++)
+        {
+            unsigned char c = (unsigned char) buf->str[i];
+
+            if (c == 27)
+                g_string_append (out, "\\e");
+            else if (c < 32)
+                g_string_append_printf (out, "^%c", c + 64);
+            else
+                g_string_append_c (out, (char) c);
+        }
+        result = g_string_free (out, FALSE);
+        g_string_free (buf, TRUE);
+        return result;
+    }
+
+    g_string_free (buf, TRUE);
+    return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Match raw escape sequence bytes against the key trie.
+ * Returns keycode if sequence is known, or 0 if not found.
+ * Works with both built-in and learned (define_sequence) entries.
+ */
+int
+tty_match_seq_to_keycode (const char *seq, int len)
+{
+    if (keys == NULL || seq == NULL || len <= 0)
+        return 0;
+
+    return match_seq_in_trie (keys, seq, len, 0);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Build a key name string: "ctrl-alt-shift-<base>".
+ * Returns newly allocated string. Caller must g_free().
+ */
+char *
+tty_build_key_name (const char *base, int modifiers)
+{
+    GString *s;
+
+    s = g_string_sized_new (32);
+    if ((modifiers & KEY_M_CTRL) != 0)
+        g_string_append (s, "ctrl-");
+    if ((modifiers & KEY_M_ALT) != 0)
+        g_string_append (s, "alt-");
+    if ((modifiers & KEY_M_SHIFT) != 0)
+        g_string_append (s, "shift-");
+    g_string_append (s, base);
+    return g_string_free (s, FALSE);
 }
 
 /* --------------------------------------------------------------------------------------------- */

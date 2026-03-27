@@ -58,6 +58,8 @@ extern const global_keymap_t *diff_map;
 
 void keymap_load (gboolean load_from_file);
 void keymap_free (void);
+void keymap_save_old_maps (void);
+void keymap_refresh_widgets (void);
 
 /*** inline functions ****************************************************************************/
 

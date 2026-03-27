@@ -1,9 +1,9 @@
-/** \file learn.h
- *  \brief Header: learn keys module
+/** \file key_sniffer.h
+ *  \brief Header: key sniffer dialog
  */
 
-#ifndef MC__LEARN_H
-#define MC__LEARN_H
+#ifndef MC__KEY_SNIFFER_H
+#define MC__KEY_SNIFFER_H
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
@@ -15,7 +15,7 @@
 
 /*** declarations of public functions ************************************************************/
 
-void learn_keys (void);
+void key_sniffer (void);
 
 /*** inline functions ****************************************************************************/
 #endif

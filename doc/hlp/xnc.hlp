@@ -326,6 +326,49 @@ The full key list of the help viewer:
 c             Go to the Contents node.
 F10, esc      Exit the help viewer.
 
-Local variables:
-fill-column: 58
-end:
+[Key Bindings]
+
+ Key Bindings
+
+View and change keyboard shortcuts for mc actions.
+
+ Keys
+
+  Enter    Replace shortcut (press the key to assign)
+  F5       Add extra shortcut for this action
+  F8/Del   Remove shortcut
+  Save     Write changes to ~/.config/mc/mc.keymap
+  Edit keymap file   Open mc.keymap in editor
+  Edit term file     Open terminal key definitions
+
+Actions marked with * differ from defaults.
+
+[Learn keys]
+
+ Learn Terminal Keys
+
+Teach mc the escape sequences your terminal sends
+for function keys, arrows and navigation keys.
+
+ Usage
+
+  1. Check the modifier (Ctrl, Alt, Shift)
+  2. Click a key button -- press that key
+  3. Wait until the capture message disappears
+  4. Save when done
+
+  Del      Clear a learned key
+  Save     Write to ~/.config/mc/term/<TERM>
+  Edit term file   Open the file in editor
+
+[Key Sniffer]
+
+ Key Sniffer
+
+Press Capture, then any key. Shows:
+  Shortcut   Symbolic name (e.g. Ctrl-F5)
+  Action     Bound action in current keymap
+  Raw        Escape sequence and hex bytes
+  Keycode    Internal numeric code
+
+Useful for diagnosing terminal key problems.

@@ -509,6 +509,21 @@ table_add_row (WTable *t, ...)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+table_set_cell (WTable *t, int row, int col, const char *text)
+{
+    char **row_data;
+
+    if (t->rows == NULL || row < 0 || row >= t->nrows || col < 0 || col >= t->ncols)
+        return;
+
+    row_data = (char **) g_ptr_array_index (t->rows, (guint) row);
+    g_free (row_data[col]);
+    row_data[col] = g_strdup (text != NULL ? text : "");
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 table_clear (WTable *t)
 {
     if (t->rows != NULL)

@@ -32,7 +32,9 @@ TESTS = \
 	execute__execute_external_editor_or_viewer \
 	execute__execute_get_external_cmd_opts_from_config \
 	file_history \
+	keymap_reload \
 	learn_modifiers \
+	term_key_merge \
 	usermenu__test_condition \
 	usermenu__test_expand_format
 
@@ -52,8 +54,14 @@ execute__execute_get_external_cmd_opts_from_config_SOURCES = \
 file_history_SOURCES = \
 	file_history.c
 
+keymap_reload_SOURCES = \
+	keymap_reload.c
+
 learn_modifiers_SOURCES = \
 	learn_modifiers.c
+
+term_key_merge_SOURCES = \
+	term_key_merge.c
 
 usermenu__test_condition_SOURCES = \
 	usermenu__test_condition.c

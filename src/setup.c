@@ -1085,6 +1085,183 @@ setup_save_config_show_error (const char *filename, GError **mcerror)
 
 /* --------------------------------------------------------------------------------------------- */
 
+char *
+mc_term_keys_path (void)
+{
+    const char *term;
+    char *path;
+    char *dir;
+
+    term = getenv ("TERM");
+    if (term == NULL || term[0] == '\0')
+        term = "unknown";
+
+    path = g_build_filename (mc_config_get_path (), "term", term, (char *) NULL);
+
+    /* ensure directory exists */
+    dir = g_path_get_dirname (path);
+    g_mkdir_with_parents (dir, 0700);
+    g_free (dir);
+
+    return path;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Migrate learned keys from [terminal:$TERM] in ini to separate file.
+ */
+static void
+migrate_term_keys (void)
+{
+    const char *term;
+    char *section_name;
+    gchar **keys;
+    char *term_file;
+    mc_config_t *term_cfg;
+    gchar *term_dir;
+    gboolean migrated = FALSE;
+
+    term = getenv ("TERM");
+    if (term == NULL || term[0] == '\0')
+        return;
+
+    term_file = mc_term_keys_path ();
+
+    /* if new file already exists, skip migration */
+    if (g_file_test (term_file, G_FILE_TEST_EXISTS))
+    {
+        g_free (term_file);
+        return;
+    }
+
+    section_name = g_strconcat ("terminal:", term, (char *) NULL);
+    keys = mc_config_get_keys (mc_global.main_config, section_name, NULL);
+
+    if (keys == NULL || *keys == NULL)
+    {
+        g_strfreev (keys);
+        g_free (section_name);
+        g_free (term_file);
+        return;
+    }
+
+    /* create directory */
+    term_dir = g_path_get_dirname (term_file);
+    g_mkdir_with_parents (term_dir, 0700);
+    g_free (term_dir);
+
+    /* copy keys to new file */
+    term_cfg = mc_config_init (term_file, FALSE);
+
+    {
+        gchar **pk;
+
+        for (pk = keys; *pk != NULL; pk++)
+        {
+            char *value;
+
+            value = mc_config_get_string_raw (mc_global.main_config, section_name, *pk, NULL);
+            if (value != NULL)
+            {
+                mc_config_set_string_raw_value (term_cfg, "keys", *pk, value);
+                g_free (value);
+                migrated = TRUE;
+            }
+        }
+    }
+
+    if (migrated)
+    {
+        char *ini_path;
+        char *ini_backup;
+
+        mc_config_save_file (term_cfg, NULL);
+
+        /* backup ini before removing old section */
+        ini_path = mc_config_get_full_path ("ini");
+        ini_backup = g_strdup_printf ("%s~", ini_path);
+        {
+            char *contents = NULL;
+            gsize length = 0;
+
+            if (g_file_get_contents (ini_path, &contents, &length, NULL))
+            {
+                g_file_set_contents (ini_backup, contents, (gssize) length, NULL);
+                g_free (contents);
+            }
+        }
+        g_free (ini_backup);
+        g_free (ini_path);
+
+        /* remove old section from ini */
+        mc_config_del_group (mc_global.main_config, section_name);
+        mc_config_save_file (mc_global.main_config, NULL);
+    }
+
+    mc_config_deinit (term_cfg);
+    g_strfreev (keys);
+    g_free (section_name);
+    g_free (term_file);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Load learned keys from ~/.config/mc/term/<TERM>
+ */
+static void
+load_term_keys_file (void)
+{
+    char *term_file;
+    mc_config_t *term_cfg;
+    gchar **keys;
+
+    term_file = mc_term_keys_path ();
+
+    if (!g_file_test (term_file, G_FILE_TEST_EXISTS))
+    {
+        g_free (term_file);
+        return;
+    }
+
+    term_cfg = mc_config_init (term_file, TRUE);
+    keys = mc_config_get_keys (term_cfg, "keys", NULL);
+
+    if (keys != NULL)
+    {
+        gchar **pk;
+
+        for (pk = keys; *pk != NULL; pk++)
+        {
+            int key_code;
+
+            key_code = tty_keyname_to_keycode (*pk, NULL);
+            if (key_code != 0)
+            {
+                char *value;
+
+                value = mc_config_get_string_raw (term_cfg, "keys", *pk, NULL);
+                if (value != NULL)
+                {
+                    char *valcopy;
+
+                    valcopy = convert_controls (value);
+                    define_sequence (key_code, valcopy, MCKEY_NOACTION);
+                    g_free (valcopy);
+                    g_free (value);
+                }
+            }
+        }
+        g_strfreev (keys);
+    }
+
+    mc_config_deinit (term_cfg);
+    g_free (term_file);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 void
 load_key_defs (void)
 {
@@ -1103,7 +1280,12 @@ load_key_defs (void)
     }
 
     load_keys_from_section ("general", mc_global.main_config);
-    load_keys_from_section (getenv ("TERM"), mc_global.main_config);
+
+    /* migrate old [terminal:$TERM] from ini to separate file */
+    migrate_term_keys ();
+
+    /* load learned keys from ~/.config/mc/term/<TERM> */
+    load_term_keys_file ();
 }
 
 /* --------------------------------------------------------------------------------------------- */
