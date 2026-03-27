@@ -80,8 +80,10 @@ libinternal_la_SOURCES = \
 	file_history.c file_history.h \
 	help.c help.h \
 	history.h \
+	keybind_dialog.c keybind_dialog.h \
+	key_sniffer.c key_sniffer.h \
 	keymap.c keymap.h \
-	learn.c learn.h \
+	key_learn.c key_learn.h \
 	selcodepage.c selcodepage.h \
 	setup.c setup.h \
 	textconf.c textconf.h \

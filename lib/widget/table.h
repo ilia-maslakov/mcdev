@@ -58,6 +58,7 @@ void table_clear (WTable *t);
 int table_get_current (const WTable *t);
 void table_set_current (WTable *t, int pos);
 gboolean table_get_checked (const WTable *t, int row, int col);
+void table_set_cell (WTable *t, int row, int col, const char *text);
 void table_set_checked (WTable *t, int row, int col, gboolean val);
 
 /*** inline functions ****************************************************************************/

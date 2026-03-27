@@ -36,6 +36,8 @@
 #include "lib/widget.h"  // dialog_map, input_map, listbox_map, menu_map, radio_map
 
 #include "args.h"  // mc_args__keymap_file
+#include "filemanager/panel.h"
+#include "filemanager/filemanager.h"
 
 #include "keymap.h"
 
@@ -990,7 +992,8 @@ keymap_free (void)
 {
 #define FREE_KEYMAP(km)                                                                            \
     if (km##_keymap != NULL)                                                                       \
-    g_array_free (km##_keymap, TRUE)
+        g_array_free (km##_keymap, TRUE);                                                          \
+    km##_keymap = NULL
 
     FREE_KEYMAP (filemanager);
     FREE_KEYMAP (filemanager_x);
@@ -1016,6 +1019,117 @@ keymap_free (void)
 #endif
 
 #undef FREE_KEYMAP
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* old -> new map pairs for refresh */
+typedef struct
+{
+    const global_keymap_t *old_map;
+    const global_keymap_t *new_map;
+} keymap_pair_t;
+
+static keymap_pair_t keymap_old_maps[20];
+static int keymap_old_count = 0;
+
+void
+keymap_save_old_maps (void)
+{
+    keymap_old_count = 0;
+
+#define SAVE_MAP(m)                                                                                \
+    do                                                                                             \
+    {                                                                                              \
+        if (m##_map != NULL)                                                                       \
+        {                                                                                          \
+            keymap_old_maps[keymap_old_count].old_map = m##_map;                                   \
+            keymap_old_maps[keymap_old_count].new_map = NULL;                                      \
+            keymap_old_count++;                                                                    \
+        }                                                                                          \
+    }                                                                                              \
+    while (0)
+
+    SAVE_MAP (filemanager);
+    SAVE_MAP (panel);
+    SAVE_MAP (dialog);
+    SAVE_MAP (input);
+    SAVE_MAP (listbox);
+    SAVE_MAP (menu);
+    SAVE_MAP (radio);
+    SAVE_MAP (tree);
+#undef SAVE_MAP
+}
+
+static void
+keymap_fill_new_maps (void)
+{
+    int i;
+
+    /* set directly -- order matches SAVE_MAP */
+    i = 0;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = filemanager_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = panel_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = dialog_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = input_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = listbox_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = menu_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = radio_map;
+    if (i < keymap_old_count)
+        keymap_old_maps[i++].new_map = tree_map;
+}
+
+static void
+keymap_refresh_widget (Widget *w)
+{
+    int i;
+
+    if (w == NULL || w->keymap == NULL)
+        return;
+
+    for (i = 0; i < keymap_old_count; i++)
+    {
+        if (w->keymap == keymap_old_maps[i].old_map)
+        {
+            w->keymap = keymap_old_maps[i].new_map;
+            break;
+        }
+    }
+
+    if (w->ext_keymap != NULL && w == WIDGET (filemanager))
+        w->ext_keymap = filemanager_x_map;
+}
+
+void
+keymap_refresh_widgets (void)
+{
+    GList *d;
+
+    keymap_fill_new_maps ();
+
+    for (d = top_dlg; d != NULL; d = g_list_next (d))
+    {
+        WDialog *dlg = DIALOG (d->data);
+        WGroup *g = GROUP (dlg);
+        GList *l;
+
+        /* refresh the dialog itself */
+        keymap_refresh_widget (WIDGET (dlg));
+
+        /* refresh direct children */
+        if (g->widgets != NULL)
+        {
+            for (l = g->widgets; l != NULL; l = g_list_next (l))
+                keymap_refresh_widget (WIDGET (l->data));
+        }
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
