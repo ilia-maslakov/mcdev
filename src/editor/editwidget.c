@@ -58,7 +58,7 @@
 #include "src/setup.h"            // home_dir
 #include "src/execute.h"          // toggle_subshell()
 #include "src/filemanager/cmd.h"  // save_setup_cmd()
-#include "src/learn.h"            // learn_keys()
+#include "src/key_learn.h"        // key_learn()
 
 #include "edit-impl.h"
 #include "editwidget.h"
@@ -814,7 +814,7 @@ edit_dialog_command_execute (WDialog *h, long command)
         toggle_subshell ();
         break;
     case CK_LearnKeys:
-        learn_keys ();
+        key_learn ();
         break;
     case CK_WindowMove:
     case CK_WindowResize:

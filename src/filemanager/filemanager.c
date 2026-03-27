@@ -55,9 +55,11 @@
 #ifdef ENABLE_SUBSHELL
 #include "src/subshell/subshell.h"
 #endif
-#include "src/execute.h"  // toggle_subshell
-#include "src/setup.h"    // variables
-#include "src/learn.h"    // learn_keys()
+#include "src/execute.h"         // toggle_subshell
+#include "src/setup.h"           // variables
+#include "src/key_learn.h"       // key_learn()
+#include "src/keybind_dialog.h"  // keybind_dialog()
+#include "src/key_sniffer.h"     // key_sniffer()
 #include "src/keymap.h"
 #include "src/usermenu.h"  // user_file_menu_cmd()
 
@@ -342,6 +344,8 @@ create_options_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&onfirmation..."), CK_OptionsConfirm));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Appearance..."), CK_OptionsAppearance));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Learn &keys..."), CK_LearnKeys));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Key &bindings..."), CK_KeyBindings));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Key &sniffer..."), CK_KeySniffer));
 #ifdef ENABLE_VFS
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Virtual FS..."), CK_OptionsVfs));
 #endif
@@ -1386,7 +1390,13 @@ midnight_execute_cmd (Widget *sender, long command)
         appearance_box ();
         break;
     case CK_LearnKeys:
-        learn_keys ();
+        key_learn ();
+        break;
+    case CK_KeyBindings:
+        keybind_dialog ();
+        break;
+    case CK_KeySniffer:
+        key_sniffer ();
         break;
     case CK_Link:
         link_cmd (LINK_HARDLINK);
