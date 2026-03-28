@@ -20,7 +20,8 @@ TESTS = \
 	examine_cd \
 	exec_get_export_variables_ext \
 	filegui_is_wildcarded \
-	get_random_hint
+	get_random_hint \
+	panel_plugin_close
 
 check_PROGRAMS = $(TESTS)
 
@@ -38,3 +39,6 @@ get_random_hint_SOURCES = \
 
 filegui_is_wildcarded_SOURCES = \
 	filegui_is_wildcarded.c
+
+panel_plugin_close_SOURCES = \
+	panel_plugin_close.c
