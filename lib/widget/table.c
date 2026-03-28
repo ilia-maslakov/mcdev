@@ -29,7 +29,6 @@
 
 #include <config.h>
 
-#include <stdarg.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -39,6 +38,8 @@
 #include "lib/skin.h"
 #include "lib/strutil.h"
 #include "lib/widget.h"
+
+#include "table.h"
 
 /*** global variables ****************************************************************************/
 
@@ -54,24 +55,18 @@
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-static void
-table_free_row (gpointer data)
+static int
+table_get_nrows (const WTable *t)
 {
-    g_strfreev ((char **) data);
+    if (t->datasource.get_nrows == NULL)
+        return 0;
+    return t->datasource.get_nrows (t->datasource.data);
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-table_free_check_row (gpointer data)
-{
-    g_free (data);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static void
-table_drawscroll (const WTable *t)
+table_drawscroll (const WTable *t, int nrows)
 {
     const WRect *w = &CONST_WIDGET (t)->rect;
     int max_line = w->lines - 1;
@@ -79,26 +74,26 @@ table_drawscroll (const WTable *t)
     int i;
 
     /* top arrow */
-    widget_gotoyx (t, 0, w->cols);
+    widget_gotoyx (t, 0, w->cols - 1);
     if (t->top == 0)
         tty_print_one_vline (TRUE);
     else
         tty_print_char ('^');
 
     /* bottom arrow */
-    widget_gotoyx (t, max_line, w->cols);
-    if (t->top + w->lines >= t->nrows || w->lines >= t->nrows)
+    widget_gotoyx (t, max_line, w->cols - 1);
+    if (t->top + w->lines >= nrows || w->lines >= nrows)
         tty_print_one_vline (TRUE);
     else
         tty_print_char ('v');
 
     /* thumb position */
-    if (t->nrows != 0)
-        line = 1 + ((t->current * (w->lines - 2)) / t->nrows);
+    if (nrows != 0)
+        line = 1 + ((t->current * (w->lines - 2)) / nrows);
 
     for (i = 1; i < max_line; i++)
     {
-        widget_gotoyx (t, i, w->cols);
+        widget_gotoyx (t, i, w->cols - 1);
         if (i != line)
             tty_print_one_vline (TRUE);
         else
@@ -116,9 +111,11 @@ table_draw (WTable *t, gboolean focused)
     const int *colors;
     gboolean disabled;
     int normalc, selc, scrollbarc;
+    int nrows;
     int i;
     int sel_line = -1;
 
+    nrows = table_get_nrows (t);
     colors = widget_get_colors (wt);
 
     disabled = widget_get_state (wt, WST_DISABLED);
@@ -153,28 +150,26 @@ table_draw (WTable *t, gboolean focused)
 
         for (c = 0; c < t->ncols; c++)
         {
-            const char *cell_text = "";
-
-            if (row_idx < t->nrows)
-            {
-                char **row = (char **) g_ptr_array_index (t->rows, (guint) row_idx);
-
-                cell_text = row[c];
-            }
-
             tty_setcolor (row_color);
             widget_gotoyx (t, i, col_x);
 
-            if (t->col_defs[c].type == TABLE_COL_CHECK && t->checks != NULL && row_idx < t->nrows)
+            if (t->col_defs[c].type == TABLE_COL_CHECK && row_idx < nrows
+                && t->datasource.get_checked != NULL)
             {
-                const gboolean *chk =
-                    (const gboolean *) g_ptr_array_index (t->checks, (guint) row_idx);
+                gboolean checked = t->datasource.get_checked (t->datasource.data, row_idx, c);
 
-                tty_print_string (chk[c] ? "[x]" : "[ ]");
+                tty_print_string (checked ? "[x]" : "[ ]");
             }
             else
+            {
+                const char *cell_text = "";
+
+                if (row_idx < nrows && t->datasource.get_text != NULL)
+                    cell_text = t->datasource.get_text (t->datasource.data, row_idx, c);
+
                 tty_print_string (
                     str_fit_to_term (cell_text, t->col_defs[c].width, t->col_defs[c].align));
+            }
 
             col_x += t->col_defs[c].width;
 
@@ -191,10 +186,10 @@ table_draw (WTable *t, gboolean focused)
 
     t->cursor_y = sel_line;
 
-    if (t->scrollbar && t->nrows > w->lines)
+    if (t->scrollbar && nrows > w->lines)
     {
         tty_setcolor (scrollbarc);
-        table_drawscroll (t);
+        table_drawscroll (t, nrows);
     }
 }
 
@@ -203,10 +198,12 @@ table_draw (WTable *t, gboolean focused)
 static void
 table_fwd (WTable *t, gboolean wrap)
 {
-    if (t->nrows == 0)
+    int nrows = table_get_nrows (t);
+
+    if (nrows == 0)
         return;
 
-    if (t->current + 1 < t->nrows)
+    if (t->current + 1 < nrows)
         table_set_current (t, t->current + 1);
     else if (wrap)
         table_set_current (t, 0);
@@ -217,13 +214,15 @@ table_fwd (WTable *t, gboolean wrap)
 static void
 table_back (WTable *t, gboolean wrap)
 {
-    if (t->nrows == 0)
+    int nrows = table_get_nrows (t);
+
+    if (nrows == 0)
         return;
 
     if (t->current > 0)
         table_set_current (t, t->current - 1);
     else if (wrap)
-        table_set_current (t, t->nrows - 1);
+        table_set_current (t, nrows - 1);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -233,8 +232,9 @@ table_execute_cmd (WTable *t, long command)
 {
     cb_ret_t ret = MSG_HANDLED;
     const WRect *w = &CONST_WIDGET (t)->rect;
+    int nrows = table_get_nrows (t);
 
-    if (t->nrows == 0)
+    if (nrows == 0)
         return MSG_NOT_HANDLED;
 
     switch (command)
@@ -249,13 +249,13 @@ table_execute_cmd (WTable *t, long command)
         table_set_current (t, 0);
         break;
     case CK_Bottom:
-        table_set_current (t, t->nrows - 1);
+        table_set_current (t, nrows - 1);
         break;
     case CK_PageUp:
         table_set_current (t, MAX (t->current - (w->lines - 1), 0));
         break;
     case CK_PageDown:
-        table_set_current (t, MIN (t->current + (w->lines - 1), t->nrows - 1));
+        table_set_current (t, MIN (t->current + (w->lines - 1), nrows - 1));
         break;
     case CK_Enter:
         ret = send_message (WIDGET (t)->owner, t, MSG_NOTIFY, command, NULL);
@@ -273,8 +273,9 @@ static cb_ret_t
 table_key (WTable *t, int key)
 {
     const WRect *w = &CONST_WIDGET (t)->rect;
+    int nrows = table_get_nrows (t);
 
-    if (t->nrows == 0)
+    if (nrows == 0)
         return MSG_NOT_HANDLED;
 
     switch (key)
@@ -289,24 +290,25 @@ table_key (WTable *t, int key)
         table_set_current (t, 0);
         return MSG_HANDLED;
     case KEY_END:
-        table_set_current (t, t->nrows - 1);
+        table_set_current (t, nrows - 1);
         return MSG_HANDLED;
     case KEY_PPAGE:
         table_set_current (t, MAX (t->current - (w->lines - 1), 0));
         return MSG_HANDLED;
     case KEY_NPAGE:
-        table_set_current (t, MIN (t->current + (w->lines - 1), t->nrows - 1));
+        table_set_current (t, MIN (t->current + (w->lines - 1), nrows - 1));
         return MSG_HANDLED;
     case ' ':
-        if (t->has_check_cols && t->checks != NULL && t->current < t->nrows)
+        if (t->has_check_cols && t->datasource.get_checked != NULL
+            && t->datasource.set_checked != NULL && t->current < nrows)
         {
-            gboolean *chk = (gboolean *) g_ptr_array_index (t->checks, (guint) t->current);
             int c;
 
             for (c = 0; c < t->ncols; c++)
                 if (t->col_defs[c].type == TABLE_COL_CHECK)
                 {
-                    chk[c] = !chk[c];
+                    gboolean val = t->datasource.get_checked (t->datasource.data, t->current, c);
+                    t->datasource.set_checked (t->datasource.data, t->current, c, !val);
                     break;
                 }
             return MSG_HANDLED;
@@ -333,20 +335,6 @@ table_destroy (WTable *t)
 {
     g_free (t->col_defs);
     t->col_defs = NULL;
-
-    if (t->rows != NULL)
-    {
-        g_ptr_array_free (t->rows, TRUE);
-        t->rows = NULL;
-    }
-
-    if (t->checks != NULL)
-    {
-        g_ptr_array_free (t->checks, TRUE);
-        t->checks = NULL;
-    }
-
-    t->nrows = 0;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -372,7 +360,8 @@ table_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *dat
         return table_execute_cmd (t, parm);
 
     case MSG_CURSOR:
-        widget_gotoyx (t, t->cursor_y, 0);
+        if (t->cursor_y >= 0)
+            widget_gotoyx (t, t->cursor_y, 0);
         return MSG_HANDLED;
 
     case MSG_DRAW:
@@ -395,6 +384,7 @@ table_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
 {
     WTable *t = TABLE (w);
     int old_current;
+    int nrows = table_get_nrows (t);
 
     old_current = t->current;
 
@@ -402,7 +392,8 @@ table_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
     {
     case MSG_MOUSE_DOWN:
         widget_select (w);
-        table_set_current (t, MIN (t->top + event->y, t->nrows - 1));
+        if (nrows > 0)
+            table_set_current (t, MIN (t->top + event->y, nrows - 1));
         break;
 
     case MSG_MOUSE_SCROLL_UP:
@@ -420,7 +411,8 @@ table_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
 
     case MSG_MOUSE_DRAG:
         event->result.repeat = TRUE;
-        table_set_current (t, MIN (t->top + event->y, t->nrows - 1));
+        if (nrows > 0)
+            table_set_current (t, MIN (t->top + event->y, nrows - 1));
         break;
 
     default:
@@ -452,8 +444,6 @@ table_new (int y, int x, int height, int width, int ncols, const table_column_de
     t->col_defs = g_new (table_column_def_t, ncols);
     memcpy (t->col_defs, col_defs, sizeof (table_column_def_t) * (size_t) ncols);
 
-    t->rows = g_ptr_array_new_with_free_func (table_free_row);
-    t->nrows = 0;
     t->top = 0;
     t->current = 0;
     t->cursor_y = 0;
@@ -472,7 +462,6 @@ table_new (int y, int x, int height, int width, int ncols, const table_column_de
                 break;
             }
     }
-    t->checks = t->has_check_cols ? g_ptr_array_new_with_free_func (table_free_check_row) : NULL;
 
     return t;
 }
@@ -480,61 +469,21 @@ table_new (int y, int x, int height, int width, int ncols, const table_column_de
 /* --------------------------------------------------------------------------------------------- */
 
 void
-table_add_row (WTable *t, ...)
+table_set_datasource (WTable *t, table_datasource_t ds)
 {
-    va_list ap;
-    char **row;
-    int i;
+    int nrows;
 
-    row = g_new (char *, t->ncols + 1);
+    t->datasource = ds;
 
-    va_start (ap, t);
-    for (i = 0; i < t->ncols; i++)
+    /* clamp selection and viewport to new data bounds */
+    nrows = table_get_nrows (t);
+    if (nrows == 0)
     {
-        const char *s = va_arg (ap, const char *);
-        row[i] = g_strdup (s != NULL ? s : "");
+        t->current = 0;
+        t->top = 0;
     }
-    va_end (ap);
-
-    row[t->ncols] = NULL; /* null-terminate for g_strfreev */
-
-    g_ptr_array_add (t->rows, row);
-
-    if (t->checks != NULL)
-        g_ptr_array_add (t->checks, g_new0 (gboolean, t->ncols));
-
-    t->nrows = (int) t->rows->len;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-void
-table_set_cell (WTable *t, int row, int col, const char *text)
-{
-    char **row_data;
-
-    if (t->rows == NULL || row < 0 || row >= t->nrows || col < 0 || col >= t->ncols)
-        return;
-
-    row_data = (char **) g_ptr_array_index (t->rows, (guint) row);
-    g_free (row_data[col]);
-    row_data[col] = g_strdup (text != NULL ? text : "");
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-void
-table_clear (WTable *t)
-{
-    if (t->rows != NULL)
-        g_ptr_array_set_size (t->rows, 0);
-
-    if (t->checks != NULL)
-        g_ptr_array_set_size (t->checks, 0);
-
-    t->nrows = 0;
-    t->top = 0;
-    t->current = 0;
+    else
+        table_set_current (t, MIN (t->current, nrows - 1));
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -550,53 +499,33 @@ table_get_current (const WTable *t)
 void
 table_set_current (WTable *t, int pos)
 {
+    int nrows;
     int lines;
+    int max_top;
 
-    if (t->nrows == 0)
+    nrows = table_get_nrows (t);
+
+    if (nrows == 0)
         return;
 
     if (pos < 0)
         pos = 0;
-    if (pos >= t->nrows)
-        pos = t->nrows - 1;
+    if (pos >= nrows)
+        pos = nrows - 1;
 
     t->current = pos;
 
     lines = WIDGET (t)->rect.lines;
+    max_top = MAX (nrows - lines, 0);
 
     /* adjust top so current is visible */
     if (t->current < t->top)
         t->top = t->current;
     else if (t->current - t->top >= lines)
         t->top = t->current - lines + 1;
-}
 
-/* --------------------------------------------------------------------------------------------- */
-
-gboolean
-table_get_checked (const WTable *t, int row, int col)
-{
-    const gboolean *chk;
-
-    if (t->checks == NULL || row < 0 || row >= t->nrows || col < 0 || col >= t->ncols)
-        return FALSE;
-
-    chk = (const gboolean *) g_ptr_array_index (t->checks, (guint) row);
-    return chk[col];
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-void
-table_set_checked (WTable *t, int row, int col, gboolean val)
-{
-    gboolean *chk;
-
-    if (t->checks == NULL || row < 0 || row >= t->nrows || col < 0 || col >= t->ncols)
-        return;
-
-    chk = (gboolean *) g_ptr_array_index (t->checks, (guint) row);
-    chk[col] = val;
+    if (t->top > max_top)
+        t->top = max_top;
 }
 
 /* --------------------------------------------------------------------------------------------- */

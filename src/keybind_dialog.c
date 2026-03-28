@@ -323,14 +323,12 @@ kbd_dict_build (void)
 /* --------------------------------------------------------------------------------------------- */
 
 /**
- * Build table rows from dictionary + row map.
+ * Build row map from dictionary.
  */
 static void
 kbd_dict_fill_table (void)
 {
     guint i;
-
-    table_clear (kbd_table);
 
     if (kbd_row_map != NULL)
         g_array_set_size (kbd_row_map, 0);
@@ -343,51 +341,105 @@ kbd_dict_fill_table (void)
     for (i = 0; i < kbd_dict->len; i++)
     {
         kbd_action_t *a = &g_array_index (kbd_dict, kbd_action_t, i);
-        char action_buf[64];
         kbd_row_map_t rm;
         guint ki;
-
-        if (a->overridden || a->dirty)
-            g_snprintf (action_buf, sizeof (action_buf), "*%s", a->action_name);
-        else
-            g_strlcpy (action_buf, a->action_name, sizeof (action_buf));
 
         /* primary row */
         rm.action_idx = (int) i;
         rm.key_idx = 0;
-
-        if (a->keys->len > 0)
-        {
-            const char *first_key = (const char *) g_ptr_array_index (a->keys, 0);
-
-            table_add_row (kbd_table, action_buf, first_key, a->desc);
-        }
-        else
-            table_add_row (kbd_table, action_buf, "", a->desc);
-
         g_array_append_val (kbd_row_map, rm);
 
-        /* sub-rows */
+        /* sub-rows for additional keys */
         for (ki = 1; ki < a->keys->len; ki++)
         {
-            const char *extra_key = (const char *) g_ptr_array_index (a->keys, ki);
-            char tree_key[48];
+            rm.action_idx = (int) i;
+            rm.key_idx = (int) ki;
+            g_array_append_val (kbd_row_map, rm);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+kbd_table_get_nrows (const void *data)
+{
+    (void) data;
+
+    if (kbd_row_map == NULL)
+        return 0;
+
+    return (int) kbd_row_map->len;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const char *
+kbd_table_get_text (const void *data, int row, int col)
+{
+    static char buf[128];
+    kbd_row_map_t *map;
+    kbd_action_t *a;
+
+    (void) data;
+
+    if (kbd_row_map == NULL || row < 0 || row >= (int) kbd_row_map->len)
+        return "";
+
+    map = &g_array_index (kbd_row_map, kbd_row_map_t, (guint) row);
+
+    if (kbd_dict == NULL || map->action_idx < 0 || map->action_idx >= (int) kbd_dict->len)
+        return "";
+
+    a = &g_array_index (kbd_dict, kbd_action_t, (guint) map->action_idx);
+
+    switch (col)
+    {
+    case 0: /* action name */
+        if (map->key_idx > 0)
+            return "";
+        if (a->overridden || a->dirty)
+        {
+            g_snprintf (buf, sizeof (buf), "*%s", a->action_name);
+            return buf;
+        }
+        return a->action_name;
+
+    case 1: /* key */
+        if (map->key_idx == 0)
+        {
+            if (a->keys->len > 0)
+                return (const char *) g_ptr_array_index (a->keys, 0);
+            return "";
+        }
+        else
+        {
+            const char *extra_key;
             char conn_buf[8];
             int frm_char;
             int len;
 
-            frm_char = (ki == a->keys->len - 1) ? mc_tty_frm[MC_TTY_FRM_LEFTBOTTOM]
-                                                : mc_tty_frm[MC_TTY_FRM_LEFTMIDDLE];
+            if (map->key_idx < 0 || map->key_idx >= (int) a->keys->len)
+                return "";
+
+            extra_key = (const char *) g_ptr_array_index (a->keys, (guint) map->key_idx);
+            frm_char = ((guint) map->key_idx == a->keys->len - 1)
+                ? mc_tty_frm[MC_TTY_FRM_LEFTBOTTOM]
+                : mc_tty_frm[MC_TTY_FRM_LEFTMIDDLE];
             conn_buf[0] = ' ';
             len = g_unichar_to_utf8 ((gunichar) frm_char, conn_buf + 1);
             conn_buf[1 + len] = '\0';
-            g_snprintf (tree_key, sizeof (tree_key), "%s %s", conn_buf, extra_key);
-
-            rm.action_idx = (int) i;
-            rm.key_idx = (int) ki;
-            table_add_row (kbd_table, "", tree_key, "");
-            g_array_append_val (kbd_row_map, rm);
+            g_snprintf (buf, sizeof (buf), "%s %s", conn_buf, extra_key);
+            return buf;
         }
+
+    case 2: /* description */
+        if (map->key_idx > 0)
+            return "";
+        return a->desc;
+
+    default:
+        return "";
     }
 }
 
@@ -751,10 +803,7 @@ keybind_clear_key (void)
     if (key_idx >= 0 && key_idx < (int) a->keys->len)
     {
         g_ptr_array_remove_index (a->keys, (guint) key_idx);
-        /* rebuild table to fix tree connectors */
         kbd_dict_fill_table ();
-        if (row >= kbd_table->nrows)
-            row = kbd_table->nrows - 1;
         table_set_current (kbd_table, row);
     }
 
@@ -997,7 +1046,6 @@ keybind_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, voi
                             if (append_mode)
                             {
                                 g_ptr_array_add (a->keys, g_strdup (key_name));
-                                kbd_dict_fill_table ();
                             }
                             else
                             {
@@ -1007,37 +1055,13 @@ keybind_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, voi
                                 {
                                     g_free (g_ptr_array_index (a->keys, (guint) key_idx));
                                     a->keys->pdata[key_idx] = g_strdup (key_name);
-
-                                    /* update cell preserving tree connector */
-                                    if (key_idx == 0)
-                                        table_set_cell (kbd_table, capture_row, KBD_KEY_COL,
-                                                        key_name);
-                                    else
-                                    {
-                                        char tree_key[48];
-                                        char conn_buf[8];
-                                        int frm_char;
-                                        int clen;
-
-                                        frm_char = ((guint) key_idx == a->keys->len - 1)
-                                            ? mc_tty_frm[MC_TTY_FRM_LEFTBOTTOM]
-                                            : mc_tty_frm[MC_TTY_FRM_LEFTMIDDLE];
-                                        conn_buf[0] = ' ';
-                                        clen =
-                                            g_unichar_to_utf8 ((gunichar) frm_char, conn_buf + 1);
-                                        conn_buf[1 + clen] = '\0';
-                                        g_snprintf (tree_key, sizeof (tree_key), "%s %s", conn_buf,
-                                                    key_name);
-                                        table_set_cell (kbd_table, capture_row, KBD_KEY_COL,
-                                                        tree_key);
-                                    }
                                 }
                                 else
-                                {
                                     g_ptr_array_add (a->keys, g_strdup (key_name));
-                                    table_set_cell (kbd_table, capture_row, KBD_KEY_COL, key_name);
-                                }
                             }
+
+                            kbd_dict_fill_table ();
+                            table_set_current (kbd_table, capture_row);
                         }
                         g_free (key_name);
                     }
@@ -1045,6 +1069,7 @@ keybind_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, voi
                     {
                         keybind_inline_learn (seq, capture_row);
                         kbd_dict_fill_table ();
+                        table_set_current (kbd_table, capture_row);
                     }
                 }
 
@@ -1155,6 +1180,11 @@ keybind_show_page (void)
     /* table */
     kbd_table = table_new (y, 2, table_height, kbd_dlg_width - 5, KBD_TABLE_COLS, col_defs);
     kbd_table->scrollbar = TRUE;
+    {
+        table_datasource_t ds = { kbd_table_get_nrows, kbd_table_get_text, NULL, NULL, NULL };
+
+        table_set_datasource (kbd_table, ds);
+    }
     group_add_widget (g, kbd_table);
     y += table_height;
 
@@ -1186,7 +1216,7 @@ keybind_show_page (void)
     keybind_table_fill ();
 
     /* restore position after capture */
-    if (kbd_capture_row >= 0 && kbd_capture_row < kbd_table->nrows)
+    if (kbd_capture_row >= 0)
         table_set_current (kbd_table, kbd_capture_row);
 
     /* focus on table */

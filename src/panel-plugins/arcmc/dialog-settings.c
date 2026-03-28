@@ -75,6 +75,104 @@ static const struct
 
 /*** file scope functions ************************************************************************/
 
+/* ---- Table datasource callbacks for the settings dialog ---- */
+
+static int
+settings_builtin_get_nrows (const void *data)
+{
+    (void) data;
+    return (int) G_N_ELEMENTS (builtin_formats);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const char *
+settings_builtin_get_text (const void *data, int row, int col)
+{
+    (void) data;
+
+    if (row < 0 || row >= (int) G_N_ELEMENTS (builtin_formats))
+        return "";
+
+    switch (col)
+    {
+    case 0:
+        return builtin_formats[row].name;
+    case 1:
+        return builtin_formats[row].ext;
+    case 2:
+        return builtin_formats[row].can_pack ? "builtin" : "-";
+    case 3:
+        return builtin_formats[row].can_unpack ? "builtin" : "-";
+    default:
+        return "";
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+settings_ext_get_nrows (const void *data)
+{
+    (void) data;
+    return (int) ext_archivers_count;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const char *
+settings_ext_get_text (const void *data, int row, int col)
+{
+    const arcmc_ext_archiver_t *a;
+
+    (void) data;
+
+    if (row < 0 || row >= (int) ext_archivers_count)
+        return "";
+
+    a = &ext_archivers[row];
+
+    switch (col)
+    {
+    case 0:
+        return a->name;
+    case 1:
+        return a->ext;
+    case 2:
+        return a->pack_bin != NULL ? a->pack_bin : "-";
+    case 3:
+        return a->unpack_bin != NULL ? a->unpack_bin : "-";
+    default:
+        return "";
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+settings_get_checked (const void *data, int row, int col)
+{
+    const gboolean *checks = (const gboolean *) data;
+
+    (void) col;
+
+    return checks[row];
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+settings_set_checked (void *data, int row, int col, gboolean val)
+{
+    gboolean *checks = (gboolean *) data;
+
+    (void) col;
+
+    checks[row] = val;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* Show sub-dialog for editing external archiver parameters. */
 static void
 arcmc_show_ext_params_dialog (size_t idx)
@@ -241,6 +339,8 @@ arcmc_show_settings_dialog (void)
     WGroup *g;
     WTable *tbl_builtin;
     WTable *tbl_ext;
+    gboolean builtin_checks[G_N_ELEMENTS (builtin_formats)];
+    gboolean *ext_checks;
     int dlg_width = 49;
     int dlg_height;
     int builtin_lines;
@@ -280,11 +380,12 @@ arcmc_show_settings_dialog (void)
     /* builtin libarchive formats */
     tbl_builtin = table_new (y, 2, builtin_lines, dlg_width - 4, SETTINGS_TABLE_NCOLS, col_defs);
     for (i = 0; i < G_N_ELEMENTS (builtin_formats); i++)
+        builtin_checks[i] = arcmc_builtin_enabled[i];
     {
-        table_add_row (tbl_builtin, builtin_formats[i].name, builtin_formats[i].ext,
-                       builtin_formats[i].can_pack ? "builtin" : "-",
-                       builtin_formats[i].can_unpack ? "builtin" : "-", "");
-        table_set_checked (tbl_builtin, (int) i, 4, arcmc_builtin_enabled[i]);
+        table_datasource_t ds = { settings_builtin_get_nrows, settings_builtin_get_text,
+                                  settings_get_checked, settings_set_checked, builtin_checks };
+
+        table_set_datasource (tbl_builtin, ds);
     }
     group_add_widget (g, tbl_builtin);
     y += builtin_lines;
@@ -301,41 +402,14 @@ arcmc_show_settings_dialog (void)
     /* external archivers */
     tbl_ext = table_new (y, 2, ext_lines, dlg_width - 4, SETTINGS_TABLE_NCOLS, col_defs);
     settings_tbl_ext = tbl_ext;
+    ext_checks = g_new (gboolean, ext_archivers_count > 0 ? ext_archivers_count : 1);
     for (i = 0; i < ext_archivers_count; i++)
+        ext_checks[i] = arcmc_ext_enabled != NULL ? arcmc_ext_enabled[i] : TRUE;
     {
-        const arcmc_ext_archiver_t *a = &ext_archivers[i];
-        const char *pack_str;
-        const char *unpack_str;
-        gboolean have_pack, have_unpack;
+        table_datasource_t ds = { settings_ext_get_nrows, settings_ext_get_text,
+                                  settings_get_checked, settings_set_checked, ext_checks };
 
-        if (a->pack_bin != NULL)
-        {
-            pack_str = a->pack_bin;
-            have_pack = arcmc_check_bin_available (a->pack_bin);
-        }
-        else
-        {
-            pack_str = "-";
-            have_pack = FALSE;
-        }
-
-        if (a->unpack_bin != NULL)
-        {
-            unpack_str = a->unpack_bin;
-            have_unpack = arcmc_check_bin_available (a->unpack_bin);
-        }
-        else
-        {
-            unpack_str = "-";
-            have_unpack = FALSE;
-        }
-
-        (void) have_pack;
-        (void) have_unpack;
-
-        table_add_row (tbl_ext, a->name, a->ext, pack_str, unpack_str, "");
-        table_set_checked (tbl_ext, (int) i, 4,
-                           arcmc_ext_enabled != NULL ? arcmc_ext_enabled[i] : TRUE);
+        table_set_datasource (tbl_ext, ds);
     }
     group_add_widget (g, tbl_ext);
     y += ext_lines;
@@ -348,17 +422,18 @@ arcmc_show_settings_dialog (void)
 
     if (dlg_run (dlg) == B_ENTER)
     {
-        /* read back check states */
+        /* commit check states */
         for (i = 0; i < G_N_ELEMENTS (builtin_formats); i++)
-            arcmc_builtin_enabled[i] = table_get_checked (tbl_builtin, (int) i, 4);
+            arcmc_builtin_enabled[i] = builtin_checks[i];
 
         for (i = 0; i < ext_archivers_count; i++)
             if (arcmc_ext_enabled != NULL)
-                arcmc_ext_enabled[i] = table_get_checked (tbl_ext, (int) i, 4);
+                arcmc_ext_enabled[i] = ext_checks[i];
 
         arcmc_config_save ();
     }
 
+    g_free (ext_checks);
     settings_tbl_ext = NULL;
     widget_destroy (WIDGET (dlg));
 }

@@ -5,7 +5,17 @@
 #ifndef MC__WIDGET_TABLE_H
 #define MC__WIDGET_TABLE_H
 
-#include "lib/strutil.h" /* align_crt_t */
+#include "lib/global.h"                /* GLib types */
+
+/* forward declarations needed by widget-common.h */
+struct Widget;
+typedef struct Widget Widget;
+struct WGroup;
+typedef struct WGroup WGroup;
+
+#include "lib/widget/rect.h"           /* WRect */
+#include "lib/widget/widget-common.h"  /* Widget */
+#include "lib/strutil.h"               /* align_crt_t */
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
@@ -30,20 +40,27 @@ typedef struct
 
 typedef struct
 {
+    int (*get_nrows) (const void *data);
+    const char *(*get_text) (const void *data, int row, int col);
+    gboolean (*get_checked) (const void *data, int row, int col);
+    void (*set_checked) (void *data, int row, int col, gboolean val);
+    void *data;
+} table_datasource_t;
+
+typedef struct
+{
     Widget widget;
 
     int ncols;                    /* number of columns */
     table_column_def_t *col_defs; /* column definitions array (owned) */
 
-    GPtrArray *rows;    /* array of (char **) row data, each is ncols strings */
-    int nrows;          /* cached row count */
+    table_datasource_t datasource; /* external data provider */
+
     int top;            /* first visible row index */
     int current;        /* current (selected) row index */
     int cursor_y;       /* cached cursor row for MSG_CURSOR */
     gboolean scrollbar; /* draw scrollbar when rows > visible lines */
     int color_idx;      /* override normal color: DLG_COLOR_* index, or -1 for default */
-
-    GPtrArray *checks;       /* parallel to rows; gboolean[ncols] per row; NULL if no CHECK cols */
     gboolean has_check_cols; /* TRUE when at least one col has TABLE_COL_CHECK */
 } WTable;
 
@@ -53,13 +70,9 @@ typedef struct
 
 WTable *table_new (int y, int x, int height, int width, int ncols,
                    const table_column_def_t *col_defs);
-void table_add_row (WTable *t, ...);
-void table_clear (WTable *t);
+void table_set_datasource (WTable *t, table_datasource_t ds);
 int table_get_current (const WTable *t);
 void table_set_current (WTable *t, int pos);
-gboolean table_get_checked (const WTable *t, int row, int col);
-void table_set_cell (WTable *t, int row, int col, const char *text);
-void table_set_checked (WTable *t, int row, int col, gboolean val);
 
 /*** inline functions ****************************************************************************/
 
