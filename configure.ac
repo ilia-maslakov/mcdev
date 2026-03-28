@@ -800,8 +800,6 @@ src/vfs/extfs/helpers/uzoo
 src/vfs/shell/Makefile
 src/vfs/shell/helpers/Makefile
 
-src/vfs/sftpfs/Makefile
-
 src/vfs/local/Makefile
 
 src/vfs/sfs/Makefile

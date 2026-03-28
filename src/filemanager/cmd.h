@@ -29,9 +29,6 @@ typedef enum
 
 /*** declarations of public functions ************************************************************/
 
-#ifdef ENABLE_VFS_SFTP
-void sftplink_cmd (void);
-#endif
 #ifdef ENABLE_VFS_SHELL
 void shelllink_cmd (void);
 #endif

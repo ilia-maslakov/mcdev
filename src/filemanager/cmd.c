@@ -1296,16 +1296,6 @@ help_cmd (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-#ifdef ENABLE_VFS_SFTP
-void
-sftplink_cmd (void)
-{
-    nice_cd (_ ("SFTP to machine"), _ (machine_str),
-             "[SFTP (SSH File Transfer Protocol) filesystem]", ":sftplink_cmd: SFTP to machine ",
-             "sftp://", 1, TRUE);
-}
-#endif
-
 /* --------------------------------------------------------------------------------------------- */
 
 #ifdef ENABLE_VFS_SHELL
