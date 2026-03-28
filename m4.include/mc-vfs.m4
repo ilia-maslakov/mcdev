@@ -10,7 +10,6 @@ AC_DEFUN([mc_VFS_ADDNAME],
 m4_include([m4.include/vfs/socket.m4])
 m4_include([m4.include/vfs/mc-vfs-extfs.m4])
 m4_include([m4.include/vfs/mc-vfs-sfs.m4])
-m4_include([m4.include/vfs/mc-vfs-ftp.m4])
 m4_include([m4.include/vfs/mc-vfs-sftp.m4])
 m4_include([m4.include/vfs/mc-vfs-shell.m4])
 m4_include([m4.include/vfs/mc-vfs-tarfs.m4])
@@ -68,14 +67,13 @@ AC_DEFUN([mc_VFS_CHECKS],
     mc_VFS_CPIOFS
     mc_VFS_EXTFS
     mc_VFS_SHELL
-    mc_VFS_FTP
     mc_VFS_SFS
     mc_VFS_SFTP
     mc_VFS_TARFS
 
     AM_CONDITIONAL(ENABLE_VFS, [test x"$enable_vfs" = x"yes"])
 
-    if test x"$enable_vfs_ftp" = x"yes" -o x"$enable_vfs_shell" = x"yes" -o x"$enable_vfs_sftp" = x"yes"; then
+    if test x"$enable_vfs_shell" = x"yes" -o x"$enable_vfs_sftp" = x"yes"; then
 	mc_ENABLE_VFS_NET
     fi
 

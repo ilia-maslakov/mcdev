@@ -155,7 +155,6 @@ enum
     CK_ExternalPanelize,
     CK_Filter,
     CK_ConnectShell,
-    CK_ConnectFtp,
     CK_ConnectSftp,
     CK_PanelInfo,
     CK_Jobs,

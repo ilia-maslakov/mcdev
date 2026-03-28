@@ -50,10 +50,6 @@
 #include "shell/shell.h"
 #endif
 
-#ifdef ENABLE_VFS_FTP
-#include "ftpfs/ftpfs.h"
-#endif
-
 #ifdef ENABLE_VFS_SFS
 #include "sfs/sfs.h"
 #endif
@@ -98,9 +94,6 @@ vfs_plugins_init (void)
     vfs_init_extfs ();
 #endif
 
-#ifdef ENABLE_VFS_FTP
-    vfs_init_ftpfs ();
-#endif
 #ifdef ENABLE_VFS_SHELL
     vfs_init_shell ();
 #endif

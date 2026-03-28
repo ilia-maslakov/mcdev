@@ -177,9 +177,6 @@ static name_keymap_t command_names[] = {
 #ifdef ENABLE_VFS_SHELL
     ADD_KEYMAP_NAME_DESC (ConnectShell, N_ ("Shell link connection")),
 #endif
-#ifdef ENABLE_VFS_FTP
-    ADD_KEYMAP_NAME_DESC (ConnectFtp, N_ ("FTP connection")),
-#endif
 #ifdef ENABLE_VFS_SFTP
     ADD_KEYMAP_NAME_DESC (ConnectSftp, N_ ("SFTP connection")),
 #endif

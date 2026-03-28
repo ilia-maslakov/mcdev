@@ -21,10 +21,6 @@ SUBDIRS += shell
 libmc_vfs_la_LIBADD += shell/libvfs-shell.la
 endif
 
-if ENABLE_VFS_FTP
-SUBDIRS += ftpfs
-libmc_vfs_la_LIBADD += ftpfs/libvfs-ftpfs.la
-endif
 
 if ENABLE_VFS_SFTP
 SUBDIRS += sftpfs
