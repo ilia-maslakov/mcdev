@@ -73,7 +73,7 @@ AC_DEFUN([mc_VFS_CHECKS],
 
     AM_CONDITIONAL(ENABLE_VFS, [test x"$enable_vfs" = x"yes"])
 
-    if test x"$enable_vfs_shell" = x"yes" -o x"$enable_vfs_sftp" = x"yes"; then
+    if test x"$enable_vfs_shell" = x"yes"; then
 	mc_ENABLE_VFS_NET
     fi
 
