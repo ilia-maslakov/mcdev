@@ -1294,15 +1294,6 @@ help_cmd (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-#ifdef ENABLE_VFS_FTP
-void
-ftplink_cmd (void)
-{
-    nice_cd (_ ("FTP to machine"), _ (machine_str), "[FTP File System]",
-             ":ftplink_cmd: FTP to machine ", "ftp://", 1, TRUE);
-}
-#endif
-
 /* --------------------------------------------------------------------------------------------- */
 
 #ifdef ENABLE_VFS_SFTP

@@ -43,9 +43,6 @@
 #include "lib/util.h"
 #include "lib/charsets.h"
 
-#ifdef ENABLE_VFS_FTP
-#include "src/vfs/ftpfs/ftpfs.h"
-#endif
 #ifdef ENABLE_VFS_SHELL
 #include "src/vfs/shell/shell.h"
 #endif
@@ -323,15 +320,6 @@ static const struct
     { "file_op_compute_totals", &file_op_compute_totals },
     { "classic_progressbar", &classic_progressbar },
 #ifdef ENABLE_VFS
-#ifdef ENABLE_VFS_FTP
-    { "use_netrc", &ftpfs_use_netrc },
-    { "ftpfs_always_use_proxy", &ftpfs_always_use_proxy },
-    { "ftpfs_use_passive_connections", &ftpfs_use_passive_connections },
-    { "ftpfs_use_passive_connections_over_proxy", &ftpfs_use_passive_connections_over_proxy },
-    { "ftpfs_use_unix_list_options", &ftpfs_use_unix_list_options },
-    { "ftpfs_first_cd_then_ls", &ftpfs_first_cd_then_ls },
-    { "ignore_ftp_chattr_errors", &ftpfs_ignore_chattr_errors },
-#endif
 #endif
 #ifdef USE_INTERNAL_EDIT
     { "editor_fill_tabs_with_spaces", &edit_options.fill_tabs_with_spaces },
@@ -385,10 +373,6 @@ static const struct
 
 #ifdef ENABLE_VFS
     { "vfs_timeout", &vfs_timeout },
-#ifdef ENABLE_VFS_FTP
-    { "ftpfs_directory_timeout", &ftpfs_directory_timeout },
-    { "ftpfs_retry_seconds", &ftpfs_retry_seconds },
-#endif
 #ifdef ENABLE_VFS_SHELL
     { "shell_directory_timeout", &shell_directory_timeout },
 #endif
@@ -906,12 +890,6 @@ load_setup (void)
     user_old_timeformat = mc_config_get_string (mc_global.main_config, CONFIG_MISC_SECTION,
                                                 "timeformat_old", FMTYEAR);
 
-#ifdef ENABLE_VFS_FTP
-    ftpfs_proxy_host =
-        mc_config_get_string (mc_global.main_config, CONFIG_MISC_SECTION, "ftp_proxy_host", "gate");
-    ftpfs_init_passwd ();
-#endif
-
     // The default color and the terminal dependent color
     mc_global.tty.setup_color_string =
         mc_config_get_string (mc_global.main_config, "Colors", "base_color", "");
@@ -998,14 +976,6 @@ save_setup (gboolean save_options, gboolean save_panel_options)
         panels_save_options ();
         external_panelize_save ();
         // directory_history_save ();
-
-#ifdef ENABLE_VFS_FTP
-        mc_config_set_string (mc_global.main_config, CONFIG_MISC_SECTION, "ftpfs_password",
-                              ftpfs_anonymous_passwd);
-        if (ftpfs_proxy_host)
-            mc_config_set_string (mc_global.main_config, CONFIG_MISC_SECTION, "ftp_proxy_host",
-                                  ftpfs_proxy_host);
-#endif
 
         mc_config_set_string (mc_global.main_config, CONFIG_MISC_SECTION, "display_codepage",
                               get_codepage_id (mc_global.display_codepage));
@@ -1289,23 +1259,6 @@ load_key_defs (void)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-
-#ifdef ENABLE_VFS_FTP
-char *
-load_anon_passwd (void)
-{
-    char *buffer;
-
-    buffer =
-        mc_config_get_string (mc_global.main_config, CONFIG_MISC_SECTION, "ftpfs_password", "");
-
-    if ((buffer != NULL) && (buffer[0] != '\0'))
-        return buffer;
-
-    g_free (buffer);
-    return NULL;
-}
-#endif
 
 /* --------------------------------------------------------------------------------------------- */
 

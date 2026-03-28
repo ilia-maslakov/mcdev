@@ -151,10 +151,6 @@ void setup_save_config_show_error (const char *filename, GError **mcerror);
 
 void load_key_defs (void);
 char *mc_term_keys_path (void);
-#ifdef ENABLE_VFS_FTP
-char *load_anon_passwd (void);
-#endif
-
 void panel_load_setup (WPanel *panel, const char *section);
 void panel_save_setup (WPanel *panel, const char *section);
 

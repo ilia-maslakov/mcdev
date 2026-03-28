@@ -800,8 +800,6 @@ src/vfs/extfs/helpers/uzoo
 src/vfs/shell/Makefile
 src/vfs/shell/helpers/Makefile
 
-src/vfs/ftpfs/Makefile
-
 src/vfs/sftpfs/Makefile
 
 src/vfs/local/Makefile
@@ -874,7 +872,6 @@ tests/src/vfs/extfs/Makefile
 tests/src/vfs/extfs/helpers-list/Makefile
 tests/src/vfs/extfs/helpers-list/data/config.sh
 tests/src/vfs/extfs/helpers-list/misc/Makefile
-tests/src/vfs/ftpfs/Makefile
 tests/src/panel-plugins/Makefile
 tests/src/panel-plugins/ftp/Makefile
 tests/src/panel-plugins/arcmc/Makefile

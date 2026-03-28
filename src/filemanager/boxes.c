@@ -49,9 +49,6 @@
 #include "lib/strutil.h"
 
 #include "lib/vfs/vfs.h"
-#ifdef ENABLE_VFS_FTP
-#include "src/vfs/ftpfs/ftpfs.h"
-#endif
 
 #include "lib/util.h"  // Q_()
 #include "lib/widget.h"
@@ -101,10 +98,6 @@ static const int panel_list_user_idx = 3;
 static char **status_format;
 static unsigned long panel_list_formats_id, panel_user_format_id, panel_brief_cols_id;
 static unsigned long user_mini_status_id, mini_user_format_id;
-
-#if defined(ENABLE_VFS) && defined(ENABLE_VFS_FTP)
-static unsigned long ftpfs_always_use_proxy_id, ftpfs_proxy_host_id;
-#endif
 
 static GPtrArray *skin_names;
 static gchar *current_skin_name;
@@ -388,32 +381,6 @@ tree_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data
 }
 
 /* --------------------------------------------------------------------------------------------- */
-
-#if defined(ENABLE_VFS) && defined(ENABLE_VFS_FTP)
-static cb_ret_t
-confvfs_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
-{
-    switch (msg)
-    {
-    case MSG_NOTIFY:
-        // message from "Always use ftp proxy" checkbutton
-        if (sender != NULL && sender->id == ftpfs_always_use_proxy_id)
-        {
-            const gboolean not_use = !CHECK (sender)->state;
-            Widget *wi;
-
-            // input
-            wi = widget_find_by_id (w, ftpfs_proxy_host_id);
-            widget_disable (wi, not_use);
-            return MSG_HANDLED;
-        }
-        return MSG_NOT_HANDLED;
-
-    default:
-        return dlg_default_callback (w, sender, msg, parm, data);
-    }
-}
-#endif
 
 /* --------------------------------------------------------------------------------------------- */
 
@@ -1035,43 +1002,16 @@ void
 configure_vfs_box (void)
 {
     char buffer2[BUF_TINY];
-#ifdef ENABLE_VFS_FTP
-    char buffer3[BUF_TINY];
-
-    g_snprintf (buffer3, sizeof (buffer3), "%i", ftpfs_directory_timeout);
-#endif
 
     g_snprintf (buffer2, sizeof (buffer2), "%i", vfs_timeout);
 
     {
         char *ret_timeout;
-#ifdef ENABLE_VFS_FTP
-        char *ret_passwd;
-        char *ret_ftp_proxy;
-        char *ret_directory_timeout;
-#endif
 
         quick_widget_t quick_widgets[] = {
             QUICK_LABELED_INPUT (_ ("Timeout for freeing VFSs (sec):"), input_label_left, buffer2,
                                  "input-timo-vfs", &ret_timeout, NULL, FALSE, FALSE,
                                  INPUT_COMPLETE_NONE),
-#ifdef ENABLE_VFS_FTP
-            QUICK_SEPARATOR (TRUE),
-            QUICK_LABELED_INPUT (_ ("FTP anonymous password:"), input_label_left,
-                                 ftpfs_anonymous_passwd, "input-passwd", &ret_passwd, NULL, FALSE,
-                                 FALSE, INPUT_COMPLETE_NONE),
-            QUICK_LABELED_INPUT (_ ("FTP directory cache timeout (sec):"), input_label_left,
-                                 buffer3, "input-timeout", &ret_directory_timeout, NULL, FALSE,
-                                 FALSE, INPUT_COMPLETE_NONE),
-            QUICK_CHECKBOX (_ ("&Always use ftp proxy:"), &ftpfs_always_use_proxy,
-                            &ftpfs_always_use_proxy_id),
-            QUICK_INPUT (ftpfs_proxy_host, "input-ftp-proxy", &ret_ftp_proxy, &ftpfs_proxy_host_id,
-                         FALSE, FALSE, INPUT_COMPLETE_HOSTNAMES),
-            QUICK_CHECKBOX (_ ("&Use ~/.netrc"), &ftpfs_use_netrc, NULL),
-            QUICK_CHECKBOX (_ ("Use &passive mode"), &ftpfs_use_passive_connections, NULL),
-            QUICK_CHECKBOX (_ ("Use passive mode over pro&xy"),
-                            &ftpfs_use_passive_connections_over_proxy, NULL),
-#endif
             QUICK_BUTTONS_OK_CANCEL,
             QUICK_END,
         };
@@ -1083,18 +1023,9 @@ configure_vfs_box (void)
             .title = _ ("Virtual File System Setting"),
             .help = "[Virtual FS]",
             .widgets = quick_widgets,
-#ifdef ENABLE_VFS_FTP
-            .callback = confvfs_callback,
-#else
             .callback = NULL,
-#endif
             .mouse_callback = NULL,
         };
-
-#ifdef ENABLE_VFS_FTP
-        if (!ftpfs_always_use_proxy)
-            quick_widgets[5].state = WST_DISABLED;
-#endif
 
         if (quick_dialog (&qdlg) != B_CANCEL)
         {
@@ -1106,17 +1037,6 @@ configure_vfs_box (void)
 
             if (vfs_timeout < 0 || vfs_timeout > 10000)
                 vfs_timeout = 10;
-#ifdef ENABLE_VFS_FTP
-            g_free (ftpfs_anonymous_passwd);
-            ftpfs_anonymous_passwd = ret_passwd;
-            g_free (ftpfs_proxy_host);
-            ftpfs_proxy_host = ret_ftp_proxy;
-            if (ret_directory_timeout[0] == '\0')
-                ftpfs_directory_timeout = 0;
-            else
-                ftpfs_directory_timeout = atoi (ret_directory_timeout);
-            g_free (ret_directory_timeout);
-#endif
         }
     }
 }
