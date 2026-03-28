@@ -293,6 +293,7 @@ panel_plugin_close (WPanel *panel)
     panel->plugin_host = NULL;
 
     panel->is_panelized = FALSE;
+    set_panel_formats (panel);
     panel_reload (panel);
 }
 
