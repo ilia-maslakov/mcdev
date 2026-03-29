@@ -53,11 +53,13 @@
  */
 
 #include <config.h>
+#include <fcntl.h>
 
 #include "lib/global.h"
 #include "lib/vfs/vfs.h"
 #include "lib/util.h"
-#include "lib/widget.h"  // D_NORMAL, D_ERROR
+#include "lib/tty/key.h"  // add_select_channel(), delete_select_channel()
+#include "lib/widget.h"   // D_NORMAL, D_ERROR
 
 #include "internal.h"
 
@@ -75,7 +77,7 @@
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-static void
+void
 mcview_set_datasource_stdio_pipe (WView *view, mc_pipe_t *p)
 {
     p->out.len = MC_PIPE_BUFSIZE;
@@ -448,6 +450,92 @@ mcview_set_datasource_string (WView *view, const char *s)
     view->datasource = DS_STRING;
     view->ds_string_len = strlen (s);
     view->ds_string_data = (byte *) g_strndup (s, view->ds_string_len);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Idle hook for deferred stream redraw.
+ * Runs from frontend_dlg_run() idle path, safe to call mcview_update().
+ */
+
+static void
+mcview_stream_redraw_hook (void *v)
+{
+    WView *view = (WView *) v;
+
+    view->stream_redraw_queued = FALSE;
+    delete_hook (&idle_hook, mcview_stream_redraw_hook);
+
+    if (view->dirty > 0)
+        mcview_update (view);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Select channel callback for streaming mode.
+ * Called from tty input loop when pipe fd is readable.
+ * Reads available data and queues deferred redraw via idle hook.
+ * Returns 1 to hint tty_get_event() to return EV_NONE.
+ */
+
+static int
+mcview_stream_ready (int fd, void *info)
+{
+    WView *view = (WView *) info;
+
+    (void) fd;
+
+    if (mcview_growbuf_read_available (view))
+    {
+        view->dirty++;
+
+        if (!view->stream_redraw_queued)
+        {
+            add_hook (&idle_hook, mcview_stream_redraw_hook, view);
+            view->stream_redraw_queued = TRUE;
+        }
+
+        return 1;
+    }
+
+    return 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_stream_start (WView *view)
+{
+    int flags;
+
+    g_assert (view->datasource == DS_STDIO_PIPE);
+    g_assert (view->ds_stdio_pipe != NULL);
+
+    flags = fcntl (view->ds_stdio_pipe->out.fd, F_GETFL);
+    fcntl (view->ds_stdio_pipe->out.fd, F_SETFL, flags | O_NONBLOCK);
+
+    add_select_channel (view->ds_stdio_pipe->out.fd, mcview_stream_ready, view);
+    view->streaming = TRUE;
+    view->stream_active = TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_stream_stop (WView *view)
+{
+    if (view->stream_active)
+    {
+        delete_select_channel (view->ds_stdio_pipe->out.fd);
+        view->stream_active = FALSE;
+    }
+
+    if (view->stream_redraw_queued)
+    {
+        delete_hook (&idle_hook, mcview_stream_redraw_hook);
+        view->stream_redraw_queued = FALSE;
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */

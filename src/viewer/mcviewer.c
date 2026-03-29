@@ -316,6 +316,57 @@ mcview_viewer_fd (int fd)
     return TRUE;
 }
 
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcview_viewer_stream (const char *command)
+{
+    mc_pipe_t *p;
+    GError *error = NULL;
+    WView *lc_mcview;
+    WDialog *view_dlg;
+    Widget *vw, *b;
+    WGroup *g;
+    WRect r;
+
+    /* stdout only, no stderr pipe (caller should redirect stderr in command) */
+    p = mc_popen (command, TRUE, FALSE, &error);
+    if (p == NULL)
+    {
+        message (D_ERROR, MSG_ERROR, "%s", error->message);
+        g_error_free (error);
+        return FALSE;
+    }
+
+    view_dlg = dlg_create (FALSE, 0, 0, 1, 1, WPOS_FULLSCREEN, FALSE, NULL, mcview_dialog_callback,
+                           NULL, "[Internal File Viewer]", NULL);
+    vw = WIDGET (view_dlg);
+    widget_want_tab (vw, TRUE);
+
+    g = GROUP (view_dlg);
+
+    r = vw->rect;
+    r.lines--;
+    lc_mcview = mcview_new (&r, FALSE);
+    group_add_widget_autopos (g, lc_mcview, WPOS_KEEP_ALL, NULL);
+
+    b = WIDGET (buttonbar_new ());
+    group_add_widget_autopos (g, b, b->pos_flags, NULL);
+
+    view_dlg->get_title = mcview_get_title;
+
+    mcview_set_datasource_stdio_pipe (lc_mcview, p);
+    mcview_stream_start (lc_mcview);
+    mcview_display (lc_mcview);
+
+    dlg_run (view_dlg);
+
+    if (widget_get_state (vw, WST_CLOSED))
+        widget_destroy (vw);
+
+    return TRUE;
+}
+
 /* {{{ Miscellaneous functions }}} */
 
 /* --------------------------------------------------------------------------------------------- */
