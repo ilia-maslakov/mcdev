@@ -53,6 +53,9 @@ extern gboolean mcview_load (WView *view, const char *command, const char *file,
 /* View data from a pipe fd (growing buffer, no temp file needed). */
 extern gboolean mcview_viewer_fd (int fd);
 
+/* View streaming command output (non-blocking, select-driven). */
+extern gboolean mcview_viewer_stream (const char *command);
+
 extern void mcview_clear_mode_flags (mcview_mode_flags_t *flags);
 
 /*** inline functions ****************************************************************************/

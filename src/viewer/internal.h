@@ -105,6 +105,11 @@ struct WView
     mc_pipe_t *ds_stdio_pipe;     // Output of a shell command
     gboolean pipe_first_err_msg;  // Show only 1st message from stderr
 
+    // streaming mode (non-blocking reads via select channel)
+    gboolean streaming;              // TRUE = non-blocking DS_STDIO_PIPE
+    gboolean stream_active;          // TRUE while select channel is registered
+    gboolean stream_redraw_queued;   // TRUE while idle redraw hook is pending
+
     // vfs pipe data source
     int ds_vfs_pipe;  // Non-seekable vfs file descriptor
 
@@ -254,6 +259,7 @@ void mcview_set_byte (WView *view, off_t offset, byte b);
 void mcview_file_load_data (WView *view, off_t byte_index);
 void mcview_close_datasource (WView *view);
 void mcview_set_datasource_file (WView *view, int fd, const struct stat *st);
+void mcview_set_datasource_stdio_pipe (WView *view, mc_pipe_t *p);
 gboolean mcview_load_command_output (WView *view, const char *command);
 void mcview_set_datasource_vfs_pipe (WView *view, int fd);
 void mcview_set_datasource_raw_pipe (WView *view, int fd);
@@ -279,8 +285,13 @@ void mcview_growbuf_done (WView *view);
 void mcview_growbuf_free (WView *view);
 off_t mcview_growbuf_filesize (WView *view);
 void mcview_growbuf_read_until (WView *view, off_t ofs);
+gboolean mcview_growbuf_read_available (WView *view);
 gboolean mcview_get_byte_growing_buffer (WView *view, off_t byte_index, int *retval);
 char *mcview_get_ptr_growing_buffer (WView *view, off_t byte_index);
+
+/* datasource.c: streaming mode */
+void mcview_stream_start (WView *view);
+void mcview_stream_stop (WView *view);
 
 /* hex.c: */
 void mcview_display_hex (WView *view);

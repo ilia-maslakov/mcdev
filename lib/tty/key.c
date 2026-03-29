@@ -604,9 +604,11 @@ add_selects (fd_set *select_set)
 
 /* --------------------------------------------------------------------------------------------- */
 
-static void
+static gboolean
 check_selects (fd_set *select_set)
 {
+    gboolean ui_update_requested = FALSE;
+
     while (disabled_channels == 0)
     {
         GSList *s;
@@ -618,8 +620,12 @@ check_selects (fd_set *select_set)
 
         p = (select_t *) s->data;
         FD_CLR (p->fd, select_set);
-        p->callback (p->fd, p->info);
+
+        if (p->callback (p->fd, p->info) != 0)
+            ui_update_requested = TRUE;
     }
+
+    return ui_update_requested;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2089,10 +2095,15 @@ tty_get_event (struct Gpm_Event *event, gboolean redo_event, gboolean block)
         if (flag == -1 && errno == EINTR)
             return EV_NONE;
 
-        check_selects (&select_set);
+        {
+            gboolean ui_update = check_selects (&select_set);
 
-        if (FD_ISSET (input_fd, &select_set))
-            break;
+            if (FD_ISSET (input_fd, &select_set))
+                break;  /* keyboard input takes priority */
+
+            if (ui_update)
+                return EV_NONE;  /* no keyboard -- return so idle hooks can run */
+        }
 
 #ifdef HAVE_LIBGPM
         if (mouse_enabled && use_mouse_p == MOUSE_GPM)

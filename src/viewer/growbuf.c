@@ -35,6 +35,8 @@
 
 #include <config.h>
 #include <errno.h>
+#include <signal.h>
+#include <sys/wait.h>
 
 #include "lib/global.h"
 #include "lib/vfs/vfs.h"
@@ -79,7 +81,26 @@ mcview_growbuf_done (WView *view)
 
     if (view->datasource == DS_STDIO_PIPE)
     {
-        mc_pclose (view->ds_stdio_pipe, NULL);
+        if (view->streaming)
+        {
+            mcview_stream_stop (view);
+
+            if (view->ds_stdio_pipe->out.fd >= 0)
+                close (view->ds_stdio_pipe->out.fd);
+            /* err.fd is expected to be -1 in stream mode (read_err=FALSE) */
+            if (view->ds_stdio_pipe->err.fd >= 0)
+                close (view->ds_stdio_pipe->err.fd);
+
+            kill (view->ds_stdio_pipe->child_pid, SIGTERM);
+            /* non-blocking reap; if child survives, init will collect it */
+            waitpid (view->ds_stdio_pipe->child_pid, NULL, WNOHANG);
+
+            g_free (view->ds_stdio_pipe);
+        }
+        else
+        {
+            mc_pclose (view->ds_stdio_pipe, NULL);
+        }
         view->ds_stdio_pipe = NULL;
     }
     else if (view->datasource == DS_VFS_PIPE)
@@ -131,6 +152,10 @@ mcview_growbuf_read_until (WView *view, off_t ofs)
     gboolean short_read = FALSE;
 
     g_assert (view->growbuf_in_use);
+
+    /* streaming mode: data arrives via select channel callback, never block here */
+    if (view->streaming)
+        return;
 
     if (view->growbuf_finished)
         return;
@@ -304,6 +329,73 @@ mcview_get_ptr_growing_buffer (WView *view, off_t byte_index)
         && pageindex < (off_t) view->growbuf_lastindex)
         return ((char *) g_ptr_array_index (view->growbuf_blockptr, pageno) + pageindex);
     return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Non-blocking read for streaming mode.
+ * Drains all currently available bytes from the pipe into growbuf.
+ * Deliberately bypasses mc_pread() which is a blocking API.
+ *
+ * @return TRUE if any bytes were read
+ */
+
+gboolean
+mcview_growbuf_read_available (WView *view)
+{
+    gboolean got_data = FALSE;
+
+    g_assert (view->growbuf_in_use);
+    g_assert (view->datasource == DS_STDIO_PIPE);
+    g_assert (view->ds_stdio_pipe != NULL);
+
+    if (view->growbuf_finished)
+        return FALSE;
+
+    while (TRUE)
+    {
+        byte *p;
+        ssize_t nread;
+        size_t bytesfree;
+
+        if (view->growbuf_lastindex == VIEW_PAGE_SIZE)
+        {
+            /* current page is full, allocate a new one */
+            p = g_try_malloc (VIEW_PAGE_SIZE);
+            if (p == NULL)
+                return got_data;
+            g_ptr_array_add (view->growbuf_blockptr, p);
+            view->growbuf_lastindex = 0;
+        }
+
+        p = (byte *) g_ptr_array_index (view->growbuf_blockptr,
+                                         view->growbuf_blockptr->len - 1);
+        bytesfree = VIEW_PAGE_SIZE - view->growbuf_lastindex;
+
+        nread = read (view->ds_stdio_pipe->out.fd, p + view->growbuf_lastindex, bytesfree);
+
+        if (nread > 0)
+        {
+            view->growbuf_lastindex += nread;
+            got_data = TRUE;
+            continue;
+        }
+
+        if (nread == 0)
+        {
+            /* EOF */
+            mcview_growbuf_done (view);
+            return got_data;
+        }
+
+        /* nread < 0 */
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            return got_data;
+
+        /* real read error */
+        mcview_growbuf_done (view);
+        return got_data;
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
