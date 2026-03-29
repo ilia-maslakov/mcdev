@@ -338,8 +338,8 @@ mcview_viewer_stream (const char *command)
         return FALSE;
     }
 
-    view_dlg = dlg_create (FALSE, 0, 0, 1, 1, WPOS_FULLSCREEN, FALSE, NULL,
-                           mcview_dialog_callback, NULL, "[Internal File Viewer]", NULL);
+    view_dlg = dlg_create (FALSE, 0, 0, 1, 1, WPOS_FULLSCREEN, FALSE, NULL, mcview_dialog_callback,
+                           NULL, "[Internal File Viewer]", NULL);
     vw = WIDGET (view_dlg);
     widget_want_tab (vw, TRUE);
 

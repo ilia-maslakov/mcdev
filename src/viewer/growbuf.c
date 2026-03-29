@@ -83,6 +83,9 @@ mcview_growbuf_done (WView *view)
     {
         if (view->streaming)
         {
+            pid_t pid = view->ds_stdio_pipe->child_pid;
+            int i;
+
             mcview_stream_stop (view);
 
             if (view->ds_stdio_pipe->out.fd >= 0)
@@ -91,10 +94,32 @@ mcview_growbuf_done (WView *view)
             if (view->ds_stdio_pipe->err.fd >= 0)
                 close (view->ds_stdio_pipe->err.fd);
 
-            kill (view->ds_stdio_pipe->child_pid, SIGTERM);
-            /* non-blocking reap; if child survives, init will collect it */
-            waitpid (view->ds_stdio_pipe->child_pid, NULL, WNOHANG);
+            /* terminate and reap child process */
+            if (pid > 0)
+            {
+                pid_t w;
 
+                kill (pid, SIGTERM);
+                for (i = 0; i < 10; i++)
+                {
+                    w = waitpid (pid, NULL, WNOHANG);
+                    if (w == pid)
+                        goto reaped;
+                    if (w == -1 && errno != EINTR)
+                        goto reaped; /* ECHILD -- already gone */
+                    usleep (10000);  /* 10ms, total max 100ms */
+                }
+
+                /* still alive -- force kill */
+                kill (pid, SIGKILL);
+                do
+                {
+                    w = waitpid (pid, NULL, 0);
+                }
+                while (w == -1 && errno == EINTR);
+            }
+
+        reaped:
             g_free (view->ds_stdio_pipe);
         }
         else
@@ -333,9 +358,7 @@ mcview_get_ptr_growing_buffer (WView *view, off_t byte_index)
 
 /* --------------------------------------------------------------------------------------------- */
 /**
- * Non-blocking read for streaming mode.
- * Drains all currently available bytes from the pipe into growbuf.
- * Deliberately bypasses mc_pread() which is a blocking API.
+ * Read currently available data from a non-blocking stdout pipe into growbuf.
  *
  * @return TRUE if any bytes were read
  */
@@ -368,8 +391,7 @@ mcview_growbuf_read_available (WView *view)
             view->growbuf_lastindex = 0;
         }
 
-        p = (byte *) g_ptr_array_index (view->growbuf_blockptr,
-                                         view->growbuf_blockptr->len - 1);
+        p = (byte *) g_ptr_array_index (view->growbuf_blockptr, view->growbuf_blockptr->len - 1);
         bytesfree = VIEW_PAGE_SIZE - view->growbuf_lastindex;
 
         nread = read (view->ds_stdio_pipe->out.fd, p + view->growbuf_lastindex, bytesfree);
@@ -389,6 +411,9 @@ mcview_growbuf_read_available (WView *view)
         }
 
         /* nread < 0 */
+        if (errno == EINTR)
+            continue;
+
         if (errno == EAGAIN || errno == EWOULDBLOCK)
             return got_data;
 

@@ -5,7 +5,7 @@
 #ifndef MC__WIDGET_TABLE_H
 #define MC__WIDGET_TABLE_H
 
-#include "lib/global.h"                /* GLib types */
+#include "lib/global.h" /* GLib types */
 
 /* forward declarations needed by widget-common.h */
 struct Widget;
@@ -13,9 +13,9 @@ typedef struct Widget Widget;
 struct WGroup;
 typedef struct WGroup WGroup;
 
-#include "lib/widget/rect.h"           /* WRect */
-#include "lib/widget/widget-common.h"  /* Widget */
-#include "lib/strutil.h"               /* align_crt_t */
+#include "lib/widget/rect.h"          /* WRect */
+#include "lib/widget/widget-common.h" /* Widget */
+#include "lib/strutil.h"              /* align_crt_t */
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
@@ -56,11 +56,11 @@ typedef struct
 
     table_datasource_t datasource; /* external data provider */
 
-    int top;            /* first visible row index */
-    int current;        /* current (selected) row index */
-    int cursor_y;       /* cached cursor row for MSG_CURSOR */
-    gboolean scrollbar; /* draw scrollbar when rows > visible lines */
-    int color_idx;      /* override normal color: DLG_COLOR_* index, or -1 for default */
+    int top;                 /* first visible row index */
+    int current;             /* current (selected) row index */
+    int cursor_y;            /* cached cursor row for MSG_CURSOR */
+    gboolean scrollbar;      /* draw scrollbar when rows > visible lines */
+    int color_idx;           /* override normal color: DLG_COLOR_* index, or -1 for default */
     gboolean has_check_cols; /* TRUE when at least one col has TABLE_COL_CHECK */
 } WTable;
 

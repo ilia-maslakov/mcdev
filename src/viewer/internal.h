@@ -106,9 +106,9 @@ struct WView
     gboolean pipe_first_err_msg;  // Show only 1st message from stderr
 
     // streaming mode (non-blocking reads via select channel)
-    gboolean streaming;              // TRUE = non-blocking DS_STDIO_PIPE
-    gboolean stream_active;          // TRUE while select channel is registered
-    gboolean stream_redraw_queued;   // TRUE while idle redraw hook is pending
+    gboolean streaming;             // TRUE = non-blocking DS_STDIO_PIPE
+    gboolean stream_active;         // TRUE while select channel is registered
+    gboolean stream_redraw_queued;  // TRUE while idle redraw hook is pending
 
     // vfs pipe data source
     int ds_vfs_pipe;  // Non-seekable vfs file descriptor

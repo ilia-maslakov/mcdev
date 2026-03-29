@@ -2099,10 +2099,10 @@ tty_get_event (struct Gpm_Event *event, gboolean redo_event, gboolean block)
             gboolean ui_update = check_selects (&select_set);
 
             if (FD_ISSET (input_fd, &select_set))
-                break;  /* keyboard input takes priority */
+                break; /* keyboard input takes priority */
 
             if (ui_update)
-                return EV_NONE;  /* no keyboard -- return so idle hooks can run */
+                return EV_NONE; /* no keyboard -- return so idle hooks can run */
         }
 
 #ifdef HAVE_LIBGPM
