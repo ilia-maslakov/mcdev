@@ -357,7 +357,6 @@ mcview_viewer_stream (const char *command)
 
     mcview_set_datasource_stdio_pipe (lc_mcview, p);
     mcview_stream_start (lc_mcview);
-    mcview_display (lc_mcview);
 
     dlg_run (view_dlg);
 
