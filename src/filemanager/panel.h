@@ -96,6 +96,7 @@ typedef struct
     const mc_panel_plugin_t *plugin;  // active plugin descriptor, or NULL
     void *plugin_data;                // instance handle from plugin->open()
     mc_panel_host_t *plugin_host;     // host interface given to the plugin
+    list_format_t plugin_base_list_format;  // list format active before plugin custom columns
 
     int codepage;  // Panel codepage
 
