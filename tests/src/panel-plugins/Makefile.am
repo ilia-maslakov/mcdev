@@ -1,1 +1,1 @@
-SUBDIRS = ftp arcmc samba
+SUBDIRS = ftp arcmc samba docker

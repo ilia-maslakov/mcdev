@@ -874,6 +874,7 @@ tests/src/panel-plugins/Makefile
 tests/src/panel-plugins/ftp/Makefile
 tests/src/panel-plugins/arcmc/Makefile
 tests/src/panel-plugins/samba/Makefile
+tests/src/panel-plugins/docker/Makefile
 tests/misc/Makefile
 tests/misc/ext.d/Makefile
 tests/misc/ext.d/markdown/Makefile
