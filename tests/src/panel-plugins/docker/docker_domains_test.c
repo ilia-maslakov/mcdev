@@ -90,7 +90,8 @@ find_item_by_name (const docker_data_t *data, const char *name)
         const docker_item_t *item = (const docker_item_t *) g_ptr_array_index (data->items, i);
         const char *lookup_name = name;
 
-        if (data->view == DOCKER_VIEW_VOLUMES && (name[0] == '*' || name[0] == ' ') && name[1] != '\0')
+        if (data->view == DOCKER_VIEW_VOLUMES && (name[0] == '*' || name[0] == ' ')
+            && name[1] != '\0')
             lookup_name = name + 1;
 
         if (strcmp (item->name, lookup_name) == 0)
@@ -288,13 +289,11 @@ START_TEST (test_volumes_reload_marks_in_use_and_exposes_columns)
     docker_item_t *unused;
 
     data.view = DOCKER_VIEW_VOLUMES;
-    stub_volumes_output =
-        "vol1\tlocal\tlocal\t\n"
-        "vol2\tlocal\tlocal\t\n";
+    stub_volumes_output = "vol1\tlocal\tlocal\t\n"
+                          "vol2\tlocal\tlocal\t\n";
     stub_ps_output = "cid1\ncid2\n";
-    stub_mounts_output =
-        "/ctr1 volume:vol1 \n"
-        "/ctr2 bind: \n";
+    stub_mounts_output = "/ctr1 volume:vol1 \n"
+                         "/ctr2 bind: \n";
 
     ck_assert (docker_volumes_reload (&data, NULL));
     ck_assert_ptr_nonnull (data.items);
