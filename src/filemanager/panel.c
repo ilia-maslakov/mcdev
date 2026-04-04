@@ -2147,6 +2147,9 @@ panel_plugin_apply_default_columns_format (WPanel *panel)
         GSList *form;
         char *err = NULL;
 
+        if (panel->list_format == list_user)
+            panel->list_format = panel->plugin_base_list_format;
+
         form = use_display_format (panel, panel_format (panel), &err, FALSE);
         if (form != NULL)
         {
@@ -4272,6 +4275,20 @@ panel_key (WPanel *panel, int key)
         return panel_execute_cmd (panel, command);
     }
 
+    /* Let plugin handle keys not in the panel keymap (e.g. plugin-specific hotkeys). */
+    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+        && panel->plugin->handle_key != NULL)
+    {
+        mc_pp_result_t r;
+
+        r = panel->plugin->handle_key (panel->plugin_data, key);
+        if (r == MC_PPR_OK)
+        {
+            panel_plugin_reload (panel);
+            return MSG_HANDLED;
+        }
+    }
+
     if (!command_prompt && ((key >= ' ' && key <= 255) || key == KEY_BACKSPACE))
     {
         start_search (panel);
@@ -5074,6 +5091,7 @@ panel_sized_empty_new (const char *panel_name, const WRect *r)
     panel->max_shift = 0;
 
     panel->list_format = list_full;
+    panel->plugin_base_list_format = list_full;
     panel->user_format = g_strdup (DEFAULT_USER_FORMAT);
 
     panel->filter.flags = FILE_FILTER_DEFAULT_FLAGS;

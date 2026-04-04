@@ -120,18 +120,24 @@ static void
 host_close_plugin_impl (mc_panel_host_t *host, const char *dir_path)
 {
     WPanel *panel = (WPanel *) host->host_data;
+    char *target_dir = NULL;
+
+    if (dir_path != NULL && dir_path[0] != '\0')
+        target_dir = g_strdup (dir_path);
 
     panel_plugin_close (panel);
 
-    if (dir_path != NULL && dir_path[0] != '\0')
+    if (target_dir != NULL)
     {
         vfs_path_t *cd_vpath;
 
-        cd_vpath = vfs_path_from_str (dir_path);
+        cd_vpath = vfs_path_from_str (target_dir);
         if (!panel_do_cd (panel, cd_vpath, cd_parse_command))
-            cd_error_message (dir_path);
+            cd_error_message (target_dir);
         vfs_path_free (cd_vpath, TRUE);
     }
+
+    g_free (target_dir);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -209,9 +215,11 @@ panel_plugin_reload (WPanel *panel)
     }
 
     panel_clean_dir (panel);
-    // panel_clean_dir resets is_panelized; restore plugin state
+    /* panel_clean_dir resets is_panelized; restore plugin state */
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
+
+    panel_plugin_apply_default_columns_format (panel);
 
     dir_list_init (&panel->dir);
     panel->plugin->get_items (panel->plugin_data, &panel->dir);
@@ -256,6 +264,7 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
     panel->plugin_host = host;
     panel->is_plugin_panel = TRUE;
     panel->is_panelized = TRUE;
+    panel->plugin_base_list_format = panel->list_format;
 
     // populate dir list
     panel_clean_dir (panel);
@@ -286,6 +295,7 @@ panel_plugin_close (WPanel *panel)
     panel->plugin = NULL;
     panel->plugin_data = NULL;
     panel->is_plugin_panel = FALSE;
+    panel->plugin_base_list_format = panel->list_format;
 
     if (panel->plugin_host != NULL)
         g_free (panel->plugin_host->focus_after);
@@ -357,6 +367,7 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
     panel->plugin_host = host;
     panel->is_plugin_panel = TRUE;
     panel->is_panelized = TRUE;
+    panel->plugin_base_list_format = panel->list_format;
 
     /* populate dir list */
     panel_clean_dir (panel);

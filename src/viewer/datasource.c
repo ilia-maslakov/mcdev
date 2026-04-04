@@ -518,6 +518,15 @@ mcview_stream_start (WView *view)
     add_select_channel (view->ds_stdio_pipe->out.fd, mcview_stream_ready, view);
     view->streaming = TRUE;
     view->stream_active = TRUE;
+
+    /* Force one deferred redraw after dialog startup even if data is already buffered
+       before the first select callback gets a chance to run. */
+    if (!view->stream_redraw_queued)
+    {
+        add_hook (&idle_hook, mcview_stream_redraw_hook, view);
+        view->stream_redraw_queued = TRUE;
+    }
+    view->dirty++;
 }
 
 /* --------------------------------------------------------------------------------------------- */
