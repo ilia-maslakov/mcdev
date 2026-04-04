@@ -35,6 +35,18 @@ static const char *stub_volumes_output;
 static const char *stub_ps_output;
 static const char *stub_mounts_output;
 static GPtrArray *stub_commands;
+static const char docker_images_cmd[] =
+    "docker images --format '{{.ID}}\\t{{.Repository}}:{{.Tag}}\\t{{.Size}}'";
+static const char docker_networks_cmd[] =
+    "docker network ls --format '{{.ID}}\\t{{.Name}}\\t{{.Driver}}\\t{{.Scope}}'";
+static const char docker_volumes_cmd[] =
+    "docker volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}\\t{{.Status}}'";
+static const char docker_ps_cmd[] = "docker ps -aq";
+static const char docker_mounts_inspect_prefix[] =
+    "docker inspect --format '{{.Name}} {{range .Mounts}}{{.Type}}:{{.Name}} {{end}}'";
+static const char docker_rmi_prefix[] = "docker rmi ";
+static const char docker_network_rm_prefix[] = "docker network rm ";
+static const char docker_volume_rm_prefix[] = "docker volume rm ";
 
 /* Source-under-test: include .c files directly to exercise internal parsers. */
 #include "src/panel-plugins/docker/images.c"
@@ -100,43 +112,44 @@ run_cmd (const char *cmd, char **output, char **err_text)
 
     g_ptr_array_add (stub_commands, g_strdup (cmd));
 
-    if (strcmp (cmd, "docker images --format '{{.ID}}\\t{{.Repository}}:{{.Tag}}\\t{{.Size}}'") == 0)
+    if (strcmp (cmd, docker_images_cmd) == 0)
     {
         if (output != NULL)
             *output = g_strdup (stub_images_output);
         return TRUE;
     }
 
-    if (strcmp (cmd, "docker network ls --format '{{.ID}}\\t{{.Name}}\\t{{.Driver}}\\t{{.Scope}}'") == 0)
+    if (strcmp (cmd, docker_networks_cmd) == 0)
     {
         if (output != NULL)
             *output = g_strdup (stub_networks_output);
         return TRUE;
     }
 
-    if (strcmp (cmd, "docker volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}\\t{{.Status}}'") == 0)
+    if (strcmp (cmd, docker_volumes_cmd) == 0)
     {
         if (output != NULL)
             *output = g_strdup (stub_volumes_output);
         return TRUE;
     }
 
-    if (strcmp (cmd, "docker ps -aq") == 0)
+    if (strcmp (cmd, docker_ps_cmd) == 0)
     {
         if (output != NULL)
             *output = g_strdup (stub_ps_output);
         return TRUE;
     }
 
-    if (g_str_has_prefix (cmd, "docker inspect --format '{{.Name}} {{range .Mounts}}{{.Type}}:{{.Name}} {{end}}'"))
+    if (g_str_has_prefix (cmd, docker_mounts_inspect_prefix))
     {
         if (output != NULL)
             *output = g_strdup (stub_mounts_output);
         return TRUE;
     }
 
-    if (g_str_has_prefix (cmd, "docker rmi ") || g_str_has_prefix (cmd, "docker network rm ")
-        || g_str_has_prefix (cmd, "docker volume rm "))
+    if (g_str_has_prefix (cmd, docker_rmi_prefix)
+        || g_str_has_prefix (cmd, docker_network_rm_prefix)
+        || g_str_has_prefix (cmd, docker_volume_rm_prefix))
     {
         if (output != NULL)
             *output = g_strdup ("");
