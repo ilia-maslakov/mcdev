@@ -74,6 +74,7 @@ typedef struct
     int key_diff_alt;
     int key_refresh;
     int key_reset;
+    int key_fav_add;
     int view;
     char *selected_commit;
     char *current_branch;
@@ -85,6 +86,7 @@ typedef struct
     char *pending_focus;
     GPtrArray *commit_stack;     /* stack of git_commit_nav_t* */
     GHashTable *display_to_info; /* key: panel display name, value: git_entry_info_t* */
+    GPtrArray *fav_repos;        /* list of char* repo paths; non-NULL in favorites mode */
 } git_data_t;
 
 typedef struct
@@ -108,6 +110,8 @@ static mc_pp_result_t git_get_help_info (void *plugin_data, const char **filenam
 static mc_pp_result_t git_get_local_copy (void *plugin_data, const char *fname, char **local_path);
 static const char *git_get_title (void *plugin_data);
 static mc_pp_result_t git_handle_key (void *plugin_data, int key);
+static mc_pp_result_t git_create_item (void *plugin_data);
+static mc_pp_result_t git_delete_items (void *plugin_data, const char **names, int count);
 static const mc_panel_column_t *git_get_columns (void *plugin_data, size_t *count);
 static const char *git_get_column_value (void *plugin_data, const char *fname,
                                          const char *column_id);
@@ -125,7 +129,8 @@ static const mc_panel_plugin_t git_plugin = {
     .display_name = "Git status",
     .proto = "git",
     .prefix = "git:",
-    .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_CUSTOM_TITLE | MC_PPF_SHOW_IN_DRIVE_MENU,
+    .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_CUSTOM_TITLE | MC_PPF_SHOW_IN_DRIVE_MENU
+        | MC_PPF_CREATE | MC_PPF_DELETE,
 
     .open = git_open,
     .close = git_close,
@@ -138,10 +143,10 @@ static const mc_panel_plugin_t git_plugin = {
     .get_local_copy = git_get_local_copy,
     .put_file = NULL,
     .save_file = NULL,
-    .delete_items = NULL,
+    .delete_items = git_delete_items,
     .get_title = git_get_title,
     .handle_key = git_handle_key,
-    .create_item = NULL,
+    .create_item = git_create_item,
     .get_columns = git_get_columns,
     .get_column_value = git_get_column_value,
     .get_footer = git_get_footer,
@@ -161,6 +166,11 @@ static const mc_panel_column_t git_columns[] = {
 #define GIT_PANEL_CONFIG_GROUP         "git-panel"
 #define GIT_PANEL_FORMAT_KEY           "default_format"
 #define GIT_PANEL_FORMAT_DEFAULT       "type name | status | mtime"
+#define GIT_PANEL_KEY_FAV_ADD          "hotkey_fav_add"
+#define GIT_PANEL_KEY_FAV_ADD_DEFAULT  "ctrl-b"
+#define GIT_FAVORITES_CONFIG_GROUP     "git-favorites"
+#define GIT_FAVORITES_CONFIG_KEY       "repos"
+
 #define GIT_PANEL_KEY_STAGE            "hotkey_stage"
 #define GIT_PANEL_KEY_UNSTAGE          "hotkey_unstage"
 #define GIT_PANEL_KEY_TOGGLE           "hotkey_toggle"
@@ -193,7 +203,8 @@ typedef enum
     GIT_VIEW_BRANCHES_LOCAL,
     GIT_VIEW_BRANCHES_REMOTE_ITEMS,
     GIT_VIEW_COMMITS,
-    GIT_VIEW_COMMIT_FILES
+    GIT_VIEW_COMMIT_FILES,
+    GIT_VIEW_FAVORITES
 } git_view_t;
 
 typedef enum
@@ -206,7 +217,8 @@ typedef enum
     GIT_ITEM_COMMITS_DIR,
     GIT_ITEM_COMMIT_DIR,
     GIT_ITEM_COMMIT_PARENT_ENTRY,
-    GIT_ITEM_COMMIT_FILE
+    GIT_ITEM_COMMIT_FILE,
+    GIT_ITEM_FAVORITE_REPO
 } git_item_kind_t;
 
 #define GIT_COMMITS_DIR_NAME        "commits"
@@ -280,6 +292,8 @@ git_view_name (int view)
         return "commits";
     case GIT_VIEW_COMMIT_FILES:
         return "commit_files";
+    case GIT_VIEW_FAVORITES:
+        return "favorites";
     default:
         return "unknown";
     }
@@ -833,6 +847,9 @@ git_update_title (git_data_t *data)
                 data->selected_commit_name != NULL
                     ? data->selected_commit_name
                     : (data->selected_commit != NULL ? data->selected_commit : ""));
+        break;
+    case GIT_VIEW_FAVORITES:
+        data->title = g_strdup ("Git repositories");
         break;
     default:
         data->title = g_strdup (data->repo_root);
@@ -1764,6 +1781,78 @@ git_show_commit_description_by_sha (git_data_t *data, const char *sha, const cha
 
 /* --------------------------------------------------------------------------------------------- */
 
+static GPtrArray *
+git_favorites_load (void)
+{
+    char *cfg_path;
+    mc_config_t *cfg;
+    gchar **list;
+    gsize len = 0;
+    GPtrArray *favs;
+    gsize i;
+
+    cfg_path = g_build_filename (mc_config_get_path (), GIT_PANEL_CONFIG_FILE, (char *) NULL);
+    cfg = mc_config_init (cfg_path, TRUE);
+    g_free (cfg_path);
+
+    favs = g_ptr_array_new_with_free_func (g_free);
+    list =
+        mc_config_get_string_list (cfg, GIT_FAVORITES_CONFIG_GROUP, GIT_FAVORITES_CONFIG_KEY, &len);
+    if (list != NULL)
+    {
+        for (i = 0; i < len; i++)
+            if (list[i] != NULL && list[i][0] != '\0')
+                g_ptr_array_add (favs, g_strdup (list[i]));
+        g_strfreev (list);
+    }
+    mc_config_deinit (cfg);
+    return favs;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+git_favorites_save (GPtrArray *favs)
+{
+    char *cfg_path;
+    mc_config_t *cfg;
+
+    cfg_path = g_build_filename (mc_config_get_path (), GIT_PANEL_CONFIG_FILE, (char *) NULL);
+    cfg = mc_config_init (cfg_path, FALSE);
+    g_free (cfg_path);
+
+    if (favs->len == 0)
+        mc_config_del_key (cfg, GIT_FAVORITES_CONFIG_GROUP, GIT_FAVORITES_CONFIG_KEY);
+    else
+        mc_config_set_string_list (cfg, GIT_FAVORITES_CONFIG_GROUP, GIT_FAVORITES_CONFIG_KEY,
+                                   (const gchar **) favs->pdata, favs->len);
+    mc_config_save_file (cfg, NULL);
+    mc_config_deinit (cfg);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+git_favorites_add (const char *repo_path)
+{
+    GPtrArray *favs;
+    guint i;
+    gboolean found = FALSE;
+
+    favs = git_favorites_load ();
+    for (i = 0; i < favs->len; i++)
+        if (strcmp ((const char *) favs->pdata[i], repo_path) == 0)
+        {
+            found = TRUE;
+            break;
+        }
+    if (!found)
+        g_ptr_array_add (favs, g_strdup (repo_path));
+    git_favorites_save (favs);
+    g_ptr_array_free (favs, TRUE);
+    return !found;
+}
+
 /* --------------------------------------------------------------------------------------------- */
 /* Plugin callbacks */
 /* --------------------------------------------------------------------------------------------- */
@@ -1784,9 +1873,21 @@ git_open (mc_panel_host_t *host, const char *open_path)
     repo_root = git_detect_repo_root (start_path);
     if (repo_root == NULL)
     {
-        if (host != NULL && host->message != NULL)
-            host->message (host, 0, "Git panel", "Current path is not a Git repository.");
-        return NULL;
+        data = g_new0 (git_data_t, 1);
+        data->host = host;
+        data->display_to_info =
+            g_hash_table_new_full (g_str_hash, g_str_equal, g_free, git_entry_info_free);
+        data->default_format = git_load_default_format ();
+        data->key_refresh =
+            git_load_hotkey (GIT_PANEL_KEY_REFRESH, GIT_PANEL_KEY_REFRESH_DEFAULT, XCTRL ('r'));
+        data->key_fav_add =
+            git_load_hotkey (GIT_PANEL_KEY_FAV_ADD, GIT_PANEL_KEY_FAV_ADD_DEFAULT, XCTRL ('b'));
+        data->view = GIT_VIEW_FAVORITES;
+        data->commit_stack = g_ptr_array_new_with_free_func (git_commit_nav_free);
+        data->fav_repos = git_favorites_load ();
+        data->help_filename = g_build_filename (MC_PLUGIN_DIR, "git_panel.hlp", (char *) NULL);
+        git_update_title (data);
+        return data;
     }
 
     data = g_new0 (git_data_t, 1);
@@ -1809,6 +1910,8 @@ git_open (mc_panel_host_t *host, const char *open_path)
         git_load_hotkey (GIT_PANEL_KEY_REFRESH, GIT_PANEL_KEY_REFRESH_DEFAULT, XCTRL ('r'));
     data->key_reset =
         git_load_hotkey (GIT_PANEL_KEY_RESET, GIT_PANEL_KEY_RESET_DEFAULT, KEY_F (18));
+    data->key_fav_add =
+        git_load_hotkey (GIT_PANEL_KEY_FAV_ADD, GIT_PANEL_KEY_FAV_ADD_DEFAULT, XCTRL ('b'));
     data->view = GIT_VIEW_STATUS;
     data->selected_commit = NULL;
     data->current_branch = git_detect_current_branch (data);
@@ -1849,6 +1952,8 @@ git_close (void *plugin_data)
     g_free (data->selected_commit_list_name);
     g_free (data->pending_focus);
     g_ptr_array_free (data->commit_stack, TRUE);
+    if (data->fav_repos != NULL)
+        g_ptr_array_free (data->fav_repos, TRUE);
     g_free (data);
 }
 
@@ -2060,6 +2165,24 @@ git_get_items (void *plugin_data, void *list_ptr)
         if (files_added == 0)
             (void) git_parse_commit_parents_and_fill (data, list, data->selected_commit);
     }
+    else if ((git_view_t) data->view == GIT_VIEW_FAVORITES)
+    {
+        guint i;
+
+        if (data->fav_repos != NULL)
+            for (i = 0; i < data->fav_repos->len; i++)
+            {
+                const char *repo_path = (const char *) data->fav_repos->pdata[i];
+                const char *display_name = (repo_path[0] == '/') ? repo_path + 1 : repo_path;
+                git_entry_info_t *einfo;
+
+                git_add_virtual_dir (data, list, display_name, GIT_ITEM_FAVORITE_REPO, NULL, "", 0);
+                einfo =
+                    (git_entry_info_t *) g_hash_table_lookup (data->display_to_info, display_name);
+                if (einfo != NULL)
+                    einfo->full_path = g_strdup (repo_path);
+            }
+    }
     else
         return MC_PPR_FAILED;
 
@@ -2123,6 +2246,49 @@ git_chdir (void *plugin_data, const char *path)
 
     git_set_pending_focus (data, NULL);
     git_debug_log ("git: chdir path='%s' view=%s", path, git_view_name (data->view));
+
+    if ((git_view_t) data->view == GIT_VIEW_FAVORITES)
+    {
+        char *repo_root;
+
+        if (strcmp (path, "..") == 0)
+            return MC_PPR_CLOSE;
+
+        info = git_lookup_info (data, path);
+        if (info == NULL || info->kind != GIT_ITEM_FAVORITE_REPO)
+            return MC_PPR_FAILED;
+
+        repo_root = git_detect_repo_root (info->full_path != NULL ? info->full_path : path);
+        if (repo_root == NULL)
+        {
+            if (data->host != NULL && data->host->message != NULL)
+            {
+                char *msg;
+
+                msg = g_strdup_printf ("Repository not found: %s", path);
+                data->host->message (data->host, D_ERROR, "Git panel", msg);
+                g_free (msg);
+            }
+            return MC_PPR_FAILED;
+        }
+
+        data->repo_root = repo_root;
+        g_free (data->current_branch);
+        data->current_branch = git_detect_current_branch (data);
+        data->view = GIT_VIEW_STATUS;
+        git_update_title (data);
+
+        if (data->host->add_history != NULL)
+        {
+            char *hist_path;
+
+            hist_path = g_strdup_printf ("%s%s", git_plugin.prefix, data->repo_root);
+            data->host->add_history (data->host, hist_path);
+            g_free (hist_path);
+        }
+
+        return MC_PPR_OK;
+    }
 
     if (strcmp (path, "..") == 0)
     {
@@ -2360,6 +2526,19 @@ git_enter (void *plugin_data, const char *fname, const struct stat *st)
     {
         switch (info->kind)
         {
+        case GIT_ITEM_STATUS_FILE:
+            if (info->full_path != NULL && !info->is_deleted && data->host != NULL
+                && data->host->navigate_other_panel != NULL)
+            {
+                char *dir = g_path_get_dirname (info->full_path);
+                char *file = g_path_get_basename (info->full_path);
+
+                data->host->navigate_other_panel (data->host, dir, file);
+                g_free (dir);
+                g_free (file);
+                return MC_PPR_OK;
+            }
+            return MC_PPR_FAILED;
         case GIT_ITEM_BRANCHES_DIR:
         case GIT_ITEM_BRANCHES_LOCAL_DIR:
         case GIT_ITEM_REMOTE_DIR_ENTRY:
@@ -2367,6 +2546,7 @@ git_enter (void *plugin_data, const char *fname, const struct stat *st)
         case GIT_ITEM_COMMITS_DIR:
         case GIT_ITEM_COMMIT_DIR:
         case GIT_ITEM_COMMIT_PARENT_ENTRY:
+        case GIT_ITEM_FAVORITE_REPO:
             return git_chdir (plugin_data, fname);
         default:
             break;
@@ -2443,6 +2623,84 @@ git_get_title (void *plugin_data)
 /* --------------------------------------------------------------------------------------------- */
 
 static mc_pp_result_t
+git_create_item (void *plugin_data)
+{
+    git_data_t *data = (git_data_t *) plugin_data;
+    char *path;
+    char *repo_root;
+    guint i;
+
+    if ((git_view_t) data->view != GIT_VIEW_FAVORITES)
+        return MC_PPR_NOT_SUPPORTED;
+
+    path = input_expand_dialog (_ ("Add to favorites"), _ ("Repository path:"), "git-fav-path", "",
+                                INPUT_COMPLETE_CD | INPUT_COMPLETE_FILENAMES);
+    if (path == NULL || path[0] == '\0')
+    {
+        g_free (path);
+        return MC_PPR_OK;
+    }
+
+    repo_root = git_detect_repo_root (path);
+    g_free (path);
+
+    if (repo_root == NULL)
+    {
+        if (data->host != NULL && data->host->message != NULL)
+            data->host->message (data->host, D_ERROR, "Git panel", "Not a Git repository.");
+        return MC_PPR_FAILED;
+    }
+
+    for (i = 0; i < data->fav_repos->len; i++)
+        if (strcmp ((const char *) data->fav_repos->pdata[i], repo_root) == 0)
+        {
+            if (data->host != NULL && data->host->message != NULL)
+                data->host->message (data->host, D_NORMAL, "Git panel",
+                                     "Repository is already in favorites.");
+            g_free (repo_root);
+            return MC_PPR_OK;
+        }
+
+    g_ptr_array_add (data->fav_repos, repo_root);
+    git_favorites_save (data->fav_repos);
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+git_delete_items (void *plugin_data, const char **names, int count)
+{
+    git_data_t *data = (git_data_t *) plugin_data;
+    int i;
+
+    if ((git_view_t) data->view != GIT_VIEW_FAVORITES || data->fav_repos == NULL)
+        return MC_PPR_NOT_SUPPORTED;
+
+    for (i = 0; i < count; i++)
+    {
+        const git_entry_info_t *einfo;
+        const char *full_path;
+        guint j;
+
+        einfo = (const git_entry_info_t *) g_hash_table_lookup (data->display_to_info, names[i]);
+        full_path = (einfo != NULL && einfo->full_path != NULL) ? einfo->full_path : names[i];
+
+        for (j = 0; j < data->fav_repos->len; j++)
+            if (strcmp ((const char *) data->fav_repos->pdata[j], full_path) == 0)
+            {
+                g_ptr_array_remove_index (data->fav_repos, j);
+                break;
+            }
+    }
+
+    git_favorites_save (data->fav_repos);
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
 git_handle_key (void *plugin_data, int key)
 {
     git_data_t *data = (git_data_t *) plugin_data;
@@ -2465,8 +2723,24 @@ git_handle_key (void *plugin_data, int key)
     if (data->key_refresh != 0 && key == data->key_refresh)
         return MC_PPR_OK;
 
+    if ((git_view_t) data->view == GIT_VIEW_FAVORITES)
+        return MC_PPR_FAILED;
+
     if ((git_view_t) data->view != GIT_VIEW_STATUS)
         return MC_PPR_FAILED;
+
+    if (data->key_fav_add != 0 && key == data->key_fav_add && data->repo_root != NULL)
+    {
+        gboolean added;
+
+        added = git_favorites_add (data->repo_root);
+        if (!added && data->host != NULL && data->host->message != NULL)
+            data->host->message (data->host, D_NORMAL, "Git panel",
+                                 "Repository is already in favorites.");
+        else if (added && data->host != NULL && data->host->set_hint != NULL)
+            data->host->set_hint (data->host, "Repository added to favorites.");
+        return MC_PPR_OK;
+    }
 
     if (data->key_stage != 0 && key == data->key_stage)
     {
@@ -2543,6 +2817,9 @@ static const char *
 git_get_footer (void *plugin_data)
 {
     git_data_t *data = (git_data_t *) plugin_data;
+
+    if ((git_view_t) data->view == GIT_VIEW_FAVORITES)
+        return NULL;
 
     return data->current_branch;
 }

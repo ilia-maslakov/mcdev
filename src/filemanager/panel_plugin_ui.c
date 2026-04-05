@@ -200,6 +200,26 @@ host_add_history_impl (mc_panel_host_t *host, const char *path)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+host_navigate_other_panel_impl (mc_panel_host_t *host, const char *dir_path, const char *focus_file)
+{
+    WPanel *op;
+    vfs_path_t *vpath;
+
+    (void) host;
+
+    op = get_other_panel ();
+    if (op == NULL || op->is_plugin_panel || dir_path == NULL)
+        return;
+
+    vpath = vfs_path_from_str (dir_path);
+    if (panel_do_cd (op, vpath, cd_exact) && focus_file != NULL)
+        panel_set_current_by_name (op, focus_file);
+    vfs_path_free (vpath, TRUE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
 {
     host->refresh = host_refresh_impl;
@@ -212,6 +232,7 @@ panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
     host->get_marked_count = host_get_marked_count_impl;
     host->get_next_marked = host_get_next_marked_impl;
     host->get_current = host_get_current_impl;
+    host->navigate_other_panel = host_navigate_other_panel_impl;
     host->host_data = panel;
 }
 

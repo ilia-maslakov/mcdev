@@ -86,6 +86,8 @@ typedef struct mc_panel_host_t
     int (*get_marked_count) (struct mc_panel_host_t *host);
     const GString *(*get_next_marked) (struct mc_panel_host_t *host, int *current);
     const GString *(*get_current) (struct mc_panel_host_t *host);
+    void (*navigate_other_panel) (struct mc_panel_host_t *host, const char *dir_path,
+                                  const char *focus_file);
     void *host_data; /* opaque, points to WPanel internally */
 
     /* Set by plugin to request cursor positioning after standalone action completes.
