@@ -92,10 +92,10 @@ typedef struct
     gboolean is_panelized;               // Panelization: special mode, can't reload the file list
     panelized_descr_t *panelized_descr;  // Panelization descriptor
 
-    gboolean is_plugin_panel;         // TRUE when driven by a panel plugin
-    const mc_panel_plugin_t *plugin;  // active plugin descriptor, or NULL
-    void *plugin_data;                // instance handle from plugin->open()
-    mc_panel_host_t *plugin_host;     // host interface given to the plugin
+    gboolean is_plugin_panel;               // TRUE when driven by a panel plugin
+    const mc_panel_plugin_t *plugin;        // active plugin descriptor, or NULL
+    void *plugin_data;                      // instance handle from plugin->open()
+    mc_panel_host_t *plugin_host;           // host interface given to the plugin
     list_format_t plugin_base_list_format;  // list format active before plugin custom columns
 
     int codepage;  // Panel codepage
@@ -187,6 +187,7 @@ const GString *panel_find_marked_file (const WPanel *panel, int *current_file);
 const GString *panel_get_marked_file (const WPanel *panel, int *current_file);
 
 gboolean panel_do_cd (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum cd_type);
+gboolean panel_do_cd_int (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum cd_type);
 MC_MOCKABLE gboolean panel_cd (WPanel *panel, const vfs_path_t *new_dir_vpath,
                                enum cd_enum cd_type);
 
@@ -213,10 +214,16 @@ void panel_plugin_reload (WPanel *panel);
 void panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path);
 gboolean panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name,
                                         const char *open_path);
+const mc_panel_plugin_t *panel_plugin_find_by_path (const char *open_path);
+gboolean panel_plugin_activate_by_path (WPanel *panel, const char *open_path);
 void panel_plugin_close (WPanel *panel);
 void panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int action_index);
 void panel_plugin_select_and_activate (WPanel *panel);
 gboolean panel_plugin_drive_change (WPanel *panel);
+
+void panel_directory_history_add_path (WPanel *panel, const char *path);
+gboolean panel_navigate_to_path (WPanel *panel, const char *path, gboolean add_to_history,
+                                 gboolean show_error);
 
 /* --------------------------------------------------------------------------------------------- */
 /*** inline functions ****************************************************************************/

@@ -82,6 +82,7 @@ typedef struct mc_panel_host_t
     gboolean (*open_diff) (struct mc_panel_host_t *host, const char *left_path,
                            const char *right_path);
     void (*close_plugin) (struct mc_panel_host_t *host, const char *dir_path);
+    void (*add_history) (struct mc_panel_host_t *host, const char *path);
     int (*get_marked_count) (struct mc_panel_host_t *host);
     const GString *(*get_next_marked) (struct mc_panel_host_t *host, int *current);
     const GString *(*get_current) (struct mc_panel_host_t *host);

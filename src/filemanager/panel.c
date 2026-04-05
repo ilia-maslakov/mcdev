@@ -1548,6 +1548,42 @@ directory_history_add (WPanel *panel, const vfs_path_t *vpath)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* --------------------------------------------------------------------------------------------- */
+
+void
+panel_directory_history_add_path (WPanel *panel, const char *path)
+{
+    if (panel == NULL || path == NULL || path[0] == '\0')
+        return;
+
+    g_debug ("panel_directory_history_add_path text='%s'", path);
+    const char *colon = strchr (path, ':');
+    if (colon != NULL && colon[1] != '\0')
+    {
+        const char *plain = colon + 1;
+        GList *head = g_list_first (panel->dir_history.list);
+        GList *iter = head;
+
+        while (iter != NULL)
+        {
+            GList *next = g_list_next (iter);
+            if (strcmp ((const char *) iter->data, plain) == 0)
+            {
+                g_free (iter->data);
+                head = g_list_delete_link (head, iter);
+            }
+            iter = next;
+        }
+        panel->dir_history.list = head;
+    }
+
+    GList *entry = list_append_unique (panel->dir_history.list, g_strdup (path));
+    panel->dir_history.list = entry;
+    panel->dir_history.current = entry;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* "history_load" event handler */
 static gboolean
 panel_load_history (const gchar *event_group_name, const gchar *event_name, gpointer init_data,
@@ -3858,7 +3894,7 @@ get_parent_dir_name (const vfs_path_t *cwd_vpath, const vfs_path_t *lwd_vpath)
  * Don't record change in the directory history.
  */
 
-static gboolean
+gboolean
 panel_do_cd_int (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum cd_type)
 {
     vfs_path_t *olddir_vpath;
@@ -3928,11 +3964,7 @@ directory_history_next (WPanel *panel)
         next = g_list_next (panel->dir_history.current);
         if (next != NULL)
         {
-            vfs_path_t *data_vpath;
-
-            data_vpath = vfs_path_from_str ((char *) next->data);
-            ok = panel_do_cd_int (panel, data_vpath, cd_exact);
-            vfs_path_free (data_vpath, TRUE);
+            ok = panel_navigate_to_path (panel, (const char *) next->data, FALSE, FALSE);
             panel->dir_history.current = next;
         }
         // skip directories that present in history but absent in file system
@@ -3955,11 +3987,7 @@ directory_history_prev (WPanel *panel)
         prev = g_list_previous (panel->dir_history.current);
         if (prev != NULL)
         {
-            vfs_path_t *data_vpath;
-
-            data_vpath = vfs_path_from_str ((char *) prev->data);
-            ok = panel_do_cd_int (panel, data_vpath, cd_exact);
-            vfs_path_free (data_vpath, TRUE);
+            ok = panel_navigate_to_path (panel, (const char *) prev->data, FALSE, FALSE);
             panel->dir_history.current = prev;
         }
         // skip directories that present in history but absent in file system
@@ -3985,19 +4013,14 @@ directory_history_list (WPanel *panel)
     panel->dir_history.list = hd.list;
     if (hd.text != NULL)
     {
-        vfs_path_t *s_vpath;
+        ok = panel_navigate_to_path (panel, hd.text, TRUE, TRUE);
 
-        s_vpath = vfs_path_from_str (hd.text);
-        ok = panel_do_cd (panel, s_vpath, cd_exact);
-        if (ok)
+        if (ok && !panel->is_plugin_panel)
         {
             // in case of history of other panel, restore current path of VFS
             if (panel != current_panel)
                 panel_do_cd_int (current_panel, current_panel->cwd_vpath, cd_exact);
         }
-        else
-            cd_error_message (hd.text);
-        vfs_path_free (s_vpath, TRUE);
         g_free (hd.text);
     }
 
