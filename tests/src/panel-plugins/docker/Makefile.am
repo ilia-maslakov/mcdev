@@ -15,7 +15,8 @@ endif
 TESTS = \
 	docker_tar_test \
 	docker_cp_stream_test \
-	docker_domains_test
+	docker_domains_test \
+	docker_paths_test
 
 check_PROGRAMS = $(TESTS)
 
@@ -29,5 +30,8 @@ docker_cp_stream_test_SOURCES = \
 
 docker_domains_test_SOURCES = \
 	docker_domains_test.c
+
+docker_paths_test_SOURCES = \
+	docker_paths_test.c
 
 AM_TESTS_ENVIRONMENT = CK_FORK=no; export CK_FORK;

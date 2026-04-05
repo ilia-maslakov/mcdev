@@ -569,6 +569,51 @@ docker_containers_reload_items (docker_data_t *data, char **err_text)
 /* --------------------------------------------------------------------------------------------- */
 
 gboolean
+docker_containers_resolve_current (docker_data_t *data, char **err_text)
+{
+    char *output = NULL;
+    gboolean ok;
+    GPtrArray *items;
+    guint i;
+    gboolean found = FALSE;
+
+    if (data == NULL || data->current_project == NULL || data->current_container_name == NULL)
+        return FALSE;
+
+    if (data->current_container_id != NULL)
+        return TRUE;
+
+    ok = docker_load_containers_output (&output, err_text);
+    if (!ok)
+        return FALSE;
+
+    items = parse_container_items_from_project (output, data->current_project, NULL);
+
+    for (i = 0; i < items->len; i++)
+    {
+        const docker_item_t *item = (const docker_item_t *) g_ptr_array_index (items, i);
+
+        if (item->name != NULL && strcmp (item->name, data->current_container_name) == 0)
+        {
+            g_free (data->current_container_id);
+            data->current_container_id = g_strdup (item->id);
+            found = TRUE;
+            break;
+        }
+    }
+
+    g_ptr_array_free (items, TRUE);
+    g_free (output);
+
+    if (!found && err_text != NULL && (*err_text == NULL || (*err_text)[0] == '\0'))
+        *err_text = g_strdup_printf ("Container not found: %s", data->current_container_name);
+
+    return found;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
 docker_containers_reload_details (docker_data_t *data)
 {
     docker_item_t *item;

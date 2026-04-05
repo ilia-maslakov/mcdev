@@ -4,6 +4,9 @@
    Copyright (C) 2026
    Free Software Foundation, Inc.
 
+   Written by:
+   Ilia Maslakov <il.smind@gmail.com>, 2026.
+
    This file is part of the Midnight Commander.
 
    The Midnight Commander is free software: you can redistribute it
@@ -94,7 +97,7 @@ static const mc_panel_plugin_t shell_plugin = {
     .name = "shell-link",
     .display_name = "Shell link (FISH)",
     .proto = "sh",
-    .prefix = NULL,
+    .prefix = "sh:",
     .flags = MC_PPF_CUSTOM_TITLE | MC_PPF_CREATE | MC_PPF_DELETE | MC_PPF_SHOW_IN_MENU
         | MC_PPF_SHOW_IN_DRIVE_MENU,
 

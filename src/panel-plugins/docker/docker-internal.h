@@ -115,6 +115,7 @@ char *docker_capture_output (const char *cmd);
 char *docker_capture_inspect_field (const char *container_id, const char *format);
 gboolean write_temp_content (const char *prefix, const char *content, char **local_path);
 void set_view (docker_data_t *data, docker_view_t new_view);
+const char *docker_get_path (docker_data_t *data);
 gboolean docker_ui_view_container_summary (const docker_container_summary_t *summary);
 gboolean docker_ui_view_volume_summary (const docker_volume_summary_t *summary);
 gboolean docker_ui_viewer_command (const char *cmd);
@@ -124,6 +125,7 @@ gboolean docker_ui_show_create_container_dialog (char **image, char **name, char
 gboolean docker_containers_is_ungrouped_project (const char *project);
 gboolean docker_containers_reload_projects (docker_data_t *data, char **err_text);
 gboolean docker_containers_reload_items (docker_data_t *data, char **err_text);
+gboolean docker_containers_resolve_current (docker_data_t *data, char **err_text);
 gboolean docker_containers_reload_details (docker_data_t *data);
 mc_pp_result_t docker_containers_enter (docker_data_t *data, const char *name);
 gboolean docker_containers_view_summary (docker_data_t *data, const char *fname);

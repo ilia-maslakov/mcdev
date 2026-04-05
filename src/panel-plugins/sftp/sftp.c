@@ -4,6 +4,9 @@
    Copyright (C) 2026
    Free Software Foundation, Inc.
 
+   Written by:
+   Ilia Maslakov <il.smind@gmail.com>, 2026.
+
    This file is part of the Midnight Commander.
 
    The Midnight Commander is free software: you can redistribute it
@@ -176,7 +179,7 @@ static const mc_panel_plugin_t sftp_plugin = {
     .name = "sftp",
     .display_name = "SFTP network",
     .proto = "sftp",
-    .prefix = NULL,
+    .prefix = "sftp:",
     .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_DELETE | MC_PPF_CUSTOM_TITLE
         | MC_PPF_CREATE | MC_PPF_PUT_FILES | MC_PPF_SHOW_IN_MENU | MC_PPF_SHOW_IN_DRIVE_MENU,
 
