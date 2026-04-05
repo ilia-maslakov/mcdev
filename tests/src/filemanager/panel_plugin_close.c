@@ -36,6 +36,12 @@
 
 static gboolean set_panel_formats_called;
 static gboolean panel_reload_called;
+static gboolean panel_do_cd_called;
+static gboolean panel_history_add_called;
+static char *last_cd_path;
+static char *last_history_path;
+static const mc_panel_plugin_t *find_by_prefix_result;
+static char *last_find_prefix;
 static int call_order_formats;
 static int call_order_reload;
 static int call_counter;
@@ -59,20 +65,61 @@ mock_panel_reload (WPanel *panel)
     call_order_reload = ++call_counter;
 }
 
+/* @Mock */
+static gboolean
+mock_panel_do_cd (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum cd_type)
+{
+    (void) panel;
+    (void) cd_type;
+
+    panel_do_cd_called = TRUE;
+    g_free (last_cd_path);
+    last_cd_path = g_strdup (vfs_path_as_str (new_dir_vpath));
+
+    return TRUE;
+}
+
+/* @Mock */
+static void
+mock_panel_directory_history_add_path (WPanel *panel, const char *path)
+{
+    (void) panel;
+
+    panel_history_add_called = TRUE;
+    g_free (last_history_path);
+    last_history_path = g_strdup (path);
+}
+
+/* @Mock */
+static const mc_panel_plugin_t *
+mock_mc_panel_plugin_find_by_prefix (const char *prefix)
+{
+    g_free (last_find_prefix);
+    last_find_prefix = g_strdup (prefix);
+    return find_by_prefix_result;
+}
+
 /* Redirect calls inside panel_plugin_ui.c to local mocks via preprocessor.
    This is a compile-time seam: panel_plugin_close() calls
    mock_set_panel_formats / mock_panel_reload instead of the real ones. */
-#define set_panel_formats mock_set_panel_formats
-#define panel_reload      mock_panel_reload
+#define set_panel_formats                mock_set_panel_formats
+#define panel_reload                     mock_panel_reload
+#define panel_do_cd                      mock_panel_do_cd
+#define panel_directory_history_add_path mock_panel_directory_history_add_path
+#define mc_panel_plugin_find_by_prefix   mock_mc_panel_plugin_find_by_prefix
 
 #include "src/filemanager/panel_plugin_ui.c"
 
 #undef set_panel_formats
 #undef panel_reload
+#undef panel_do_cd
+#undef panel_directory_history_add_path
+#undef mc_panel_plugin_find_by_prefix
 
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean mock_plugin_close_called;
+static const char *mock_plugin_title;
 
 static void
 mock_plugin_close (void *data)
@@ -81,9 +128,18 @@ mock_plugin_close (void *data)
     mock_plugin_close_called = TRUE;
 }
 
+static const char *
+mock_plugin_get_title (void *data)
+{
+    (void) data;
+    return mock_plugin_title;
+}
+
 static const mc_panel_plugin_t mock_plugin = {
     .name = "test",
     .close = mock_plugin_close,
+    .prefix = "mock:",
+    .get_title = mock_plugin_get_title,
 };
 
 /* --------------------------------------------------------------------------------------------- */
@@ -94,16 +150,26 @@ setup (void)
 {
     set_panel_formats_called = FALSE;
     panel_reload_called = FALSE;
+    panel_do_cd_called = FALSE;
+    panel_history_add_called = FALSE;
     mock_plugin_close_called = FALSE;
+    mock_plugin_title = NULL;
+    g_clear_pointer (&last_find_prefix, g_free);
+    find_by_prefix_result = NULL;
     call_counter = 0;
     call_order_formats = 0;
     call_order_reload = 0;
+    g_clear_pointer (&last_cd_path, g_free);
+    g_clear_pointer (&last_history_path, g_free);
+    g_clear_pointer (&last_find_prefix, g_free);
 }
 
 /* @After */
 static void
 teardown (void)
 {
+    g_clear_pointer (&last_cd_path, g_free);
+    g_clear_pointer (&last_history_path, g_free);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -233,6 +299,36 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* @Test */
+START_TEST (test_plugin_find_by_path_uses_prefix_registry)
+{
+    const mc_panel_plugin_t *plugin;
+
+    find_by_prefix_result = &mock_plugin;
+
+    plugin = panel_plugin_find_by_path ("mock:/containers/demo");
+
+    ck_assert_ptr_eq ((const void *) plugin, (const void *) &mock_plugin);
+    ck_assert_str_eq (last_find_prefix, "mock:");
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* @Test */
+START_TEST (test_plugin_find_by_path_ignores_unknown_prefix)
+{
+    const mc_panel_plugin_t *plugin;
+
+    plugin = panel_plugin_find_by_path ("unknown:/path");
+
+    ck_assert_ptr_null (plugin);
+    ck_assert_str_eq (last_find_prefix, "unknown:");
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -247,6 +343,8 @@ main (void)
     tcase_add_test (tc_core, test_plugin_close_null_panel);
     tcase_add_test (tc_core, test_plugin_close_not_plugin_panel);
     tcase_add_test (tc_core, test_plugin_close_clears_plugin_host_with_focus_after);
+    tcase_add_test (tc_core, test_plugin_find_by_path_uses_prefix_registry);
+    tcase_add_test (tc_core, test_plugin_find_by_path_ignores_unknown_prefix);
 
     return mctest_run_all (tc_core);
 }

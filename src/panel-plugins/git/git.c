@@ -1,11 +1,26 @@
 /*
-   Git status panel plugin (MVP): shows changed files from git status.
+   Git status panel plugin.
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
 
    Written by:
    Ilia Maslakov <il.smind@gmail.com>, 2026.
+
+   This file is part of the Midnight Commander.
+
+   The Midnight Commander is free software: you can redistribute it
+   and/or modify it under the terms of the GNU General Public License as
+   published by the Free Software Foundation, either version 3 of the License,
+   or (at your option) any later version.
+
+   The Midnight Commander is distributed in the hope that it will be useful,
+   but WITHOUT ANY WARRANTY; without even the implied warranty of
+   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+   GNU General Public License for more details.
+
+   You should have received a copy of the GNU General Public License
+   along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
 #include <config.h>
@@ -1760,7 +1775,12 @@ git_open (mc_panel_host_t *host, const char *open_path)
     char *repo_root;
     const char *start_path;
 
-    start_path = (open_path != NULL && *open_path != '\0') ? open_path : ".";
+    if (open_path != NULL && g_str_has_prefix (open_path, git_plugin.prefix))
+        start_path = open_path + strlen (git_plugin.prefix);
+    else
+        start_path = (open_path != NULL && *open_path != '\0') ? open_path : ".";
+    if (*start_path == '\0')
+        start_path = ".";
     repo_root = git_detect_repo_root (start_path);
     if (repo_root == NULL)
     {

@@ -88,7 +88,7 @@ static const mc_panel_plugin_t systemd_plugin = {
     .name = "systemd",
     .display_name = "Systemd units",
     .proto = "systemd",
-    .prefix = NULL,
+    .prefix = "systemd:",
     .flags = MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_DELETE | MC_PPF_CUSTOM_TITLE,
 
     .open = systemd_open,

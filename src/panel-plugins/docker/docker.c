@@ -54,6 +54,8 @@ static const mc_panel_column_t *docker_get_columns (void *plugin_data, size_t *c
 static const char *docker_get_column_value (void *plugin_data, const char *fname,
                                             const char *column_id);
 static const char *docker_get_default_format (void *plugin_data);
+static gboolean docker_apply_open_path (docker_data_t *data, const char *open_path);
+static char *docker_normalize_open_path (const char *open_path);
 
 /*** file scope variables ************************************************************************/
 
@@ -71,7 +73,7 @@ static const mc_panel_plugin_t docker_plugin = {
     .name = "docker",
     .display_name = "Docker",
     .proto = "docker",
-    .prefix = NULL,
+    .prefix = "docker:",
     .flags =
         MC_PPF_NAVIGATE | MC_PPF_GET_FILES | MC_PPF_DELETE | MC_PPF_CUSTOM_TITLE | MC_PPF_CREATE,
 
@@ -360,16 +362,22 @@ reload_items (docker_data_t *data)
         break;
 
     case DOCKER_VIEW_CONTAINER_DETAILS:
+        if (!docker_containers_resolve_current (data, &err_text))
+            goto cmd_failed;
         if (!docker_containers_reload_details (data))
             goto cmd_failed;
         break;
 
     case DOCKER_VIEW_CONTAINER_FILES:
+        if (!docker_containers_resolve_current (data, &err_text))
+            goto cmd_failed;
         if (!docker_container_files_reload (data, &err_text))
             goto cmd_failed;
         break;
 
     case DOCKER_VIEW_CONTAINER_MOUNTS:
+        if (!docker_containers_resolve_current (data, &err_text))
+            goto cmd_failed;
         if (!docker_container_mounts_reload (data, &err_text))
             goto cmd_failed;
         break;
@@ -452,6 +460,274 @@ set_view (docker_data_t *data, docker_view_t new_view)
 {
     data->view = new_view;
     clear_items (data);
+
+    if (data->host != NULL && data->host->add_history != NULL)
+    {
+        const char *path = docker_get_path (data);
+        if (path != NULL && docker_plugin.proto != NULL)
+        {
+            char *plugin_path = g_strdup_printf ("%s:%s", docker_plugin.proto, path);
+            data->host->add_history (data->host, plugin_path);
+            g_free (plugin_path);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+const char *
+docker_get_path (docker_data_t *data)
+{
+    g_free (data->title_buf);
+
+    switch (data->view)
+    {
+    case DOCKER_VIEW_ROOT:
+        data->title_buf = g_strdup ("/");
+        break;
+
+    case DOCKER_VIEW_CONTAINERS_PROJECTS:
+        data->title_buf = g_strdup ("/containers");
+        break;
+
+    case DOCKER_VIEW_CONTAINERS_ITEMS:
+        data->title_buf = g_strdup_printf (
+            "/containers/%s",
+            data->current_project != NULL ? data->current_project : docker_ungrouped_project);
+        break;
+
+    case DOCKER_VIEW_CONTAINER_DETAILS:
+        data->title_buf = g_strdup_printf (
+            "/containers/%s/%s",
+            data->current_project != NULL ? data->current_project : docker_ungrouped_project,
+            data->current_container_name != NULL ? data->current_container_name : "container");
+        break;
+
+    case DOCKER_VIEW_CONTAINER_FILES:
+        if (data->files_cwd == NULL || strcmp (data->files_cwd, "/") == 0)
+            data->title_buf = g_strdup_printf (
+                "/containers/%s/%s/files",
+                data->current_project != NULL ? data->current_project : docker_ungrouped_project,
+                data->current_container_name != NULL ? data->current_container_name : "container");
+        else
+            data->title_buf = g_strdup_printf (
+                "/containers/%s/%s/files%s",
+                data->current_project != NULL ? data->current_project : docker_ungrouped_project,
+                data->current_container_name != NULL ? data->current_container_name : "container",
+                data->files_cwd);
+        break;
+
+    case DOCKER_VIEW_CONTAINER_MOUNTS:
+        data->title_buf = g_strdup_printf (
+            "/containers/%s/%s/mounts",
+            data->current_project != NULL ? data->current_project : docker_ungrouped_project,
+            data->current_container_name != NULL ? data->current_container_name : "container");
+        break;
+
+    case DOCKER_VIEW_IMAGES:
+        data->title_buf = g_strdup ("/images");
+        break;
+
+    case DOCKER_VIEW_VOLUMES:
+        data->title_buf = g_strdup ("/volumes");
+        break;
+
+    case DOCKER_VIEW_NETWORKS:
+        data->title_buf = g_strdup ("/networks");
+        break;
+
+    default:
+        data->title_buf = g_strdup ("/");
+        break;
+    }
+
+    return data->title_buf;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+docker_apply_open_path (docker_data_t *data, const char *open_path)
+{
+    char *normalized_path;
+    g_debug ("docker_apply_open_path input='%s'", open_path ? open_path : "(null)");
+    const char *path;
+    const char *rest;
+    const char *slash;
+
+    normalized_path = docker_normalize_open_path (open_path);
+    if (normalized_path == NULL)
+        return TRUE;
+
+    path = normalized_path;
+
+    if (strcmp (path, "/containers") == 0)
+    {
+        data->view = DOCKER_VIEW_CONTAINERS_PROJECTS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (strcmp (path, "/images") == 0)
+    {
+        data->view = DOCKER_VIEW_IMAGES;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (strcmp (path, "/volumes") == 0)
+    {
+        data->view = DOCKER_VIEW_VOLUMES;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (strcmp (path, "/networks") == 0)
+    {
+        data->view = DOCKER_VIEW_NETWORKS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (strcmp (path, "/") == 0)
+    {
+        data->view = DOCKER_VIEW_ROOT;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (!g_str_has_prefix (path, "/containers/"))
+    {
+        g_debug ("docker_apply_open_path: unsupported normalized path='%s'", path);
+        g_free (normalized_path);
+        return FALSE;
+    }
+
+    rest = path + strlen ("/containers/");
+    if (*rest == '\0')
+    {
+        data->view = DOCKER_VIEW_CONTAINERS_PROJECTS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    slash = strchr (rest, '/');
+    if (slash == NULL)
+    {
+        data->current_project = g_strdup (rest);
+        data->view = DOCKER_VIEW_CONTAINERS_ITEMS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (slash == rest)
+    {
+        g_debug ("docker_apply_open_path: empty project segment path='%s'", path);
+        g_free (normalized_path);
+        return FALSE;
+    }
+
+    data->current_project = g_strndup (rest, (gsize) (slash - rest));
+    rest = slash + 1;
+    if (*rest == '\0')
+    {
+        data->view = DOCKER_VIEW_CONTAINERS_ITEMS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    slash = strchr (rest, '/');
+    if (slash == NULL)
+    {
+        data->current_container_name = g_strdup (rest);
+        data->view = DOCKER_VIEW_CONTAINER_DETAILS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (slash == rest)
+    {
+        g_debug ("docker_apply_open_path: empty container segment path='%s'", path);
+        g_free (normalized_path);
+        return FALSE;
+    }
+
+    data->current_container_name = g_strndup (rest, (gsize) (slash - rest));
+    rest = slash + 1;
+
+    if (strcmp (rest, docker_mounts_entry) == 0)
+    {
+        data->view = DOCKER_VIEW_CONTAINER_MOUNTS;
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (strcmp (rest, docker_files_entry) == 0)
+    {
+        data->view = DOCKER_VIEW_CONTAINER_FILES;
+        data->files_cwd = g_strdup ("/");
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    if (g_str_has_prefix (rest, "files/"))
+    {
+        data->view = DOCKER_VIEW_CONTAINER_FILES;
+        data->files_cwd = g_strdup_printf ("/%s", rest + strlen ("files/"));
+        g_free (normalized_path);
+        return TRUE;
+    }
+
+    g_debug ("docker_apply_open_path: unsupported container subpath path='%s' rest='%s'", path,
+             rest);
+    g_free (normalized_path);
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static char *
+docker_normalize_open_path (const char *open_path)
+{
+    const char *path = open_path;
+    GString *normalized;
+    gboolean prev_was_slash = FALSE;
+
+    if (path == NULL || path[0] == '\0')
+        return NULL;
+
+    if (g_str_has_prefix (path, docker_plugin.prefix))
+        path += strlen (docker_plugin.prefix);
+    else
+        return NULL;
+
+    if (path[0] == '\0')
+        return g_strdup ("/");
+
+    normalized = g_string_new ("/");
+
+    while (*path == '/')
+        path++;
+
+    for (; *path != '\0'; path++)
+    {
+        if (*path == '/')
+        {
+            if (prev_was_slash)
+                continue;
+            prev_was_slash = TRUE;
+        }
+        else
+            prev_was_slash = FALSE;
+
+        g_string_append_c (normalized, *path);
+    }
+
+    while (normalized->len > 1 && normalized->str[normalized->len - 1] == '/')
+        g_string_truncate (normalized, normalized->len - 1);
+
+    g_debug ("docker_normalize_open_path result='%s'", normalized->str);
+    return g_string_free (normalized, FALSE);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -462,8 +738,6 @@ static void *
 docker_open (mc_panel_host_t *host, const char *open_path)
 {
     docker_data_t *data;
-
-    (void) open_path;
 
     data = g_new0 (docker_data_t, 1);
     data->host = host;
@@ -476,6 +750,38 @@ docker_open (mc_panel_host_t *host, const char *open_path)
     data->files_cache =
         g_hash_table_new_full (g_str_hash, g_str_equal, g_free, (GDestroyNotify) g_ptr_array_unref);
     data->title_buf = NULL;
+
+    if (!docker_apply_open_path (data, open_path))
+    {
+        const char *rest_dbg = NULL;
+
+        if (open_path != NULL && docker_plugin.prefix != NULL
+            && g_str_has_prefix (open_path, docker_plugin.prefix))
+        {
+            rest_dbg = open_path + strlen (docker_plugin.prefix);
+        }
+
+        g_debug ("docker_open: reopen failed open_path='%s', prefix='%s', rest='%s'",
+                 open_path != NULL ? open_path : "(null)",
+                 docker_plugin.prefix != NULL ? docker_plugin.prefix : "(null)",
+                 rest_dbg != NULL ? rest_dbg : "(null)");
+
+        docker_close (data);
+        if (open_path != NULL && docker_plugin.prefix != NULL
+            && g_str_has_prefix (open_path, docker_plugin.prefix))
+        {
+            const char *rest = open_path + strlen (docker_plugin.prefix);
+
+            while (*rest == '/')
+                rest++;
+            if (*rest == '\0')
+                return data;
+        }
+
+        if (host != NULL && host->message != NULL)
+            host->message (host, D_ERROR, "Docker", "Cannot reopen Docker panel path.");
+        return NULL;
+    }
 
     return data;
 }
@@ -963,65 +1269,7 @@ static const char *
 docker_get_title (void *plugin_data)
 {
     docker_data_t *data = (docker_data_t *) plugin_data;
-
-    g_free (data->title_buf);
-
-    switch (data->view)
-    {
-    case DOCKER_VIEW_ROOT:
-        data->title_buf = g_strdup ("/");
-        break;
-
-    case DOCKER_VIEW_CONTAINERS_PROJECTS:
-        data->title_buf = g_strdup ("/containers");
-        break;
-
-    case DOCKER_VIEW_CONTAINERS_ITEMS:
-        data->title_buf = g_strdup_printf (
-            "/containers/%s",
-            data->current_project != NULL ? data->current_project : docker_ungrouped_project);
-        break;
-
-    case DOCKER_VIEW_CONTAINER_DETAILS:
-        data->title_buf = g_strdup_printf (
-            "/containers/%s/%s",
-            data->current_project != NULL ? data->current_project : docker_ungrouped_project,
-            data->current_container_name != NULL ? data->current_container_name : "container");
-        break;
-
-    case DOCKER_VIEW_CONTAINER_FILES:
-        data->title_buf = g_strdup_printf (
-            "/containers/%s/%s/files%s",
-            data->current_project != NULL ? data->current_project : docker_ungrouped_project,
-            data->current_container_name != NULL ? data->current_container_name : "container",
-            data->files_cwd != NULL ? data->files_cwd : "/");
-        break;
-
-    case DOCKER_VIEW_CONTAINER_MOUNTS:
-        data->title_buf = g_strdup_printf (
-            "/containers/%s/%s/mounts",
-            data->current_project != NULL ? data->current_project : docker_ungrouped_project,
-            data->current_container_name != NULL ? data->current_container_name : "container");
-        break;
-
-    case DOCKER_VIEW_IMAGES:
-        data->title_buf = g_strdup ("/images");
-        break;
-
-    case DOCKER_VIEW_VOLUMES:
-        data->title_buf = g_strdup ("/volumes");
-        break;
-
-    case DOCKER_VIEW_NETWORKS:
-        data->title_buf = g_strdup ("/networks");
-        break;
-
-    default:
-        data->title_buf = g_strdup ("/");
-        break;
-    }
-
-    return data->title_buf;
+    return docker_get_path (data);
 }
 
 /* --------------------------------------------------------------------------------------------- */

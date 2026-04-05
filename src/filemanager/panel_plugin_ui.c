@@ -120,10 +120,24 @@ static void
 host_close_plugin_impl (mc_panel_host_t *host, const char *dir_path)
 {
     WPanel *panel = (WPanel *) host->host_data;
+    char *plugin_path = NULL;
     char *target_dir = NULL;
+
+    if (panel != NULL && panel->is_plugin_panel && panel->plugin != NULL
+        && panel->plugin->prefix != NULL && panel->plugin->get_title != NULL
+        && panel->plugin_data != NULL)
+    {
+        const char *title = panel->plugin->get_title (panel->plugin_data);
+
+        if (title != NULL && title[0] != '\0')
+            plugin_path = g_strdup_printf ("%s%s", panel->plugin->prefix, title);
+    }
 
     if (dir_path != NULL && dir_path[0] != '\0')
         target_dir = g_strdup (dir_path);
+
+    if (plugin_path != NULL && target_dir != NULL)
+        panel_directory_history_add_path (panel, plugin_path);
 
     panel_plugin_close (panel);
 
@@ -137,6 +151,7 @@ host_close_plugin_impl (mc_panel_host_t *host, const char *dir_path)
         vfs_path_free (cd_vpath, TRUE);
     }
 
+    g_free (plugin_path);
     g_free (target_dir);
 }
 
@@ -176,6 +191,15 @@ host_get_current_impl (mc_panel_host_t *host)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+host_add_history_impl (mc_panel_host_t *host, const char *path)
+{
+    WPanel *panel = (WPanel *) host->host_data;
+    panel_directory_history_add_path (panel, path);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
 {
     host->refresh = host_refresh_impl;
@@ -184,6 +208,7 @@ panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
     host->run_command = host_run_command_impl;
     host->open_diff = host_open_diff_impl;
     host->close_plugin = host_close_plugin_impl;
+    host->add_history = host_add_history_impl;
     host->get_marked_count = host_get_marked_count_impl;
     host->get_next_marked = host_get_next_marked_impl;
     host->get_current = host_get_current_impl;
@@ -279,6 +304,18 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
 
     panel_re_sort (panel);
     panel->dirty = TRUE;
+
+    if (panel->plugin->proto != NULL && panel->plugin->get_title != NULL)
+    {
+        const char *title = panel->plugin->get_title (panel->plugin_data);
+        if (title != NULL)
+        {
+            const char *path_tail = (title[0] != '\0') ? title : "/";
+            char *plugin_path = g_strdup_printf ("%s:%s", panel->plugin->proto, path_tail);
+            panel_directory_history_add_path (panel, plugin_path);
+            g_free (plugin_path);
+        }
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -323,6 +360,84 @@ panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name, const cha
 
     panel_plugin_activate (panel, plugin, open_path);
     return (panel->is_plugin_panel && panel->plugin == plugin);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+const mc_panel_plugin_t *
+panel_plugin_find_by_path (const char *open_path)
+{
+    const mc_panel_plugin_t *plugin;
+    const char *colon;
+    char *prefix;
+
+    if (open_path == NULL || open_path[0] == '\0')
+        return NULL;
+
+    colon = strchr (open_path, ':');
+    if (colon == NULL)
+        return NULL;
+
+    prefix = g_strndup (open_path, (gsize) (colon - open_path + 1));
+    plugin = mc_panel_plugin_find_by_prefix (prefix);
+    g_free (prefix);
+
+    return plugin;
+}
+
+static char *
+panel_plugin_canonical_path (const mc_panel_plugin_t *plugin, const char *payload)
+{
+    const char *prefix = plugin->prefix != NULL ? plugin->prefix : plugin->proto;
+    size_t prefix_len = strlen (prefix);
+    char *base;
+
+    if (prefix_len > 0 && prefix[prefix_len - 1] == ':')
+        base = g_strndup (prefix, prefix_len - 1);
+    else
+        base = g_strdup (prefix);
+
+    char *result;
+    if (payload != NULL && payload[0] != '\0')
+        result = g_strdup_printf ("%s:%s", base, payload);
+    else
+        result = g_strdup_printf ("%s:/", base);
+
+    g_free (base);
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_activate_by_path (WPanel *panel, const char *open_path)
+{
+    const mc_panel_plugin_t *plugin;
+    gboolean activated;
+
+    g_debug ("panel_plugin_activate_by_path open_path='%s'", open_path ? open_path : "(null)");
+    if (panel == NULL)
+        return FALSE;
+
+    plugin = panel_plugin_find_by_path (open_path);
+    if (plugin == NULL)
+        return FALSE;
+
+    const char *colon = strchr (open_path, ':');
+    const char *payload = (colon != NULL) ? colon + 1 : open_path;
+    while (*payload == ':')
+        payload++;
+
+    char *sanitized_path = panel_plugin_canonical_path (plugin, payload);
+
+    g_debug ("panel_plugin_activate_by_path sanitized_path='%s'", sanitized_path);
+
+    panel_plugin_activate (panel, plugin, open_path);
+    activated = (panel->is_plugin_panel && panel->plugin == plugin);
+
+    g_free (sanitized_path);
+
+    return activated;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -598,6 +713,51 @@ panel_plugin_drive_change (WPanel *panel)
         panel_plugin_activate (panel, selected, vfs_path_as_str (panel->cwd_vpath));
         return TRUE;
     }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Navigate panel to a history path: plugin or filesystem.
+ *
+ * If path starts with a known plugin prefix, the appropriate plugin is activated.
+ * Otherwise the panel navigates to the filesystem path.  If the panel is currently
+ * in plugin mode it is closed before the filesystem cd.
+ *
+ * @param panel          target panel
+ * @param path           history entry string
+ * @param add_to_history TRUE  -- use panel_do_cd (records new history entry);
+ *                       FALSE -- use panel_do_cd_int (silent, used for prev/next)
+ * @param show_error     show cd_error_message on filesystem cd failure
+ * @return               TRUE on success
+ */
+gboolean
+panel_navigate_to_path (WPanel *panel, const char *path, gboolean add_to_history,
+                        gboolean show_error)
+{
+    if (panel == NULL || path == NULL)
+        return FALSE;
+
+    if (panel_plugin_find_by_path (path) != NULL)
+        return panel_plugin_activate_by_path (panel, path);
+
+    if (panel->is_plugin_panel)
+        panel_plugin_close (panel);
+
+    vfs_path_t *vpath = vfs_path_from_str (path);
+    gboolean ok;
+
+    if (add_to_history)
+        ok = panel_do_cd (panel, vpath, cd_exact);
+    else
+        ok = panel_do_cd_int (panel, vpath, cd_exact);
+
+    vfs_path_free (vpath, TRUE);
+
+    if (!ok && show_error)
+        cd_error_message (path);
+
+    return ok;
 }
 
 /* --------------------------------------------------------------------------------------------- */
