@@ -184,23 +184,6 @@ k8s_get_current_context (const char *kubectl_cmd)
 
 /* --------------------------------------------------------------------------------------------- */
 
-gboolean
-k8s_use_context (const char *kubectl_cmd, const char *ctx, char **err_text)
-{
-    char *quoted;
-    char *cmd;
-    gboolean ok;
-
-    quoted = g_shell_quote (ctx);
-    cmd = g_strdup_printf ("%s config use-context %s", kubectl_cmd, quoted);
-    ok = k8s_run_cmd (cmd, NULL, err_text);
-    g_free (cmd);
-    g_free (quoted);
-    return ok;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 int
 k8s_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
 {

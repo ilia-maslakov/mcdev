@@ -157,7 +157,6 @@ char *k8s_load_kubectl_cmd (void);
 char *k8s_load_kubeconfig (void);
 char *k8s_build_kubectl (const k8s_data_t *data);
 char *k8s_get_current_context (const char *kubectl_cmd);
-gboolean k8s_use_context (const char *kubectl_cmd, const char *ctx, char **err_text);
 int k8s_load_hotkey (const char *key, const char *fallback_text, int fallback_key);
 GPtrArray *k8s_favorites_load (void);
 void k8s_favorites_save (GPtrArray *favs);

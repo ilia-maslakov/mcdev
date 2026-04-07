@@ -570,27 +570,6 @@ k8s_chdir (void *plugin_data, const char *path)
 
     if (data->view == K8S_VIEW_FAVORITES)
     {
-        char *err_text = NULL;
-        gboolean ok_ctx;
-
-        ok_ctx = k8s_use_context (data->kubectl_full, path, &err_text);
-
-        if (!ok_ctx)
-        {
-            if (data->host != NULL && data->host->message != NULL)
-            {
-                char *msg;
-
-                msg = g_strdup_printf ("Failed to switch context: %s",
-                                       err_text != NULL ? err_text : "");
-                data->host->message (data->host, D_ERROR, "Kubernetes", msg);
-                g_free (msg);
-            }
-            g_free (err_text);
-            return MC_PPR_FAILED;
-        }
-        g_free (err_text);
-
         g_free (data->context);
         data->context = g_strdup (path);
         g_free (data->namespace);
