@@ -1,0 +1,32 @@
+[Kubernetes Plugin]
+
+  Kubernetes Panel Plugin
+
+  Navigation:
+    k8s:/                    - favorites list (saved contexts)
+    k8s:/<context>/          - namespaces in that context
+    k8s:/<context>/<ns>/     - resource types (pods, deployments, services)
+    k8s:/<context>/<ns>/pods/          - pod list
+    k8s:/<context>/<ns>/pods/<pod>/    - pod details
+    k8s:/<context>/<ns>/deployments/   - deployments
+    k8s:/<context>/<ns>/services/      - services
+    k8s:/<context>/nodes/              - node list (cluster-wide)
+
+  Keys (all views):
+    Ctrl-R     - Refresh current view
+
+  Keys (inside context):
+    Ctrl-B     - Add current context to favorites
+    Ctrl-N     - Switch namespace
+
+  Keys (favorites view):
+    Enter      - Open context (switch kubectl context)
+    Shift-F4   - Add context by name (input dialog)
+    F8         - Remove context from favorites
+
+  Keys (resource views):
+    F3         - View: logs (pods) / describe (deployments, services)
+    Enter      - Enter directory or execute (exec entry in pod details)
+    F8         - Delete resource (kubectl delete)
+
+
