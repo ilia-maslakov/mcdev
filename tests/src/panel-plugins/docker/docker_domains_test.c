@@ -174,12 +174,40 @@ message (int flags, const char *title, const char *text, ...)
 
 /* --------------------------------------------------------------------------------------------- */
 
-char *
-docker_capture_inspect_field (const char *container_id, const char *format)
+gboolean
+docker_conn_run (const docker_connection_t *conn, const char *docker_args, char **output,
+                 char **err_text)
 {
-    (void) container_id;
-    (void) format;
-    return NULL;
+    char *cmd;
+    gboolean ok;
+
+    (void) conn;
+    cmd = g_strdup_printf ("docker %s", docker_args);
+    ok = run_cmd (cmd, output, err_text);
+    g_free (cmd);
+    return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+char *
+docker_conn_capture_inspect (const docker_connection_t *conn, const char *obj_id,
+                             const char *format)
+{
+    char *quoted_id;
+    char *quoted_format;
+    char *docker_args;
+    char *output = NULL;
+
+    (void) conn;
+    quoted_id = g_shell_quote (obj_id);
+    quoted_format = g_shell_quote (format);
+    docker_args = g_strdup_printf ("inspect --format %s %s", quoted_format, quoted_id);
+    docker_conn_run (NULL, docker_args, &output, NULL);
+    g_free (docker_args);
+    g_free (quoted_id);
+    g_free (quoted_format);
+    return output;
 }
 
 /* --------------------------------------------------------------------------------------------- */
