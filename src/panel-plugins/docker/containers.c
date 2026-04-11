@@ -38,7 +38,7 @@ static const mc_panel_column_t docker_columns[] = {
 
 static gboolean docker_project_match (const char *selected_project,
                                       const char *project_from_docker);
-static gboolean docker_load_containers_output (char **output, char **err_text);
+static gboolean docker_load_containers_output (docker_data_t *data, char **output, char **err_text);
 static GPtrArray *parse_projects_from_containers (const char *output, const char *focused_project);
 static GPtrArray *parse_container_items_from_project (const char *output, const char *project_name,
                                                       const char *focused_container_id);
@@ -47,9 +47,9 @@ static gboolean docker_parse_port_range (const char *text, int *start, int *end)
 static void docker_append_formatted_port (GString *out, const char *host_port,
                                           const char *container_port);
 static char *docker_format_port_mappings (const char *ports);
-static char *docker_capture_stats_block (const char *container_id);
+static char *docker_capture_stats_block (docker_data_t *data, const char *container_id);
 static const char *docker_normalize_zero_value (const char *value, const char *replacement);
-static gboolean docker_view_container_summary (const docker_item_t *container);
+static gboolean docker_view_container_summary (docker_data_t *data, const docker_item_t *container);
 
 gboolean
 docker_containers_is_ungrouped_project (const char *project)
@@ -72,10 +72,11 @@ docker_project_match (const char *selected_project, const char *project_from_doc
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-docker_load_containers_output (char **output, char **err_text)
+docker_load_containers_output (docker_data_t *data, char **output, char **err_text)
 {
-    return run_cmd (
-        "docker ps -a --format '{{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Ports}}\\t"
+    return docker_conn_run (
+        data->active_conn,
+        "ps -a --format '{{.ID}}\\t{{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.Ports}}\\t"
         "{{.Label \"com.docker.compose.project\"}}'",
         output, err_text);
 }
@@ -413,21 +414,21 @@ docker_format_port_mappings (const char *ports)
 /* --------------------------------------------------------------------------------------------- */
 
 static char *
-docker_capture_stats_block (const char *container_id)
+docker_capture_stats_block (docker_data_t *data, const char *container_id)
 {
     char *quoted_id;
-    char *cmd;
+    char *docker_args;
     char *value;
 
     quoted_id = g_shell_quote (container_id);
-    cmd = g_strdup_printf (
-        "docker stats --no-stream --format "
+    docker_args = g_strdup_printf (
+        "stats --no-stream --format "
         "'CPU: {{.CPUPerc}}\\nMemory usage: {{.MemUsage}}\\nNetwork I/O: {{.NetIO}}\\n"
         "Block I/O: {{.BlockIO}}\\nPIDs: {{.PIDs}}' %s 2>/dev/null",
         quoted_id);
-    value = docker_capture_output (cmd);
+    value = docker_conn_capture (data->active_conn, docker_args);
 
-    g_free (cmd);
+    g_free (docker_args);
     g_free (quoted_id);
 
     return value;
@@ -447,7 +448,7 @@ docker_normalize_zero_value (const char *value, const char *replacement)
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-docker_view_container_summary (const docker_item_t *container)
+docker_view_container_summary (docker_data_t *data, const docker_item_t *container)
 {
     char *name = NULL;
     char *id = NULL;
@@ -470,27 +471,32 @@ docker_view_container_summary (const docker_item_t *container)
     if (container == NULL || container->id == NULL)
         return FALSE;
 
-    name = docker_capture_inspect_field (container->id, "{{.Name}}");
-    id = docker_capture_inspect_field (container->id, "{{.Id}}");
-    image = docker_capture_inspect_field (container->id, "{{.Config.Image}}");
+    name = docker_conn_capture_inspect (data->active_conn, container->id, "{{.Name}}");
+    id = docker_conn_capture_inspect (data->active_conn, container->id, "{{.Id}}");
+    image = docker_conn_capture_inspect (data->active_conn, container->id, "{{.Config.Image}}");
     status = g_strdup (container->status);
-    started = docker_capture_inspect_field (container->id, "{{.State.StartedAt}}");
-    restart_count = docker_capture_inspect_field (container->id, "{{.RestartCount}}");
-    command =
-        docker_capture_inspect_field (container->id, "{{.Path}} {{range .Args}}{{.}} {{end}}");
+    started =
+        docker_conn_capture_inspect (data->active_conn, container->id, "{{.State.StartedAt}}");
+    restart_count =
+        docker_conn_capture_inspect (data->active_conn, container->id, "{{.RestartCount}}");
+    command = docker_conn_capture_inspect (data->active_conn, container->id,
+                                           "{{.Path}} {{range .Args}}{{.}} {{end}}");
     entrypoint =
-        docker_capture_inspect_field (container->id,
-                                      "{{if .Config.Entrypoint}}{{range .Config.Entrypoint}}{{.}} "
-                                      "{{end}}{{else}}-{{end}}");
+        docker_conn_capture_inspect (data->active_conn, container->id,
+                                     "{{if .Config.Entrypoint}}{{range .Config.Entrypoint}}{{.}} "
+                                     "{{end}}{{else}}-{{end}}");
     ports = g_strdup (container->ports);
     formatted_ports = docker_format_port_mappings (ports);
-    ip = docker_capture_inspect_field (container->id,
-                                       "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}");
-    mounts = docker_capture_inspect_field (
-        container->id, "{{range .Mounts}}{{.Destination}} -> {{.Source}}{{println}}{{end}}");
-    memory_limit = docker_capture_inspect_field (container->id, "{{.HostConfig.Memory}}");
-    cpu_shares = docker_capture_inspect_field (container->id, "{{.HostConfig.CpuShares}}");
-    stats = docker_capture_stats_block (container->id);
+    ip = docker_conn_capture_inspect (data->active_conn, container->id,
+                                      "{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}");
+    mounts = docker_conn_capture_inspect (
+        data->active_conn, container->id,
+        "{{range .Mounts}}{{.Destination}} -> {{.Source}}{{println}}{{end}}");
+    memory_limit =
+        docker_conn_capture_inspect (data->active_conn, container->id, "{{.HostConfig.Memory}}");
+    cpu_shares =
+        docker_conn_capture_inspect (data->active_conn, container->id, "{{.HostConfig.CpuShares}}");
+    stats = docker_capture_stats_block (data, container->id);
 
     if (name != NULL && name[0] == '/')
         memmove (name, name + 1, strlen (name));
@@ -539,7 +545,7 @@ docker_containers_reload_projects (docker_data_t *data, char **err_text)
     char *output = NULL;
     gboolean ok;
 
-    ok = docker_load_containers_output (&output, err_text);
+    ok = docker_load_containers_output (data, &output, err_text);
     if (!ok)
         return FALSE;
 
@@ -556,7 +562,7 @@ docker_containers_reload_items (docker_data_t *data, char **err_text)
     char *output = NULL;
     gboolean ok;
 
-    ok = docker_load_containers_output (&output, err_text);
+    ok = docker_load_containers_output (data, &output, err_text);
     if (!ok)
         return FALSE;
 
@@ -583,7 +589,7 @@ docker_containers_resolve_current (docker_data_t *data, char **err_text)
     if (data->current_container_id != NULL)
         return TRUE;
 
-    ok = docker_load_containers_output (&output, err_text);
+    ok = docker_load_containers_output (data, &output, err_text);
     if (!ok)
         return FALSE;
 
@@ -617,6 +623,7 @@ gboolean
 docker_containers_reload_details (docker_data_t *data)
 {
     docker_item_t *item;
+    gboolean is_ssh = (data->active_conn != NULL && data->active_conn->type == DOCKER_CONN_SSH);
 
     data->items = g_ptr_array_new_with_free_func (docker_item_free);
 
@@ -637,11 +644,15 @@ docker_containers_reload_details (docker_data_t *data)
     item->name = g_strdup (docker_logs_entry);
     g_ptr_array_add (data->items, item);
 
-    item = g_new0 (docker_item_t, 1);
-    item->id = g_strdup (docker_mounts_entry);
-    item->name = g_strdup (docker_mounts_entry);
-    item->is_dir = TRUE;
-    g_ptr_array_add (data->items, item);
+    /* mounts/ is local-only: host paths are not reachable for SSH profiles */
+    if (!is_ssh)
+    {
+        item = g_new0 (docker_item_t, 1);
+        item->id = g_strdup (docker_mounts_entry);
+        item->name = g_strdup (docker_mounts_entry);
+        item->is_dir = TRUE;
+        g_ptr_array_add (data->items, item);
+    }
 
     item = g_new0 (docker_item_t, 1);
     item->id = g_strdup (docker_inspect_file);
@@ -659,9 +670,11 @@ docker_containers_enter (docker_data_t *data, const char *name)
     if (strcmp (name, docker_exec_entry) == 0 && data->current_container_id != NULL)
     {
         char *quoted = g_shell_quote (data->current_container_id);
-        char *cmd = g_strdup_printf ("docker exec -it %s sh", quoted);
+        char *docker_args = g_strdup_printf ("exec -it %s sh", quoted);
+        char *cmd = docker_conn_build_shell_cmd (data->active_conn, docker_args);
 
         data->host->run_command (data->host, cmd, 0);
+        g_free (docker_args);
         g_free (cmd);
         g_free (quoted);
         return MC_PPR_OK;
@@ -697,7 +710,7 @@ docker_containers_view_summary (docker_data_t *data, const char *fname)
 {
     const docker_item_t *container = find_item_by_name (data, fname);
 
-    return docker_view_container_summary (container);
+    return docker_view_container_summary (data, container);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -708,11 +721,11 @@ docker_containers_view_logs (docker_data_t *data, const char *fname)
     if (strcmp (fname, docker_logs_entry) == 0 && data->current_container_id != NULL)
     {
         char *quoted = g_shell_quote (data->current_container_id);
-        char *cmd;
+        char *docker_args = g_strdup_printf ("logs --tail 1000 %s 2>&1", quoted);
+        char *cmd = docker_conn_build_pipe_cmd (data->active_conn, docker_args);
 
-        cmd = g_strdup_printf ("docker logs --tail 1000 %s 2>&1", quoted);
         (void) docker_ui_viewer_command (cmd);
-
+        g_free (docker_args);
         g_free (cmd);
         g_free (quoted);
         return TRUE;
@@ -740,7 +753,7 @@ docker_containers_get_local_copy (docker_data_t *data, const char *fname, char *
             return MC_PPR_FAILED;
 
         quoted_id = g_shell_quote (data->current_container_id);
-        cmd_dynamic = g_strdup_printf ("docker inspect %s", quoted_id);
+        cmd_dynamic = g_strdup_printf ("inspect %s", quoted_id);
         g_free (quoted_id);
         cmd = cmd_dynamic;
     }
@@ -753,14 +766,14 @@ docker_containers_get_local_copy (docker_data_t *data, const char *fname, char *
             return MC_PPR_FAILED;
 
         quoted_id = g_shell_quote (container->id);
-        cmd_dynamic = g_strdup_printf ("docker inspect %s", quoted_id);
+        cmd_dynamic = g_strdup_printf ("inspect %s", quoted_id);
         g_free (quoted_id);
         cmd = cmd_dynamic;
     }
     else
         return MC_PPR_FAILED;
 
-    ok = run_cmd (cmd, &output, &err_text);
+    ok = docker_conn_run (data->active_conn, cmd, &output, &err_text);
     g_free (cmd_dynamic);
 
     if (!ok)
@@ -800,9 +813,10 @@ docker_containers_delete_items (docker_data_t *data, const char **names, int cou
             continue;
 
         quoted = g_shell_quote (item->id);
-        cmd = g_strdup_printf ("docker rm %s", quoted);
+        cmd = g_strdup_printf ("rm %s", quoted);
 
-        if (!run_cmd (cmd, &output, &err_text) && err_text != NULL && err_text[0] != '\0')
+        if (!docker_conn_run (data->active_conn, cmd, &output, &err_text) && err_text != NULL
+            && err_text[0] != '\0')
             message (D_ERROR, MSG_ERROR, "%s", err_text);
 
         g_free (output);
@@ -892,7 +906,7 @@ docker_containers_create_item (docker_data_t *data)
         && !docker_containers_is_ungrouped_project (data->current_project))
         q_project = g_shell_quote (data->current_project);
 
-    cmd = g_strdup ("docker run ");
+    cmd = g_strdup ("run ");
 
     if (detach)
     {
@@ -934,7 +948,7 @@ docker_containers_create_item (docker_data_t *data)
         cmd = tmp;
     }
 
-    if (!run_cmd (cmd, &output, &err_text))
+    if (!docker_conn_run (data->active_conn, cmd, &output, &err_text))
     {
         if (err_text != NULL && err_text[0] != '\0')
             message (D_ERROR, MSG_ERROR, "%s", err_text);

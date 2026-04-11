@@ -32,13 +32,13 @@ static const mc_panel_column_t docker_volume_columns[] = {
     { "scope", "Scope", 5, FALSE, J_LEFT_FIT, TRUE },
 };
 
-static char *docker_load_container_mounts_output (void);
+static char *docker_load_container_mounts_output (docker_data_t *data);
 static GPtrArray *parse_volume_items (const char *output, const char *mounts_output);
 
 /* --------------------------------------------------------------------------------------------- */
 
 static char *
-docker_load_container_mounts_output (void)
+docker_load_container_mounts_output (docker_data_t *data)
 {
     char *ids_output = NULL;
     char *ids_err = NULL;
@@ -48,7 +48,7 @@ docker_load_container_mounts_output (void)
     GString *cmd;
     int i;
 
-    if (!run_cmd ("docker ps -aq", &ids_output, &ids_err))
+    if (!docker_conn_run (data->active_conn, "ps -aq", &ids_output, &ids_err))
     {
         g_free (ids_output);
         g_free (ids_err);
@@ -63,7 +63,7 @@ docker_load_container_mounts_output (void)
     }
 
     lines = g_strsplit (ids_output, "\n", -1);
-    cmd = g_string_new ("docker inspect --format ");
+    cmd = g_string_new ("inspect --format ");
     g_string_append (cmd, "'{{.Name}} {{range .Mounts}}{{.Type}}:{{.Name}} {{end}}'");
 
     for (i = 0; lines[i] != NULL; i++)
@@ -80,7 +80,7 @@ docker_load_container_mounts_output (void)
         g_free (quoted_id);
     }
 
-    (void) run_cmd (cmd->str, &mounts_output, &mounts_err);
+    (void) docker_conn_run (data->active_conn, cmd->str, &mounts_output, &mounts_err);
     g_free (mounts_err);
     g_string_free (cmd, TRUE);
     g_strfreev (lines);
@@ -173,15 +173,16 @@ docker_volumes_reload (docker_data_t *data, char **err_text)
     char *mounts_output = NULL;
     gboolean ok;
 
-    ok = run_cmd ("docker volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}\\t{{.Status}}'",
-                  &output, err_text);
+    ok = docker_conn_run (data->active_conn,
+                          "volume ls --format '{{.Name}}\\t{{.Driver}}\\t{{.Scope}}\\t{{.Status}}'",
+                          &output, err_text);
     if (!ok)
     {
         g_free (output);
         return FALSE;
     }
 
-    mounts_output = docker_load_container_mounts_output ();
+    mounts_output = docker_load_container_mounts_output (data);
     data->items = parse_volume_items (output, mounts_output);
 
     g_free (mounts_output);
@@ -207,17 +208,17 @@ docker_volumes_view_summary (docker_data_t *data, const char *fname)
     if (volume == NULL || volume->id == NULL)
         return FALSE;
 
-    name = docker_capture_inspect_field (volume->id, "{{.Name}}");
-    scope = docker_capture_inspect_field (volume->id, "{{.Scope}}");
-    mountpoint = docker_capture_inspect_field (volume->id, "{{.Mountpoint}}");
-    created = docker_capture_inspect_field (volume->id, "{{.CreatedAt}}");
-    labels = docker_capture_inspect_field (
-        volume->id,
+    name = docker_conn_capture_inspect (data->active_conn, volume->id, "{{.Name}}");
+    scope = docker_conn_capture_inspect (data->active_conn, volume->id, "{{.Scope}}");
+    mountpoint = docker_conn_capture_inspect (data->active_conn, volume->id, "{{.Mountpoint}}");
+    created = docker_conn_capture_inspect (data->active_conn, volume->id, "{{.CreatedAt}}");
+    labels = docker_conn_capture_inspect (
+        data->active_conn, volume->id,
         "{{if .Labels}}{{range $k, $v := .Labels}}{{$k}}={{$v}}{{println}}{{end}}{{else}}-{{end}}");
     options =
-        docker_capture_inspect_field (volume->id,
-                                      "{{if .Options}}{{range $k, $v := "
-                                      ".Options}}{{$k}}={{$v}}{{println}}{{end}}{{else}}-{{end}}");
+        docker_conn_capture_inspect (data->active_conn, volume->id,
+                                     "{{if .Options}}{{range $k, $v := "
+                                     ".Options}}{{$k}}={{$v}}{{println}}{{end}}{{else}}-{{end}}");
 
     summary.name = name != NULL ? name : volume->name;
     summary.scope = scope != NULL ? scope : volume->scope;
@@ -259,9 +260,10 @@ docker_volumes_delete_items (docker_data_t *data, const char **names, int count)
             continue;
 
         quoted = g_shell_quote (item->id);
-        cmd = g_strdup_printf ("docker volume rm %s", quoted);
+        cmd = g_strdup_printf ("volume rm %s", quoted);
 
-        if (!run_cmd (cmd, &output, &err_text) && err_text != NULL && err_text[0] != '\0')
+        if (!docker_conn_run (data->active_conn, cmd, &output, &err_text) && err_text != NULL
+            && err_text[0] != '\0')
             message (D_ERROR, MSG_ERROR, "%s", err_text);
 
         g_free (output);

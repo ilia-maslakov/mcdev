@@ -120,8 +120,9 @@ docker_images_reload (docker_data_t *data, char **err_text)
     char *output = NULL;
     gboolean ok;
 
-    ok = run_cmd ("docker images --format '{{.ID}}\\t{{.Repository}}:{{.Tag}}\\t{{.Size}}'",
-                  &output, err_text);
+    ok = docker_conn_run (data->active_conn,
+                          "images --format '{{.ID}}\\t{{.Repository}}:{{.Tag}}\\t{{.Size}}'",
+                          &output, err_text);
     if (!ok)
     {
         g_free (output);
@@ -153,9 +154,10 @@ docker_images_delete_items (docker_data_t *data, const char **names, int count)
             continue;
 
         quoted = g_shell_quote (item->id);
-        cmd = g_strdup_printf ("docker rmi %s", quoted);
+        cmd = g_strdup_printf ("rmi %s", quoted);
 
-        if (!run_cmd (cmd, &output, &err_text) && err_text != NULL && err_text[0] != '\0')
+        if (!docker_conn_run (data->active_conn, cmd, &output, &err_text) && err_text != NULL
+            && err_text[0] != '\0')
             message (D_ERROR, MSG_ERROR, "%s", err_text);
 
         g_free (output);
