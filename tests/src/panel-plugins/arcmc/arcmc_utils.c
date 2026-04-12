@@ -146,9 +146,9 @@ static gboolean
 arcmc_is_supported_archive (const char *filename)
 {
     static const char *const exts[] = {
-        ".tar.gz",  ".tgz",  ".tar.bz2", ".tbz2",     ".tar.xz", ".txz",
-        ".tar.zst", ".tzst", ".tar.lz",  ".tar.lzma", ".tlz",    ".tar",
-        ".zip",     ".7z",   ".cpio",    ".iso",      ".xar",    ".cab",
+        ".tar.gz", ".tgz",    ".tar.bz2",  ".tbz2", ".tar.xz", ".txz", ".tar.zst",
+        ".tzst",   ".tar.lz", ".tar.lzma", ".tlz",  ".tar",    ".zip", ".jar",
+        ".war",    ".ear",    ".7z",       ".cpio", ".iso",    ".xar", ".cab",
     };
 
     size_t flen, i;
@@ -192,7 +192,9 @@ arcmc_detect_fmt_id (const char *filename)
         { ".tar.bz2", ARCMC_FMT_TAR_BZ2 }, { ".tbz2", ARCMC_FMT_TAR_BZ2 },
         { ".tar.xz", ARCMC_FMT_TAR_XZ },   { ".txz", ARCMC_FMT_TAR_XZ },
         { ".tar", ARCMC_FMT_TAR },         { ".zip", ARCMC_FMT_ZIP },
-        { ".7z", ARCMC_FMT_7Z },           { ".cpio", ARCMC_FMT_CPIO },
+        { ".jar", ARCMC_FMT_ZIP },         { ".war", ARCMC_FMT_ZIP },
+        { ".ear", ARCMC_FMT_ZIP },         { ".7z", ARCMC_FMT_7Z },
+        { ".cpio", ARCMC_FMT_CPIO },
     };
 
     size_t flen, i;
@@ -325,6 +327,10 @@ static const struct test_is_supported_ds
     { "file.txt", FALSE },   /* 3: unsupported */
     { NULL, FALSE },         /* 4: NULL */
     { "FILE.ZIP", TRUE },    /* 5: case insensitive */
+    { "app.jar", TRUE },     /* 6: jar (java archive) */
+    { "app.war", TRUE },     /* 7: war (web archive) */
+    { "app.ear", TRUE },     /* 8: ear (enterprise archive) */
+    { "APP.JAR", TRUE },     /* 9: jar case insensitive */
 };
 
 /* ---- arcmc_detect_fmt_id ---- */
@@ -338,8 +344,11 @@ static const struct test_detect_fmt_ds
     { "f.tar.gz", ARCMC_FMT_TAR_GZ }, /* 0: tar.gz */
     { "f.tgz", ARCMC_FMT_TAR_GZ },    /* 1: tgz alias */
     { "f.zip", ARCMC_FMT_ZIP },       /* 2: zip */
-    { "f.7z", ARCMC_FMT_7Z },         /* 3: 7z */
-    { "f.txt", -1 },                  /* 4: unknown */
+    { "f.jar", ARCMC_FMT_ZIP },       /* 3: jar -> zip format */
+    { "f.war", ARCMC_FMT_ZIP },       /* 4: war -> zip format */
+    { "f.ear", ARCMC_FMT_ZIP },       /* 5: ear -> zip format */
+    { "f.7z", ARCMC_FMT_7Z },         /* 6: 7z */
+    { "f.txt", -1 },                  /* 7: unknown */
 };
 
 /* ---- arcmc_find_ext_archiver ---- */
