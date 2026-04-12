@@ -175,7 +175,7 @@ void mc_pp_add_entry (void *list, const char *name, mode_t mode, off_t size, tim
    with dots (e.g. "dir.with.dot/Makefile") as an extension.
    On success, *local_path is updated to the new path and the old one
    is freed.  On rename(2) failure, *local_path is left unchanged.
-   Does nothing if fname has no extension or local_path/*local_path is NULL. */
+   Does nothing if fname has no extension or if local_path or *local_path is NULL. */
 void mc_pp_rename_with_ext (char **local_path, const char *fname);
 
 /* Registry */
