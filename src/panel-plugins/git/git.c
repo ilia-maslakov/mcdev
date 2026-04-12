@@ -152,6 +152,8 @@ static const mc_panel_plugin_t git_plugin = {
     .get_footer = git_get_footer,
     .get_focus_name = git_get_focus_name,
     .get_default_format = git_get_default_format,
+    .default_sort_id = "mtime",
+    .default_sort_reverse = TRUE,
 };
 
 static const mc_panel_column_t git_columns[] = {
@@ -2055,19 +2057,96 @@ git_get_items (void *plugin_data, void *list_ptr)
 
         if (data->selected_branch != NULL)
         {
-            char *argv[] = { (char *) "git",
-                             (char *) "-C",
-                             data->repo_root,
-                             (char *) "log",
-                             (char *) "--no-color",
-                             (char *) "--decorate=no",
-                             (char *) "--first-parent",
-                             (char *) "--pretty=format:%H%x09%h%x09%ct%x09%s",
-                             (char *) "-n",
-                             (char *) "200",
-                             data->selected_branch,
-                             NULL };
-            ok2 = git_run_stdout (argv, &out2);
+            char *sel_upstream = NULL;
+            /* Local name portion: strip remote prefix (e.g. "origin/master" -> "master"). */
+            const char *sel_slash = strrchr (data->selected_branch, '/');
+            const char *sel_local = (sel_slash != NULL) ? sel_slash + 1 : data->selected_branch;
+
+            /* Try the configured upstream for the selected branch. */
+            {
+                char *up_ref = g_strdup_printf ("%s@{upstream}", data->selected_branch);
+                char *up_argv[] = { (char *) "git",
+                                    (char *) "-C",
+                                    data->repo_root,
+                                    (char *) "rev-parse",
+                                    (char *) "--abbrev-ref",
+                                    (char *) "--symbolic-full-name",
+                                    up_ref,
+                                    NULL };
+                char *up_out = NULL;
+
+                if (git_run_stdout (up_argv, &up_out))
+                {
+                    g_strchomp (up_out);
+                    if (up_out[0] != '\0')
+                    {
+                        /* Skip if upstream is just the remote tracking copy of this branch
+                         * (e.g. origin/master for master) -- range would be empty when synced. */
+                        const char *up_slash = strrchr (up_out, '/');
+                        const char *up_tail = (up_slash != NULL) ? up_slash + 1 : up_out;
+
+                        if (strcmp (up_tail, sel_local) != 0)
+                            sel_upstream = up_out;
+                        else
+                            g_free (up_out);
+                    }
+                    else
+                        g_free (up_out);
+                }
+                g_free (up_ref);
+            }
+
+            /* Fall back to local base branch (master/main). */
+            if (sel_upstream == NULL)
+            {
+                static const char *candidates[] = { "master", "main" };
+                size_t ci;
+
+                for (ci = 0; ci < G_N_ELEMENTS (candidates); ci++)
+                {
+                    char *ref_check = g_strdup_printf ("refs/heads/%s", candidates[ci]);
+                    char *chk_argv[] = { (char *) "git",      (char *) "-C",
+                                         data->repo_root,     (char *) "rev-parse",
+                                         (char *) "--verify", (char *) "--quiet",
+                                         ref_check,           NULL };
+                    char *chk_out = NULL;
+
+                    if (git_run_stdout (chk_argv, &chk_out)
+                        && strcmp (sel_local, candidates[ci]) != 0)
+                    {
+                        g_free (chk_out);
+                        g_free (ref_check);
+                        sel_upstream = g_strdup (candidates[ci]);
+                        break;
+                    }
+                    g_free (chk_out);
+                    g_free (ref_check);
+                }
+            }
+
+            if (sel_upstream != NULL)
+                range = g_strdup_printf ("%s..%s", sel_upstream, data->selected_branch);
+
+            {
+                char *ref_arg = (range != NULL) ? range : data->selected_branch;
+                char *argv[] = { (char *) "git",
+                                 (char *) "-C",
+                                 data->repo_root,
+                                 (char *) "log",
+                                 (char *) "--no-color",
+                                 (char *) "--decorate=no",
+                                 (char *) "--first-parent",
+                                 (char *) "--pretty=format:%H%x09%h%x09%ct%x09%s",
+                                 (char *) "-n",
+                                 (char *) "200",
+                                 ref_arg,
+                                 NULL };
+                ok2 = git_run_stdout (argv, &out2);
+            }
+
+            g_free (range);
+            range = NULL;
+            g_free (sel_upstream);
         }
         else
         {
@@ -2289,6 +2368,18 @@ git_chdir (void *plugin_data, const char *path)
         g_free (data->current_branch);
         data->current_branch = git_detect_current_branch (data);
         data->view = GIT_VIEW_STATUS;
+        /* Load keys that were skipped in the favorites open path. */
+        data->key_stage =
+            git_load_hotkey (GIT_PANEL_KEY_STAGE, GIT_PANEL_KEY_STAGE_DEFAULT, KEY_F (15));
+        data->key_unstage =
+            git_load_hotkey (GIT_PANEL_KEY_UNSTAGE, GIT_PANEL_KEY_UNSTAGE_DEFAULT, KEY_F (16));
+        data->key_toggle = git_load_hotkey (GIT_PANEL_KEY_TOGGLE, GIT_PANEL_KEY_TOGGLE_DEFAULT, -1);
+        data->key_diff =
+            git_load_hotkey (GIT_PANEL_KEY_DIFF, GIT_PANEL_KEY_DIFF_DEFAULT, XCTRL ('d'));
+        data->key_diff_alt =
+            git_load_hotkey (GIT_PANEL_KEY_DIFF_ALT, GIT_PANEL_KEY_DIFF_ALT_DEFAULT, KEY_F (13));
+        data->key_reset =
+            git_load_hotkey (GIT_PANEL_KEY_RESET, GIT_PANEL_KEY_RESET_DEFAULT, KEY_F (18));
         git_update_title (data);
 
         if (data->host->add_history != NULL)
