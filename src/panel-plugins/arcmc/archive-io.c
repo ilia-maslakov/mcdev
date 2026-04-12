@@ -44,6 +44,7 @@
 #endif
 
 #include "lib/global.h"
+#include "lib/panel-plugin.h"
 #include "lib/tty/tty.h"
 #include "lib/widget.h"
 #include "lib/util.h"        /* mc_popen, mc_pread, mc_pstream_get_string, mc_pclose, name_quote */
@@ -833,8 +834,9 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
     char *quoted_archive, *quoted_file, *quoted_local;
     char *cmd;
     mc_pipe_t *pip;
+    char *tmp_path = NULL;
 
-    fd = g_file_open_tmp ("mc-arcmc-XXXXXX", local_path, &error);
+    fd = g_file_open_tmp ("mc-arcmc-XXXXXX", &tmp_path, &error);
     if (fd == -1)
     {
         if (error != NULL)
@@ -842,6 +844,9 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
         return MC_PPR_FAILED;
     }
     close (fd);
+
+    *local_path = tmp_path;
+    mc_pp_rename_with_ext (local_path, target_path);
 
     quoted_archive = name_quote (data->archive_path, FALSE);
     quoted_file = name_quote (target_path, FALSE);
@@ -1635,15 +1640,16 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
 
         g_free (clean);
 
-        /* found the entry -extract it to a temp file */
+        /* found the entry - extract it to a temp file */
         {
             GError *error = NULL;
             int fd;
             off_t file_size, file_done = 0;
+            char *tmp_path = NULL;
 
             file_size = archive_entry_size (entry);
 
-            fd = g_file_open_tmp ("mc-arcmc-XXXXXX", local_path, &error);
+            fd = g_file_open_tmp ("mc-arcmc-XXXXXX", &tmp_path, &error);
             if (fd == -1)
             {
                 if (error != NULL)
@@ -1651,6 +1657,9 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                 archive_read_free (a);
                 return MC_PPR_FAILED;
             }
+
+            *local_path = tmp_path;
+            mc_pp_rename_with_ext (local_path, target_path);
 
             for (;;)
             {

@@ -2708,6 +2708,9 @@ s3_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     S3_LOG ("get_local_copy: OK -> %s", *local_path);
     close (local_fd);
     g_free (key);
+
+    mc_pp_rename_with_ext (local_path, fname);
+
     return MC_PPR_OK;
 }
 

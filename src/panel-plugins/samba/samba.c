@@ -1192,6 +1192,9 @@ samba_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     }
 
     stderr_silence_end (&sil);
+
+    mc_pp_rename_with_ext (local_path, fname);
+
     return MC_PPR_OK;
 }
 

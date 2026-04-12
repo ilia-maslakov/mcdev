@@ -170,6 +170,14 @@ typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);
    Plugins that used a local add_entry()/add_fake_entry() can call this instead. */
 void mc_pp_add_entry (void *list, const char *name, mode_t mode, off_t size, time_t mtime);
 
+/* Rename temp file to preserve the original extension from fname.
+   Uses the basename of fname to avoid treating directory components
+   with dots (e.g. "dir.with.dot/Makefile") as an extension.
+   On success, *local_path is updated to the new path and the old one
+   is freed.  On rename(2) failure, *local_path is left unchanged.
+   Does nothing if fname has no extension or if local_path or *local_path is NULL. */
+void mc_pp_rename_with_ext (char **local_path, const char *fname);
+
 /* Registry */
 gboolean mc_panel_plugin_add (const mc_panel_plugin_t *plugin);
 const GSList *mc_panel_plugin_list (void);

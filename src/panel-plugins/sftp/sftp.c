@@ -2075,6 +2075,10 @@ download_done:
         g_free (*local_path);
         *local_path = NULL;
     }
+    else
+    {
+        mc_pp_rename_with_ext (local_path, fname);
+    }
 
     return result;
 }
