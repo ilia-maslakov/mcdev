@@ -50,11 +50,11 @@
 /*** global variables ****************************************************************************/
 
 mcview_mode_flags_t mcview_global_flags = {
-    .wrap = TRUE, .hex = FALSE, .magic = TRUE, .nroff = FALSE
+    .wrap = TRUE, .hex = FALSE, .magic = TRUE, .nroff = FALSE, .syntax = FALSE
 };
 
 mcview_mode_flags_t mcview_altered_flags = {
-    .wrap = FALSE, .hex = FALSE, .magic = FALSE, .nroff = FALSE
+    .wrap = FALSE, .hex = FALSE, .magic = FALSE, .nroff = FALSE, .syntax = FALSE
 };
 
 gboolean mcview_remember_file_position = FALSE;
@@ -227,6 +227,8 @@ mcview_new (const WRect *r, gboolean is_panel)
         mcview_toggle_wrap_mode (view);
     if (mcview_global_flags.magic)
         mcview_toggle_magic_mode (view);
+    if (mcview_global_flags.syntax)
+        mcview_toggle_ansi_mode (view);
 
     return view;
 }

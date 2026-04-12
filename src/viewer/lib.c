@@ -120,6 +120,18 @@ mcview_toggle_nroff_mode (WView *view)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+mcview_toggle_ansi_mode (WView *view)
+{
+    view->mode_flags.syntax = !view->mode_flags.syntax;
+    mcview_altered_flags.syntax = TRUE;
+    view->dpy_wrap_dirty = TRUE;
+    view->dpy_bbar_dirty = TRUE;
+    view->dirty++;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 mcview_toggle_hex_mode (WView *view)
 {
     view->mode_flags.hex = !view->mode_flags.hex;

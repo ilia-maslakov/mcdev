@@ -307,6 +307,7 @@ void mcview_enqueue_change (struct hexedit_change_node **head, struct hexedit_ch
 void mcview_toggle_magic_mode (WView *view);
 void mcview_toggle_wrap_mode (WView *view);
 void mcview_toggle_nroff_mode (WView *view);
+void mcview_toggle_ansi_mode (WView *view);
 void mcview_toggle_hex_mode (WView *view);
 void mcview_init (WView *view);
 void mcview_done (WView *view);
