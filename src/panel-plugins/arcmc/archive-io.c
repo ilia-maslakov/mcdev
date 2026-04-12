@@ -44,6 +44,7 @@
 #endif
 
 #include "lib/global.h"
+#include "lib/panel-plugin.h"
 #include "lib/tty/tty.h"
 #include "lib/widget.h"
 #include "lib/util.h"        /* mc_popen, mc_pread, mc_pstream_get_string, mc_pclose, name_quote */
@@ -834,7 +835,6 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
     char *cmd;
     mc_pipe_t *pip;
     char *tmp_path = NULL;
-    const char *ext;
 
     fd = g_file_open_tmp ("mc-arcmc-XXXXXX", &tmp_path, &error);
     if (fd == -1)
@@ -845,27 +845,8 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
     }
     close (fd);
 
-    {
-        const char *slash = strrchr (target_path, '/');
-        const char *base = (slash != NULL) ? slash + 1 : target_path;
-        ext = strrchr (base, '.');
-    }
-    if (ext != NULL)
-    {
-        char *ext_path = g_strconcat (tmp_path, ext, NULL);
-        if (rename (tmp_path, ext_path) == 0)
-        {
-            g_free (tmp_path);
-            *local_path = ext_path;
-        }
-        else
-        {
-            g_free (ext_path);
-            *local_path = tmp_path;
-        }
-    }
-    else
-        *local_path = tmp_path;
+    *local_path = tmp_path;
+    mc_pp_rename_with_ext (local_path, target_path);
 
     quoted_archive = name_quote (data->archive_path, FALSE);
     quoted_file = name_quote (target_path, FALSE);
@@ -1665,7 +1646,6 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
             int fd;
             off_t file_size, file_done = 0;
             char *tmp_path = NULL;
-            const char *ext;
 
             file_size = archive_entry_size (entry);
 
@@ -1678,27 +1658,8 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                 return MC_PPR_FAILED;
             }
 
-            {
-                const char *slash = strrchr (target_path, '/');
-                const char *base = (slash != NULL) ? slash + 1 : target_path;
-                ext = strrchr (base, '.');
-            }
-            if (ext != NULL)
-            {
-                char *ext_path = g_strconcat (tmp_path, ext, NULL);
-                if (rename (tmp_path, ext_path) == 0)
-                {
-                    g_free (tmp_path);
-                    *local_path = ext_path;
-                }
-                else
-                {
-                    g_free (ext_path);
-                    *local_path = tmp_path;
-                }
-            }
-            else
-                *local_path = tmp_path;
+            *local_path = tmp_path;
+            mc_pp_rename_with_ext (local_path, target_path);
 
             for (;;)
             {

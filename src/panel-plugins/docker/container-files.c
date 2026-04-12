@@ -1158,22 +1158,7 @@ docker_container_files_get_local_copy (docker_data_t *data, const char *fname, c
     g_free (container_path);
     g_free (quoted_id);
 
-    {
-        const char *ext = strrchr (fname, '.');
-
-        if (ext != NULL)
-        {
-            char *ext_path = g_strconcat (tmp_path, ext, NULL);
-            if (rename (tmp_path, ext_path) == 0)
-            {
-                g_free (tmp_path);
-                tmp_path = ext_path;
-            }
-            else
-                g_free (ext_path);
-        }
-    }
-
+    mc_pp_rename_with_ext (&tmp_path, fname);
     *local_path = tmp_path;
     return MC_PPR_OK;
 }

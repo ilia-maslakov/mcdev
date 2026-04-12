@@ -2241,23 +2241,7 @@ git_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     /* Rename temp file to preserve the original extension so that
      * mc.ext.ini rules can match it (e.g. syntax highlighting for .c). */
     if (source_name != NULL)
-    {
-        const char *slash = strrchr (source_name, '/');
-        const char *base = (slash != NULL) ? slash + 1 : source_name;
-        const char *ext = strrchr (base, '.');
-
-        if (ext != NULL)
-        {
-            char *ext_path = g_strconcat (*local_path, ext, NULL);
-            if (rename (*local_path, ext_path) == 0)
-            {
-                g_free (*local_path);
-                *local_path = ext_path;
-            }
-            else
-                g_free (ext_path);
-        }
-    }
+        mc_pp_rename_with_ext (local_path, source_name);
 
     return MC_PPR_OK;
 }

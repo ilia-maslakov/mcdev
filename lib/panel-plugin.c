@@ -116,6 +116,35 @@ mc_pp_dir_list_append (dir_list *list, const char *fname, const struct stat *st)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+mc_pp_rename_with_ext (char **local_path, const char *fname)
+{
+    const char *slash;
+    const char *base;
+    const char *ext;
+    char *ext_path;
+
+    if (local_path == NULL || *local_path == NULL || fname == NULL)
+        return;
+
+    slash = strrchr (fname, '/');
+    base = (slash != NULL) ? slash + 1 : fname;
+    ext = strrchr (base, '.');
+    if (ext == NULL)
+        return;
+
+    ext_path = g_strconcat (*local_path, ext, NULL);
+    if (rename (*local_path, ext_path) == 0)
+    {
+        g_free (*local_path);
+        *local_path = ext_path;
+    }
+    else
+        g_free (ext_path);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 mc_pp_add_entry (void *list, const char *name, mode_t mode, off_t size, time_t mtime)
 {
     struct stat st;

@@ -2719,21 +2719,7 @@ ftp_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         return MC_PPR_FAILED;
     }
 
-    {
-        const char *ext = strrchr (fname, '.');
-
-        if (ext != NULL)
-        {
-            char *ext_path = g_strconcat (*local_path, ext, NULL);
-            if (rename (*local_path, ext_path) == 0)
-            {
-                g_free (*local_path);
-                *local_path = ext_path;
-            }
-            else
-                g_free (ext_path);
-        }
-    }
+    mc_pp_rename_with_ext (local_path, fname);
 
     return MC_PPR_OK;
 }
