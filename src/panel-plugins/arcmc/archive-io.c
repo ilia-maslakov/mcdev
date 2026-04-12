@@ -845,13 +845,24 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
     }
     close (fd);
 
-    ext = strrchr (target_path, '.');
+    {
+        const char *slash = strrchr (target_path, '/');
+        const char *base = (slash != NULL) ? slash + 1 : target_path;
+        ext = strrchr (base, '.');
+    }
     if (ext != NULL)
     {
         char *ext_path = g_strconcat (tmp_path, ext, NULL);
-        rename (tmp_path, ext_path);
-        g_free (tmp_path);
-        *local_path = ext_path;
+        if (rename (tmp_path, ext_path) == 0)
+        {
+            g_free (tmp_path);
+            *local_path = ext_path;
+        }
+        else
+        {
+            g_free (ext_path);
+            *local_path = tmp_path;
+        }
     }
     else
         *local_path = tmp_path;
@@ -1667,13 +1678,24 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                 return MC_PPR_FAILED;
             }
 
-            ext = strrchr (target_path, '.');
+            {
+                const char *slash = strrchr (target_path, '/');
+                const char *base = (slash != NULL) ? slash + 1 : target_path;
+                ext = strrchr (base, '.');
+            }
             if (ext != NULL)
             {
                 char *ext_path = g_strconcat (tmp_path, ext, NULL);
-                rename (tmp_path, ext_path);
-                g_free (tmp_path);
-                *local_path = ext_path;
+                if (rename (tmp_path, ext_path) == 0)
+                {
+                    g_free (tmp_path);
+                    *local_path = ext_path;
+                }
+                else
+                {
+                    g_free (ext_path);
+                    *local_path = tmp_path;
+                }
             }
             else
                 *local_path = tmp_path;

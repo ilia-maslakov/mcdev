@@ -2242,7 +2242,9 @@ git_get_local_copy (void *plugin_data, const char *fname, char **local_path)
      * mc.ext.ini rules can match it (e.g. syntax highlighting for .c). */
     if (source_name != NULL)
     {
-        const char *ext = strrchr (source_name, '.');
+        const char *slash = strrchr (source_name, '/');
+        const char *base = (slash != NULL) ? slash + 1 : source_name;
+        const char *ext = strrchr (base, '.');
 
         if (ext != NULL)
         {
