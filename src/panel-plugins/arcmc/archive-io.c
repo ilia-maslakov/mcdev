@@ -381,7 +381,9 @@ arcmc_detect_fmt_id (const char *filename)
         { ".tar.bz2", ARCMC_FMT_TAR_BZ2 }, { ".tbz2", ARCMC_FMT_TAR_BZ2 },
         { ".tar.xz", ARCMC_FMT_TAR_XZ },   { ".txz", ARCMC_FMT_TAR_XZ },
         { ".tar", ARCMC_FMT_TAR },         { ".zip", ARCMC_FMT_ZIP },
-        { ".7z", ARCMC_FMT_7Z },           { ".cpio", ARCMC_FMT_CPIO },
+        { ".jar", ARCMC_FMT_ZIP },         { ".war", ARCMC_FMT_ZIP },
+        { ".ear", ARCMC_FMT_ZIP },         { ".7z", ARCMC_FMT_7Z },
+        { ".cpio", ARCMC_FMT_CPIO },
     };
 
     size_t flen, i;

@@ -208,9 +208,9 @@ static gboolean
 arcmc_is_supported_archive (const char *filename)
 {
     static const char *const exts[] = {
-        ".tar.gz",  ".tgz",  ".tar.bz2", ".tbz2",     ".tar.xz", ".txz",
-        ".tar.zst", ".tzst", ".tar.lz",  ".tar.lzma", ".tlz",    ".tar",
-        ".zip",     ".7z",   ".cpio",    ".iso",      ".xar",    ".cab",
+        ".tar.gz", ".tgz",    ".tar.bz2",  ".tbz2", ".tar.xz", ".txz", ".tar.zst",
+        ".tzst",   ".tar.lz", ".tar.lzma", ".tlz",  ".tar",    ".zip", ".jar",
+        ".war",    ".ear",    ".7z",       ".cpio", ".iso",    ".xar", ".cab",
     };
 
     size_t flen, i;
@@ -254,7 +254,8 @@ arcmc_detect_format (const char *filename)
         { ".tbz2", "tar.bz2" },      { ".tar.xz", "tar.xz" }, { ".txz", "tar.xz" },
         { ".tar.zst", "tar.zst" },   { ".tzst", "tar.zst" },  { ".tar.lz", "tar.lz" },
         { ".tar.lzma", "tar.lzma" }, { ".tlz", "tar.lzma" },  { ".tar", "tar" },
-        { ".zip", "zip" },           { ".7z", "7z" },         { ".cpio", "cpio" },
+        { ".zip", "zip" },           { ".jar", "zip" },       { ".war", "zip" },
+        { ".ear", "zip" },           { ".7z", "7z" },         { ".cpio", "cpio" },
     };
 
     size_t i;
