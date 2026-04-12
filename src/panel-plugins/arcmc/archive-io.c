@@ -833,8 +833,10 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
     char *quoted_archive, *quoted_file, *quoted_local;
     char *cmd;
     mc_pipe_t *pip;
+    char *tmp_path = NULL;
+    const char *ext;
 
-    fd = g_file_open_tmp ("mc-arcmc-XXXXXX", local_path, &error);
+    fd = g_file_open_tmp ("mc-arcmc-XXXXXX", &tmp_path, &error);
     if (fd == -1)
     {
         if (error != NULL)
@@ -842,6 +844,17 @@ arcmc_extract_entry_extfs (arcmc_data_t *data, const char *target_path, char **l
         return MC_PPR_FAILED;
     }
     close (fd);
+
+    ext = strrchr (target_path, '.');
+    if (ext != NULL)
+    {
+        char *ext_path = g_strconcat (tmp_path, ext, NULL);
+        rename (tmp_path, ext_path);
+        g_free (tmp_path);
+        *local_path = ext_path;
+    }
+    else
+        *local_path = tmp_path;
 
     quoted_archive = name_quote (data->archive_path, FALSE);
     quoted_file = name_quote (target_path, FALSE);
@@ -1635,15 +1648,17 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
 
         g_free (clean);
 
-        /* found the entry -extract it to a temp file */
+        /* found the entry - extract it to a temp file */
         {
             GError *error = NULL;
             int fd;
             off_t file_size, file_done = 0;
+            char *tmp_path = NULL;
+            const char *ext;
 
             file_size = archive_entry_size (entry);
 
-            fd = g_file_open_tmp ("mc-arcmc-XXXXXX", local_path, &error);
+            fd = g_file_open_tmp ("mc-arcmc-XXXXXX", &tmp_path, &error);
             if (fd == -1)
             {
                 if (error != NULL)
@@ -1651,6 +1666,17 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                 archive_read_free (a);
                 return MC_PPR_FAILED;
             }
+
+            ext = strrchr (target_path, '.');
+            if (ext != NULL)
+            {
+                char *ext_path = g_strconcat (tmp_path, ext, NULL);
+                rename (tmp_path, ext_path);
+                g_free (tmp_path);
+                *local_path = ext_path;
+            }
+            else
+                *local_path = tmp_path;
 
             for (;;)
             {
