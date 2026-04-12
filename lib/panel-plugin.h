@@ -15,7 +15,7 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 5
+#define MC_PANEL_PLUGIN_API_VERSION 6
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
 
 /*** enums ***************************************************************************************/
@@ -158,6 +158,12 @@ typedef struct mc_panel_plugin_t
     /* Optional plugin-provided default panel format (e.g. "type name | status | size").
        Return NULL or empty string to use generic core fallback from get_columns(). */
     const char *(*get_default_format) (void *plugin_data);
+    /* Optional default sort column ID applied once when the plugin panel is first opened.
+       Use a standard mc sort ID: "name", "mtime", "size", "extension", etc.
+       NULL means no preference (mc uses its own default). */
+    const char *default_sort_id;
+    /* TRUE = sort descending (newest-first for mtime). Ignored when default_sort_id is NULL. */
+    gboolean default_sort_reverse;
 } mc_panel_plugin_t;
 
 typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);
