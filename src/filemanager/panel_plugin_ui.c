@@ -320,6 +320,18 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
 
     panel_plugin_apply_default_columns_format (panel);
 
+    if (plugin->default_sort_id != NULL)
+    {
+        const panel_field_t *sf;
+
+        sf = panel_get_field_by_id (plugin->default_sort_id);
+        if (sf != NULL)
+        {
+            panel_set_sort_order (panel, sf);
+            panel->sort_info.reverse = plugin->default_sort_reverse ? 1 : 0;
+        }
+    }
+
     dir_list_init (&panel->dir);
     plugin->get_items (panel->plugin_data, &panel->dir);
 
