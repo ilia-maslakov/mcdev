@@ -2075,6 +2075,22 @@ download_done:
         g_free (*local_path);
         *local_path = NULL;
     }
+    else
+    {
+        const char *ext = strrchr (fname, '.');
+
+        if (ext != NULL)
+        {
+            char *ext_path = g_strconcat (*local_path, ext, NULL);
+            if (rename (*local_path, ext_path) == 0)
+            {
+                g_free (*local_path);
+                *local_path = ext_path;
+            }
+            else
+                g_free (ext_path);
+        }
+    }
 
     return result;
 }

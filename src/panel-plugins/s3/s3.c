@@ -2708,6 +2708,23 @@ s3_get_local_copy (void *plugin_data, const char *fname, char **local_path)
     S3_LOG ("get_local_copy: OK -> %s", *local_path);
     close (local_fd);
     g_free (key);
+
+    {
+        const char *ext = strrchr (fname, '.');
+
+        if (ext != NULL)
+        {
+            char *ext_path = g_strconcat (*local_path, ext, NULL);
+            if (rename (*local_path, ext_path) == 0)
+            {
+                g_free (*local_path);
+                *local_path = ext_path;
+            }
+            else
+                g_free (ext_path);
+        }
+    }
+
     return MC_PPR_OK;
 }
 
