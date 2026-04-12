@@ -762,6 +762,27 @@ START_TEST (test_ansi_reset_clears_all_attrs)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
+/* Test: ANSI color state persists across a newline character */
+
+START_TEST (test_ansi_state_persists_across_newline)
+{
+    // given
+    mcview_ansi_state_t state;
+    GString *result;
+
+    mcview_ansi_state_init (&state);
+
+    // when — set red fg, emit text, then a newline, then more text without reset
+    result = parse_and_collect (&state, "\033[31mfoo\nbar");
+
+    // then — both segments are visible and fg is still red after the newline
+    mctest_assert_str_eq (result->str, "foo\nbar");
+    ck_assert_int_eq (state.fg, 1);
+    g_string_free (result, TRUE);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
 
 int
 main (void)
@@ -805,6 +826,7 @@ main (void)
     tcase_add_test (tc_core, test_ansi_semicolon_flat_with_reverse);
     tcase_add_test (tc_core, test_ansi_colon_truecolor_with_colorspace);
     tcase_add_test (tc_core, test_ansi_reset_clears_all_attrs);
+    tcase_add_test (tc_core, test_ansi_state_persists_across_newline);
     // ***********************************
 
     return mctest_run_all (tc_core);

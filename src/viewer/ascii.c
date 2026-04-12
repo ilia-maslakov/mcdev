@@ -776,8 +776,13 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
 
             mcview_fill_line_remaining (view, row, col, line_fill, dpy_text_column);
 
-            // New line: reset all formatting state for the next paragraph.
+            // Reset positional and nroff state for the new line, but preserve
+            // ANSI SGR state: in terminals, color/attribute spans legally cross
+            // newlines and must remain active until an explicit ESC[m reset.
+            mcview_ansi_state_t saved_ansi = state->ansi;
             mcview_state_machine_init (state, state->offset);
+            state->ansi = saved_ansi;
+
             if (linewidth != NULL)
                 *linewidth = col;
             return 1;
