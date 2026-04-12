@@ -37,13 +37,8 @@
 /* --------------------------------------------------------------------------------------------- */
 
 gboolean
-docker_cp_stream_open (const char *container_id, const char *container_path,
-                       docker_cp_stream_t *stream, char **err_text)
+docker_cp_stream_open (const char *cmd, docker_cp_stream_t *stream, char **err_text)
 {
-    char *copy_src;
-    char *quoted_id;
-    char *quoted_src;
-    char *cmd;
     int pipefd[2];
     int errpipe[2] = { -1, -1 };
 
@@ -51,20 +46,10 @@ docker_cp_stream_open (const char *container_id, const char *container_path,
     stream->errfd = -1;
     stream->child_pid = -1;
 
-    copy_src = (strcmp (container_path, "/") == 0) ? g_strdup ("/.")
-                                                   : g_strdup_printf ("%s/.", container_path);
-    quoted_id = g_shell_quote (container_id);
-    quoted_src = g_shell_quote (copy_src);
-    cmd = g_strdup_printf ("docker cp %s:%s -", quoted_id, quoted_src);
-    g_free (quoted_src);
-    g_free (quoted_id);
-    g_free (copy_src);
-
     if (pipe (pipefd) != 0)
     {
         if (err_text != NULL)
             *err_text = g_strdup ("pipe() failed");
-        g_free (cmd);
         return FALSE;
     }
 
@@ -85,7 +70,6 @@ docker_cp_stream_open (const char *container_id, const char *container_path,
             close (errpipe[1]);
         if (err_text != NULL)
             *err_text = g_strdup ("fork() failed");
-        g_free (cmd);
         return FALSE;
     }
 
@@ -111,7 +95,6 @@ docker_cp_stream_open (const char *container_id, const char *container_path,
     close (pipefd[1]);
     if (errpipe[1] >= 0)
         close (errpipe[1]);
-    g_free (cmd);
 
     stream->fd = pipefd[0];
     stream->errfd = errpipe[0];

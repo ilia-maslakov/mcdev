@@ -25,6 +25,7 @@
 
 #include <config.h>
 
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 
@@ -46,6 +47,8 @@ static void mount_item_set_local_type (docker_item_t *item, const char *source, 
 static char *mount_item_build_display_name (const char *dest, const char *source, gboolean is_dir);
 static void docker_files_status_init_cb (status_msg_t *sm);
 static int docker_files_status_update_cb (status_msg_t *sm);
+static gboolean cp_stream_extract_single_file (int stream_fd, int out_fd, char **err_text);
+static gboolean load_container_listing_from_exec (docker_data_t *data, const char *container_id);
 static gboolean load_container_tree_from_tar (docker_data_t *data, const char *container_id,
                                               char **err_text);
 static void add_mount_item_unique (docker_data_t *data, GHashTable *seen, const char *source,
@@ -294,6 +297,197 @@ docker_files_status_update_cb (status_msg_t *sm)
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
+cp_stream_extract_single_file (int stream_fd, int out_fd, char **err_text)
+{
+    while (TRUE)
+    {
+        struct docker_tar_header hdr;
+        gboolean size_ok;
+        guint64 size;
+        guint64 padded;
+
+        if (!docker_tar_read_full (stream_fd, &hdr, DOCKER_TAR_BLOCK_SIZE))
+        {
+            if (err_text != NULL)
+                *err_text = g_strdup (_ ("Unexpected end of TAR stream"));
+            return FALSE;
+        }
+
+        if (docker_tar_is_zero_block (&hdr))
+        {
+            if (err_text != NULL)
+                *err_text = g_strdup (_ ("File not found in TAR stream"));
+            return FALSE;
+        }
+
+        size = docker_tar_parse_octal (hdr.size, sizeof (hdr.size), &size_ok);
+        if (!size_ok)
+        {
+            if (err_text != NULL)
+                *err_text = g_strdup (_ ("Corrupt TAR header: invalid size field"));
+            return FALSE;
+        }
+        padded = (size + DOCKER_TAR_BLOCK_SIZE - 1) & ~(guint64) (DOCKER_TAR_BLOCK_SIZE - 1);
+
+        if (hdr.typeflag == '0' || hdr.typeflag == '\0')
+        {
+            guint64 remaining = size;
+
+            while (remaining > 0)
+            {
+                char buf[8192];
+                size_t to_read = (remaining > sizeof (buf)) ? sizeof (buf) : (size_t) remaining;
+                ssize_t n;
+                const char *p;
+                size_t left;
+
+                do
+                {
+                    n = read (stream_fd, buf, to_read);
+                }
+                while (n == -1 && errno == EINTR);
+
+                if (n <= 0)
+                {
+                    if (err_text != NULL)
+                        *err_text = g_strdup (_ ("Read error from TAR stream"));
+                    return FALSE;
+                }
+
+                p = buf;
+                left = (size_t) n;
+
+                while (left > 0)
+                {
+                    ssize_t w;
+
+                    do
+                    {
+                        w = write (out_fd, p, left);
+                    }
+                    while (w == -1 && errno == EINTR);
+
+                    if (w <= 0)
+                    {
+                        if (err_text != NULL)
+                            *err_text = g_strdup (_ ("Write error to temp file"));
+                        return FALSE;
+                    }
+                    p += (size_t) w;
+                    left -= (size_t) w;
+                }
+
+                remaining -= (guint64) n;
+            }
+
+            return TRUE;
+        }
+
+        /* Skip non-regular entries (directories, symlinks, etc.) */
+        if (!docker_tar_skip (stream_fd, padded))
+        {
+            if (err_text != NULL)
+                *err_text = g_strdup (_ ("Skip error in TAR stream"));
+            return FALSE;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+load_container_listing_from_exec (docker_data_t *data, const char *container_id)
+{
+    char *quoted_id;
+    char *docker_args;
+    char *output = NULL;
+    char *exec_err = NULL;
+    char **lines;
+    int i;
+    gboolean ok;
+
+    quoted_id = g_shell_quote (container_id);
+    /* Prune virtual filesystems; keep regular mounts visible. */
+    docker_args =
+        g_strdup_printf ("exec %s sh -c "
+                         "'find / \\( -path /proc -o -path /sys -o -path /dev \\) -prune -o"
+                         " -printf \"%%y\\t%%s\\t%%l\\t%%P\\n\" 2>/dev/null'",
+                         quoted_id);
+    g_free (quoted_id);
+
+    ok = docker_conn_run (data->active_conn, docker_args, &output, &exec_err);
+    g_free (docker_args);
+    g_free (exec_err);
+
+    if (!ok || output == NULL || output[0] == '\0')
+    {
+        g_free (output);
+        return FALSE;
+    }
+
+    /* Ensure the root directory entry exists even if find output is empty */
+    files_cache_get_or_create_dir (data, container_id, "/");
+
+    lines = g_strsplit (output, "\n", -1);
+    g_free (output);
+
+    for (i = 0; lines[i] != NULL; i++)
+    {
+        char **fields;
+        char type_char;
+        guint64 size;
+        const char *linkname;
+        const char *rel_path;
+        char typeflag;
+
+        if (lines[i][0] == '\0')
+            continue;
+
+        /* Format: type TAB size TAB linkname TAB path */
+        fields = g_strsplit (lines[i], "\t", 4);
+        if (fields[0] == NULL || fields[1] == NULL || fields[2] == NULL || fields[3] == NULL)
+        {
+            g_strfreev (fields);
+            continue;
+        }
+
+        type_char = fields[0][0];
+        size = g_ascii_strtoull (fields[1], NULL, 10);
+        linkname = fields[2];
+        rel_path = fields[3];
+
+        if (rel_path[0] == '\0')
+        {
+            /* Starting point itself (root "/"): already created above */
+            g_strfreev (fields);
+            continue;
+        }
+
+        switch (type_char)
+        {
+        case 'd':
+            typeflag = '5';
+            break;
+        case 'l':
+            typeflag = '2';
+            break;
+        default:
+            typeflag = '0';
+            break;
+        }
+
+        files_cache_add_entry_path (data, container_id, rel_path, typeflag, size,
+                                    linkname[0] != '\0' ? linkname : NULL);
+        g_strfreev (fields);
+    }
+
+    g_strfreev (lines);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
 load_container_tree_from_tar (docker_data_t *data, const char *container_id, char **err_text)
 {
     docker_cp_stream_t stream;
@@ -308,8 +502,20 @@ load_container_tree_from_tar (docker_data_t *data, const char *container_id, cha
     stream.errfd = -1;
     stream.child_pid = -1;
 
-    if (!docker_cp_stream_open (container_id, "/", &stream, err_text))
-        goto fail;
+    {
+        char *quoted_id = g_shell_quote (container_id);
+        char *docker_args = g_strdup_printf ("cp %s:/. -", quoted_id);
+        char *cmd = docker_conn_build_pipe_cmd (data->active_conn, docker_args);
+        gboolean opened;
+
+        g_free (quoted_id);
+        g_free (docker_args);
+        opened = docker_cp_stream_open (cmd, &stream, err_text);
+        g_free (cmd);
+
+        if (!opened)
+            goto fail;
+    }
 
     status.text = _ ("Reading directory listing...");
     status_msg_init (STATUS_MSG (&status), _ ("Docker"), 0.0, docker_files_status_init_cb,
@@ -419,7 +625,7 @@ load_container_tree_from_tar (docker_data_t *data, const char *container_id, cha
             {
                 *err_text = (cp_stderr != NULL)
                     ? cp_stderr
-                    : g_strdup ("tar stream from docker cp was truncated");
+                    : g_strdup (_ ("tar stream from docker cp was truncated"));
                 cp_stderr = NULL;
             }
             else
@@ -669,13 +875,33 @@ docker_container_files_reload (docker_data_t *data, char **err_text)
         return TRUE;
 
     cwd = (data->files_cwd != NULL) ? data->files_cwd : "/";
-    if (!files_cache_has_container (data, data->current_container_id)
-        && !load_container_tree_from_tar (data, data->current_container_id, err_text))
-        return FALSE;
+    if (!files_cache_has_container (data, data->current_container_id))
+    {
+        gboolean loaded = FALSE;
+
+        /* SSH prefers a metadata-only listing and falls back to TAR. */
+        if (data->active_conn != NULL && data->active_conn->type == DOCKER_CONN_SSH)
+            loaded = load_container_listing_from_exec (data, data->current_container_id);
+
+        if (!loaded && !load_container_tree_from_tar (data, data->current_container_id, err_text))
+            return FALSE;
+    }
 
     data->items = files_cache_lookup (data, data->current_container_id, cwd);
     if (data->items == NULL)
         data->items = g_ptr_array_new_with_free_func (docker_item_free);
+
+    if (data->pending_focus == NULL && data->files_focus_cache != NULL)
+    {
+        char *focus_key = files_cache_key (data->current_container_id, cwd);
+        const char *focus_name =
+            (const char *) g_hash_table_lookup (data->files_focus_cache, focus_key);
+
+        if (focus_name != NULL && focus_name[0] != '\0')
+            data->pending_focus = g_strdup (focus_name);
+
+        g_free (focus_key);
+    }
 
     return TRUE;
 }
@@ -697,12 +923,12 @@ docker_container_mounts_reload (docker_data_t *data, char **err_text)
     seen = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
     quoted_id = g_shell_quote (data->current_container_id);
 
-    cmd = g_strdup_printf ("docker inspect --format"
+    cmd = g_strdup_printf ("inspect --format"
                            " '{{range .Mounts}}{{printf \"%%s\\t%%s\\t%%s\\n\" .Type .Source "
                            ".Destination}}{{end}}' %s",
                            quoted_id);
 
-    if (!run_cmd (cmd, &output, err_text))
+    if (!docker_conn_run (data->active_conn, cmd, &output, err_text))
     {
         g_free (cmd);
         g_free (quoted_id);
@@ -718,11 +944,11 @@ docker_container_mounts_reload (docker_data_t *data, char **err_text)
 
     if (data->items->len == 0)
     {
-        cmd = g_strdup_printf ("docker inspect --format '"
+        cmd = g_strdup_printf ("inspect --format '"
                                "{{range .HostConfig.Binds}}{{printf \"%%s\\n\" .}}{{end}}' %s",
                                quoted_id);
 
-        if (!run_cmd (cmd, &output, err_text))
+        if (!docker_conn_run (data->active_conn, cmd, &output, err_text))
         {
             g_free (cmd);
             g_free (quoted_id);
@@ -802,16 +1028,13 @@ mc_pp_result_t
 docker_container_files_get_local_copy (docker_data_t *data, const char *fname, char **local_path)
 {
     const docker_item_t *item = find_item_by_name (data, fname);
-    char *quoted_id;
     char *container_path;
     const char *cwd;
     GError *error = NULL;
     int fd;
     char *tmp_path = NULL;
-    char *cp_cmd;
-    char *output = NULL;
-    char *err_text = NULL;
-    gboolean ok;
+    char *quoted_id;
+    gboolean ok = FALSE;
 
     if (item == NULL || item->is_dir || data->current_container_id == NULL)
         return MC_PPR_FAILED;
@@ -829,35 +1052,111 @@ docker_container_files_get_local_copy (docker_data_t *data, const char *fname, c
         g_free (quoted_id);
         return MC_PPR_FAILED;
     }
-    close (fd);
 
+    if (data->active_conn != NULL && data->active_conn->type == DOCKER_CONN_SSH)
     {
+        /* SSH: docker cp writes to remote filesystem; stream via TAR pipe instead */
+        docker_cp_stream_t stream;
         char *quoted_src = g_shell_quote (container_path);
-        char *quoted_dst = g_shell_quote (tmp_path);
+        char *docker_args = g_strdup_printf ("cp %s:%s -", quoted_id, quoted_src);
+        char *cmd = docker_conn_build_pipe_cmd (data->active_conn, docker_args);
+        char *err_text = NULL;
 
-        cp_cmd = g_strdup_printf ("docker cp %s:%s %s", quoted_id, quoted_src, quoted_dst);
         g_free (quoted_src);
-        g_free (quoted_dst);
+        g_free (docker_args);
+
+        stream.fd = -1;
+        stream.errfd = -1;
+        stream.child_pid = -1;
+
+        if (!docker_cp_stream_open (cmd, &stream, &err_text))
+        {
+            g_free (cmd);
+            close (fd);
+            unlink (tmp_path);
+            g_free (tmp_path);
+            g_free (container_path);
+            g_free (quoted_id);
+            if (err_text != NULL && err_text[0] != '\0')
+                message (D_ERROR, MSG_ERROR, "%s", err_text);
+            g_free (err_text);
+            return MC_PPR_FAILED;
+        }
+        g_free (cmd);
+
+        ok = cp_stream_extract_single_file (stream.fd, fd, &err_text);
+        close (fd);
+        fd = -1;
+        /* Close the read end before reap so docker cp can finish cleanly. */
+        if (stream.fd >= 0)
+        {
+            close (stream.fd);
+            stream.fd = -1;
+        }
+        {
+            char *stderr_text = docker_cp_stream_read_stderr (&stream);
+
+            /* On failure with no message yet, prefer docker's stderr output */
+            if (!ok && err_text == NULL && stderr_text != NULL && stderr_text[0] != '\0')
+                err_text = stderr_text;
+            else
+                g_free (stderr_text);
+        }
+        docker_cp_stream_reap (&stream);
+
+        if (!ok)
+        {
+            if (err_text != NULL && err_text[0] != '\0')
+                message (D_ERROR, MSG_ERROR, "%s", err_text);
+            g_free (err_text);
+            unlink (tmp_path);
+            g_free (tmp_path);
+            g_free (container_path);
+            g_free (quoted_id);
+            return MC_PPR_FAILED;
+        }
+        g_free (err_text);
     }
-
-    ok = run_cmd (cp_cmd, &output, &err_text);
-    g_free (cp_cmd);
-    g_free (container_path);
-    g_free (quoted_id);
-
-    if (!ok)
+    else
     {
-        if (err_text != NULL && err_text[0] != '\0')
-            message (D_ERROR, MSG_ERROR, "%s", err_text);
+        /* Local: docker cp copies directly to a path on this machine */
+        char *cp_cmd;
+        char *output = NULL;
+        char *err_text = NULL;
+
+        close (fd);
+        fd = -1;
+
+        {
+            char *quoted_src = g_shell_quote (container_path);
+            char *quoted_dst = g_shell_quote (tmp_path);
+
+            cp_cmd = g_strdup_printf ("cp %s:%s %s", quoted_id, quoted_src, quoted_dst);
+            g_free (quoted_src);
+            g_free (quoted_dst);
+        }
+
+        ok = docker_conn_run (data->active_conn, cp_cmd, &output, &err_text);
+        g_free (cp_cmd);
+
+        if (!ok)
+        {
+            if (err_text != NULL && err_text[0] != '\0')
+                message (D_ERROR, MSG_ERROR, "%s", err_text);
+            g_free (output);
+            g_free (err_text);
+            unlink (tmp_path);
+            g_free (tmp_path);
+            g_free (container_path);
+            g_free (quoted_id);
+            return MC_PPR_FAILED;
+        }
         g_free (output);
         g_free (err_text);
-        unlink (tmp_path);
-        g_free (tmp_path);
-        return MC_PPR_FAILED;
     }
 
-    g_free (output);
-    g_free (err_text);
+    g_free (container_path);
+    g_free (quoted_id);
     *local_path = tmp_path;
     return MC_PPR_OK;
 }

@@ -3,6 +3,7 @@ PACKAGE_STRING = "/src/panel-plugins/docker"
 AM_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
 	-I$(top_srcdir) \
+	-DMC_PLUGIN_DIR=\"/tmp\" \
 	@CHECK_CFLAGS@
 
 LIBS = @CHECK_LIBS@ \

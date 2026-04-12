@@ -12,8 +12,8 @@ typedef struct
     pid_t child_pid;
 } docker_cp_stream_t;
 
-gboolean docker_cp_stream_open (const char *container_id, const char *container_path,
-                                docker_cp_stream_t *stream, char **err_text);
+/* cmd is a fully-formed shell command whose stdout is a TAR stream (e.g. "docker cp id:/. -") */
+gboolean docker_cp_stream_open (const char *cmd, docker_cp_stream_t *stream, char **err_text);
 char *docker_cp_stream_read_stderr (docker_cp_stream_t *stream);
 void docker_cp_stream_reap (docker_cp_stream_t *stream);
 

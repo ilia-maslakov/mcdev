@@ -37,8 +37,6 @@ static int stub_resolve_current_called;
 static int stub_reload_details_called;
 static int stub_reload_files_called;
 static int stub_reload_mounts_called;
-static int stub_host_message_called;
-static const char *stub_host_message_text;
 
 /* Source-under-test. */
 #include "src/panel-plugins/docker/docker.c"
@@ -394,14 +392,12 @@ docker_networks_delete_items (docker_data_t *data, const char **names, int count
 
 /* --------------------------------------------------------------------------------------------- */
 
-static void
-mock_host_message (mc_panel_host_t *host, int flags, const char *title, const char *text)
+void
+message (int flags, const char *title, const char *text, ...)
 {
-    (void) host;
     (void) flags;
     (void) title;
-    stub_host_message_called++;
-    stub_host_message_text = text;
+    (void) text;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -415,8 +411,6 @@ setup (void)
     stub_reload_details_called = 0;
     stub_reload_files_called = 0;
     stub_reload_mounts_called = 0;
-    stub_host_message_called = 0;
-    stub_host_message_text = NULL;
 }
 
 /* @After */
@@ -438,7 +432,7 @@ START_TEST (test_open_path_restores_files_view_state)
     ck_assert_str_eq (data->current_project, "proj");
     ck_assert_str_eq (data->current_container_name, "app");
     ck_assert_str_eq (data->files_cwd, "/etc");
-    ck_assert_str_eq (docker_get_path (data), "/containers/proj/app/files/etc");
+    ck_assert_str_eq (docker_get_path (data), "/local/containers/proj/app/files/etc");
 
     docker_close (data);
 }
@@ -456,7 +450,7 @@ START_TEST (test_open_path_restores_mounts_view_state)
     ck_assert_int_eq (data->view, DOCKER_VIEW_CONTAINER_MOUNTS);
     ck_assert_str_eq (data->current_project, "proj");
     ck_assert_str_eq (data->current_container_name, "app");
-    ck_assert_str_eq (docker_get_path (data), "/containers/proj/app/mounts");
+    ck_assert_str_eq (docker_get_path (data), "/local/containers/proj/app/mounts");
 
     docker_close (data);
 }
@@ -473,7 +467,7 @@ START_TEST (test_open_path_keeps_files_root_without_trailing_slash)
     ck_assert_ptr_nonnull (data);
     ck_assert_int_eq (data->view, DOCKER_VIEW_CONTAINER_FILES);
     ck_assert_str_eq (data->files_cwd, "/");
-    ck_assert_str_eq (docker_get_path (data), "/containers/proj/app/files");
+    ck_assert_str_eq (docker_get_path (data), "/local/containers/proj/app/files");
 
     docker_close (data);
 }
@@ -491,7 +485,7 @@ START_TEST (test_open_path_accepts_redundant_slashes_and_missing_leading_slash)
     ck_assert_int_eq (data->view, DOCKER_VIEW_CONTAINER_MOUNTS);
     ck_assert_str_eq (data->current_project, "proj");
     ck_assert_str_eq (data->current_container_name, "app");
-    ck_assert_str_eq (docker_get_path (data), "/containers/proj/app/mounts");
+    ck_assert_str_eq (docker_get_path (data), "/local/containers/proj/app/mounts");
 
     docker_close (data);
 }
@@ -517,18 +511,16 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-START_TEST (test_open_path_rejects_invalid_plugin_path)
+START_TEST (test_open_path_falls_back_to_profiles_for_invalid_path)
 {
     docker_data_t *data;
-    mc_panel_host_t host = { 0 };
 
-    host.message = mock_host_message;
+    data = (docker_data_t *) docker_open (NULL, "docker:/broken/path");
 
-    data = (docker_data_t *) docker_open (&host, "docker:/broken/path");
+    ck_assert_ptr_nonnull (data);
+    ck_assert_int_eq (data->view, DOCKER_VIEW_PROFILES);
 
-    ck_assert_ptr_null (data);
-    ck_assert_int_eq (stub_host_message_called, 1);
-    ck_assert_str_eq (stub_host_message_text, "Cannot reopen Docker panel path.");
+    docker_close (data);
 }
 END_TEST
 
@@ -538,11 +530,72 @@ START_TEST (test_open_root_path_without_list)
 {
     docker_data_t *data;
 
-    data = (docker_data_t *) docker_open (NULL, "docker:/");
+    data = (docker_data_t *) docker_open (NULL, "docker:/local");
 
     ck_assert_ptr_nonnull (data);
     ck_assert_int_eq (data->view, DOCKER_VIEW_ROOT);
     docker_close (data);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_profile_switch_clears_caches)
+{
+    docker_data_t *data;
+    docker_connection_t *second;
+
+    data = (docker_data_t *) docker_open (NULL, NULL);
+    ck_assert_ptr_nonnull (data);
+    ck_assert_int_eq (data->view, DOCKER_VIEW_PROFILES);
+
+    second = g_new0 (docker_connection_t, 1);
+    second->id = g_strdup ("prod");
+    second->label = g_strdup ("Production");
+    second->type = DOCKER_CONN_LOCAL;
+    g_ptr_array_add (data->connections, second);
+
+    data->projects_cache = g_ptr_array_new_with_free_func (docker_item_free);
+    data->containers_cache = g_ptr_array_new_with_free_func (docker_item_free);
+    g_hash_table_insert (data->files_cache, g_strdup ("k"), g_ptr_array_new ());
+
+    ck_assert_int_eq (docker_enter (data, "Production", NULL), MC_PPR_OK);
+    ck_assert_int_eq (data->view, DOCKER_VIEW_ROOT);
+    ck_assert_ptr_eq (data->active_conn, second);
+    ck_assert_ptr_null (data->projects_cache);
+    ck_assert_ptr_null (data->containers_cache);
+    ck_assert_uint_eq (g_hash_table_size (data->files_cache), 0);
+
+    docker_close (data);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_parse_port_validates_range)
+{
+    int port;
+
+    ck_assert (docker_parse_port ("22", &port));
+    ck_assert_int_eq (port, 22);
+
+    ck_assert (docker_parse_port ("1", &port));
+    ck_assert_int_eq (port, 1);
+
+    ck_assert (docker_parse_port ("65535", &port));
+    ck_assert_int_eq (port, 65535);
+
+    ck_assert (docker_parse_port ("", &port));
+    ck_assert_int_eq (port, 0);
+
+    ck_assert (docker_parse_port (NULL, &port));
+    ck_assert_int_eq (port, 0);
+
+    ck_assert (!docker_parse_port ("0", &port));
+    ck_assert (!docker_parse_port ("-1", &port));
+    ck_assert (!docker_parse_port ("65536", &port));
+    ck_assert (!docker_parse_port ("abc", &port));
+    ck_assert (!docker_parse_port ("22abc", &port));
 }
 END_TEST
 
@@ -561,8 +614,10 @@ main (void)
     tcase_add_test (tc_core, test_open_path_keeps_files_root_without_trailing_slash);
     tcase_add_test (tc_core, test_open_path_accepts_redundant_slashes_and_missing_leading_slash);
     tcase_add_test (tc_core, test_reload_items_resolves_container_before_details);
-    tcase_add_test (tc_core, test_open_path_rejects_invalid_plugin_path);
+    tcase_add_test (tc_core, test_open_path_falls_back_to_profiles_for_invalid_path);
     tcase_add_test (tc_core, test_open_root_path_without_list);
+    tcase_add_test (tc_core, test_profile_switch_clears_caches);
+    tcase_add_test (tc_core, test_parse_port_validates_range);
 
     return mctest_run_all (tc_core);
 }
@@ -572,4 +627,15 @@ panel_directory_history_add_path (WPanel *panel, const char *path)
 {
     (void) panel;
     (void) path;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+docker_ui_show_connection_dialog (docker_connection_t *conn, gboolean is_new, const char *help_file)
+{
+    (void) conn;
+    (void) is_new;
+    (void) help_file;
+    return FALSE;
 }
