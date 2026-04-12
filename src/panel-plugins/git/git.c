@@ -2197,6 +2197,7 @@ git_get_local_copy (void *plugin_data, const char *fname, char **local_path)
 {
     git_data_t *data = (git_data_t *) plugin_data;
     const git_entry_info_t *info;
+    const char *source_name = NULL;
 
     if (fname == NULL || local_path == NULL)
         return MC_PPR_FAILED;
@@ -2212,6 +2213,8 @@ git_get_local_copy (void *plugin_data, const char *fname, char **local_path)
 
         if (!git_make_temp_copy (info->full_path, local_path))
             return MC_PPR_FAILED;
+
+        source_name = info->full_path;
     }
     else if (info->kind == GIT_ITEM_COMMIT_FILE)
     {
@@ -2226,11 +2229,35 @@ git_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         g_free (object_spec);
         if (!ok)
             return MC_PPR_FAILED;
+
+        source_name = info->repo_path;
     }
     else
         return MC_PPR_FAILED;
 
-    return (*local_path != NULL) ? MC_PPR_OK : MC_PPR_FAILED;
+    if (*local_path == NULL)
+        return MC_PPR_FAILED;
+
+    /* Rename temp file to preserve the original extension so that
+     * mc.ext.ini rules can match it (e.g. syntax highlighting for .c). */
+    if (source_name != NULL)
+    {
+        const char *ext = strrchr (source_name, '.');
+
+        if (ext != NULL)
+        {
+            char *ext_path = g_strconcat (*local_path, ext, NULL);
+            if (rename (*local_path, ext_path) == 0)
+            {
+                g_free (*local_path);
+                *local_path = ext_path;
+            }
+            else
+                g_free (ext_path);
+        }
+    }
+
+    return MC_PPR_OK;
 }
 
 /* --------------------------------------------------------------------------------------------- */
