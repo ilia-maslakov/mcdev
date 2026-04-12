@@ -274,6 +274,7 @@ SearchBackwardContinue = ctrl-r
 SearchOppositeContinue = shift-n
 MagicMode = f8
 NroffMode = f9
+AnsiMode = shift-f9
 Home = ctrl-a
 End = ctrl-e
 Left = h; left
