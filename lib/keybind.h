@@ -338,6 +338,10 @@ enum
     CK_SearchForwardContinue,
     CK_SearchBackwardContinue,
     CK_SearchOppositeContinue,
+    CK_FilterActivate,
+    CK_FilterFollow,
+    CK_FilterNext,
+    CK_FilterPrev,
 
     // diff viewer
     CK_ShowSymbols = 700L,
