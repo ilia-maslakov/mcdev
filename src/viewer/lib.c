@@ -140,6 +140,10 @@ mcview_toggle_ansi_mode (WView *view)
 void
 mcview_toggle_hex_mode (WView *view)
 {
+    /* Filter is text-mode only: deactivate it before entering hex. */
+    if (!view->mode_flags.hex && view->filter_active)
+        mcview_filter_deactivate (view);
+
     view->mode_flags.hex = !view->mode_flags.hex;
 
     if (view->mode_flags.hex)

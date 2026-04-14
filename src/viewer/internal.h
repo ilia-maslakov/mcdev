@@ -214,10 +214,15 @@ struct WView
     gchar *filter_pattern;       // Active pattern, or NULL when filter is off
     mc_search_t *filter_engine;  // Compiled MC_SEARCH_T_NORMAL (plain-text, case-sensitive) search
     GArray *filter_offsets;      // off_t[], BOL of every matching line, append-only
-    off_t filter_scanned_up_to;  // Datasource offset up to which index is complete
-    gboolean filter_active;      // TRUE while filter view is in effect
-    gboolean filter_follow;      // Auto-scroll to new tail matches (like tail -f)
-    gboolean filter_prev_wrap;   // Saved wrap state restored on deactivation
+    off_t filter_scanned_up_to;  // BOL of the line currently being scanned (index complete up to
+                                 // here)
+    off_t filter_partial_scan_offset;  // Byte scanner position; may be mid-line (>=
+                                       // filter_scanned_up_to)
+    gboolean
+        filter_skipping_long_line;  // TRUE: current line exceeds cap, scan to \n without matching
+    gboolean filter_active;         // TRUE while filter view is in effect
+    gboolean filter_follow;         // Auto-scroll to new tail matches (like tail -f)
+    gboolean filter_prev_wrap;      // Saved wrap state restored on deactivation
 };
 
 typedef struct mcview_nroff_struct
