@@ -235,6 +235,163 @@ mcview_search_show_result (WView *view, size_t match_len)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/**
+ * Search for the current pattern within the already-indexed filter_offsets.
+ * Each filter line is searched independently so that matches are restricted to
+ * visible (filtered) lines.  Handles forward, backward, and wrap-around.
+ */
+static void
+mcview_do_search_in_filter (WView *view, off_t want_search_start)
+{
+    mcview_search_status_msg_t vsm;
+    gboolean found = FALSE;
+    size_t match_len;
+    guint n;
+    off_t orig_search_start = view->search_start;
+
+    if (view->filter_offsets == NULL || view->filter_offsets->len == 0)
+    {
+        message (D_NORMAL, _ ("Search"), "%s", _ (STR_E_NOTFOUND));
+        view->dirty++;
+        return;
+    }
+
+    n = view->filter_offsets->len;
+    mcview_search_update_steps (view);
+    view->update_activate = want_search_start;
+
+    vsm.first = TRUE;
+    vsm.view = view;
+    vsm.offset = want_search_start;
+
+    status_msg_init (STATUS_MSG (&vsm), _ ("Search"), 1.0, simple_status_msg_init_cb,
+                     mcview_search_status_update_cb, NULL);
+
+    if (!mcview_search_options.backwards)
+    {
+        /* Forward: start from the filter line that contains want_search_start. */
+        guint start_idx = mcview_filter_idx (view, want_search_start);
+        guint i;
+
+        for (i = start_idx; i < n; i++)
+        {
+            off_t bol = g_array_index (view->filter_offsets, off_t, i);
+            off_t eol = mcview_eol (view, bol);
+            /* On the first line, start from want_search_start to skip the
+               previous match; on subsequent lines search from the beginning. */
+            off_t from = (i == start_idx && want_search_start > bol) ? want_search_start : bol;
+
+            if (from >= eol)
+                continue;
+
+            view->search_numNeedSkipChar = 0;
+            search_cb_char_curr_index = -1;
+            view->search_nroff_seq->index = from;
+            mcview_nroff_seq_info (view->search_nroff_seq);
+
+            if (mc_search_run (view->search, (void *) &vsm, from, eol, &match_len))
+            {
+                mcview_search_show_result (view, match_len);
+                found = TRUE;
+                break;
+            }
+            if (view->search->error != MC_SEARCH_E_NOTFOUND)
+                break;
+        }
+
+        /* Offer wrap-around (same convention as normal forward search). */
+        if (orig_search_start != 0 && !found && view->search->error == MC_SEARCH_E_NOTFOUND)
+        {
+            view->search_start = orig_search_start;
+            mcview_update (view);
+
+            if (query_dialog (_ ("Search done"), _ ("Continue from beginning?"), D_NORMAL, 2,
+                              _ ("&Yes"), _ ("&No"))
+                != 0)
+                found = TRUE; /* User chose No -- suppress "not found". */
+            else
+            {
+                /* Wrap: re-search filter lines from 0 up to and including start_idx. */
+                for (i = 0; i <= start_idx && !found; i++)
+                {
+                    off_t bol = g_array_index (view->filter_offsets, off_t, i);
+                    off_t eol = mcview_eol (view, bol);
+
+                    view->search_numNeedSkipChar = 0;
+                    search_cb_char_curr_index = -1;
+                    view->search_nroff_seq->index = bol;
+                    mcview_nroff_seq_info (view->search_nroff_seq);
+
+                    if (mc_search_run (view->search, (void *) &vsm, bol, eol, &match_len))
+                    {
+                        mcview_search_show_result (view, match_len);
+                        found = TRUE;
+                    }
+                    else if (view->search->error != MC_SEARCH_E_NOTFOUND)
+                        break;
+                }
+            }
+        }
+    }
+    else
+    {
+        /* Backward: find the rightmost match before want_search_start.
+           Use the same offset adjustment as the non-filter backward search. */
+        off_t back_limit = (want_search_start >= 2) ? want_search_start - 2 : 0;
+        guint start_idx = mcview_filter_idx (view, back_limit);
+        gint j;
+
+        for (j = (gint) start_idx; j >= 0 && !found; j--)
+        {
+            off_t bol = g_array_index (view->filter_offsets, off_t, (guint) j);
+            off_t eol = mcview_eol (view, bol);
+            /* On the first line limit the right edge to back_limit; on
+               earlier lines search the whole line right-to-left. */
+            off_t try_start = (j == (gint) start_idx) ? MIN (eol - 1, back_limit) : eol - 1;
+
+            while (try_start >= bol)
+            {
+                view->search_numNeedSkipChar = 0;
+                search_cb_char_curr_index = -1;
+                view->search_nroff_seq->index = try_start;
+                mcview_nroff_seq_info (view->search_nroff_seq);
+
+                if (mc_search_run (view->search, (void *) &vsm, try_start, eol, &match_len)
+                    && view->search->normal_offset == try_start)
+                {
+                    mcview_search_show_result (view, match_len);
+                    found = TRUE;
+                    break;
+                }
+                if (view->search->error != MC_SEARCH_E_NOTFOUND)
+                    goto search_done;
+
+                if (try_start == 0)
+                    break;
+                try_start--;
+            }
+        }
+    }
+
+search_done:
+    status_msg_deinit (STATUS_MSG (&vsm));
+
+    if (!found)
+    {
+        view->search_start = orig_search_start;
+        mcview_update (view);
+
+        if (view->search->error == MC_SEARCH_E_NOTFOUND)
+            message (D_NORMAL, _ ("Search"), "%s", _ (STR_E_NOTFOUND));
+        else if (view->search->error_str != NULL)
+            message (D_NORMAL, _ ("Search"), "%s", view->search->error_str);
+    }
+
+    view->dirty++;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static void
 mcview_do_search (WView *view, off_t want_search_start)
 {
@@ -245,6 +402,13 @@ mcview_do_search (WView *view, off_t want_search_start)
     gboolean found = FALSE;
 
     size_t match_len;
+
+    /* In filter mode text search is restricted to the indexed filtered lines. */
+    if (view->filter_active && !view->mode_flags.hex)
+    {
+        mcview_do_search_in_filter (view, want_search_start);
+        return;
+    }
 
     view->search_start = want_search_start;
     // to avoid infinite search loop we need to increase or decrease start offset of search

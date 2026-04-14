@@ -456,8 +456,20 @@ mcview_execute_cmd (WView *view, long command)
         mcview_search_options.backwards = direction;
     }
     break;
+    case CK_FilterActivate:
+        if (mcview_filter_dialog (view))
+            view->dirty++;
+        break;
+    case CK_FilterFollow:
+        mcview_filter_follow_toggle (view);
+        break;
+    case CK_FilterNext:
+        mcview_filter_nav_next (view);
+        break;
+    case CK_FilterPrev:
+        mcview_filter_nav_prev (view);
+        break;
     case CK_WrapMode:
-        // Toggle between wrapped and unwrapped view
         mcview_toggle_wrap_mode (view);
         break;
     case CK_MagicMode:

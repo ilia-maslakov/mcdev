@@ -230,6 +230,15 @@ mcview_move_right (WView *view, off_t columns)
 void
 mcview_moveto_top (WView *view)
 {
+    if (view->filter_active && view->filter_offsets != NULL && view->filter_offsets->len > 0)
+    {
+        view->dpy_start = g_array_index (view->filter_offsets, off_t, 0);
+        view->dpy_paragraph_skip_lines = 0;
+        view->dpy_wrap_dirty = TRUE;
+        mcview_movement_fixups (view, TRUE);
+        return;
+    }
+
     view->dpy_start = 0;
     view->dpy_paragraph_skip_lines = 0;
     mcview_state_machine_init (&view->dpy_state_top, 0);
@@ -244,6 +253,16 @@ void
 mcview_moveto_bottom (WView *view)
 {
     off_t filesize;
+
+    if (view->filter_active && view->filter_offsets != NULL && view->filter_offsets->len > 0)
+    {
+        view->dpy_start =
+            g_array_index (view->filter_offsets, off_t, view->filter_offsets->len - 1);
+        view->dpy_paragraph_skip_lines = 0;
+        view->dpy_wrap_dirty = TRUE;
+        mcview_movement_fixups (view, TRUE);
+        return;
+    }
 
     mcview_update_filesize (view);
 

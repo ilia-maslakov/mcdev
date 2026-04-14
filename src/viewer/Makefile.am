@@ -9,6 +9,7 @@ libmcviewer_la_SOURCES = \
 	datasource.c \
 	dialogs.c \
 	display.c \
+	filter.c \
 	growbuf.c \
 	hex.c \
 	internal.h \
