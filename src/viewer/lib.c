@@ -72,6 +72,9 @@ mcview_toggle_magic_mode (WView *view)
     dir_list *dir;
     int *dir_idx;
 
+    if (view->filter_active)
+        return;
+
     mcview_altered_flags.magic = TRUE;
     view->mode_flags.magic = !view->mode_flags.magic;
 
@@ -99,6 +102,9 @@ mcview_toggle_magic_mode (WView *view)
 void
 mcview_toggle_wrap_mode (WView *view)
 {
+    if (view->filter_active)
+        return;
+
     view->mode_flags.wrap = !view->mode_flags.wrap;
     view->dpy_wrap_dirty = TRUE;
     view->dpy_bbar_dirty = TRUE;
@@ -134,6 +140,10 @@ mcview_toggle_ansi_mode (WView *view)
 void
 mcview_toggle_hex_mode (WView *view)
 {
+    /* Filter is text-mode only: deactivate it before entering hex. */
+    if (!view->mode_flags.hex && view->filter_active)
+        mcview_filter_deactivate (view);
+
     view->mode_flags.hex = !view->mode_flags.hex;
 
     if (view->mode_flags.hex)
@@ -253,6 +263,9 @@ mcview_done (WView *view)
     mcview_search_deinit (view);
     view->search = NULL;
     view->last_search_string = NULL;
+
+    mcview_filter_deactivate (view);
+
     mcview_hexedit_free_change_list (view);
 
     if (mc_global.mc_run_mode == MC_RUN_VIEWER && view->dir != NULL)

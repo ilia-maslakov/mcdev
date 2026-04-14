@@ -24,6 +24,11 @@
 #define OFF_T_BITWIDTH ((unsigned int) (sizeof (off_t) * CHAR_BIT - 1))
 #define OFFSETTYPE_MAX (((off_t) 1 << (OFF_T_BITWIDTH - 1)) - 1)
 
+/* Maximum bytes and lines processed by mcview_filter_update() per redraw tick.
+ * Keeps the UI responsive during log bursts. */
+#define MCVIEW_FILTER_BUDGET_BYTES 65536
+#define MCVIEW_FILTER_BUDGET_LINES 512
+
 typedef unsigned char byte;
 
 /*** enums ***************************************************************************************/
@@ -204,6 +209,17 @@ struct WView
     int *dir_idx;            /* Index of current file in dir structure.
                               * Pointer is used here as reference to WPanel::dir::count */
     vfs_path_t *ext_script;  // Temporary script file created by regex_command_for()
+
+    // line filter (F6 filter mode)
+    gchar *filter_pattern;              // Active pattern, or NULL when filter is off
+    mc_search_t *filter_engine;         // Compiled MC_SEARCH_T_NORMAL (plain-text, case-sensitive) search
+    GArray *filter_offsets;             // off_t[], BOL of every matching line, append-only
+    off_t filter_scanned_up_to;         // BOL of the line currently being scanned (index complete up to here)
+    off_t filter_partial_scan_offset;   // Byte scanner position; may be mid-line (>= filter_scanned_up_to)
+    gboolean filter_skipping_long_line; // TRUE: current line exceeds cap, scan to \n without matching
+    gboolean filter_active;             // TRUE while filter view is in effect
+    gboolean filter_follow;             // Auto-scroll to new tail matches (like tail -f)
+    gboolean filter_prev_wrap;          // Saved wrap state restored on deactivation
 };
 
 typedef struct mcview_nroff_struct
@@ -343,6 +359,17 @@ void mcview_nroff_seq_free (mcview_nroff_t **nroff);
 nroff_type_t mcview_nroff_seq_info (mcview_nroff_t *nroff);
 int mcview_nroff_seq_next (mcview_nroff_t *nroff);
 int mcview_nroff_seq_prev (mcview_nroff_t *nroff);
+
+/* filter.c: */
+gboolean mcview_filter_dialog (WView *view);
+void mcview_filter_activate (WView *view, const char *pattern);
+void mcview_filter_deactivate (WView *view);
+void mcview_filter_update (WView *view);
+guint mcview_filter_idx (WView *view, off_t offset);
+off_t mcview_filter_offset (WView *view, guint idx);
+void mcview_filter_follow_toggle (WView *view);
+void mcview_filter_nav_next (WView *view);
+void mcview_filter_nav_prev (WView *view);
 
 /* search.c: */
 gboolean mcview_search_init (WView *view);
