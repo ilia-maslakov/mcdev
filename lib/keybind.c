@@ -359,6 +359,10 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (SearchForwardContinue, N_ ("Search forward next")),
     ADD_KEYMAP_NAME_DESC (SearchBackwardContinue, N_ ("Search backward next")),
     ADD_KEYMAP_NAME_DESC (SearchOppositeContinue, N_ ("Search opposite direction")),
+    ADD_KEYMAP_NAME_DESC (FilterActivate, N_ ("Set line filter")),
+    ADD_KEYMAP_NAME_DESC (FilterFollow, N_ ("Toggle filter follow mode")),
+    ADD_KEYMAP_NAME_DESC (FilterNext, N_ ("Jump to next filter match")),
+    ADD_KEYMAP_NAME_DESC (FilterPrev, N_ ("Jump to prev filter match")),
 
 #ifdef USE_DIFF_VIEW
     // diff viewer
