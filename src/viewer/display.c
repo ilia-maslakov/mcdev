@@ -101,7 +101,7 @@ mcview_set_buttonbar (WView *view)
             b, 2, view->mode_flags.wrap ? Q_ ("ButtonBar|UnWrap") : Q_ ("ButtonBar|Wrap"), keymap,
             w);
         buttonbar_set_label (b, 4, Q_ ("ButtonBar|Hex"), keymap, w);
-        buttonbar_set_label (b, 6, "", keymap, WIDGET (view));
+        buttonbar_set_label (b, 6, Q_ ("ButtonBar|Filter"), keymap, w);
         buttonbar_set_label (b, 7, Q_ ("ButtonBar|Search"), keymap, w);
     }
 
@@ -175,11 +175,35 @@ mcview_display_status (WView *view)
                                                        : "");
         }
     }
-    widget_gotoyx (view, r->y, r->x);
-    if (r->cols > 40)
-        tty_print_string (str_fit_to_term (file_label, r->cols - 34, J_LEFT_FIT));
+    if (view->filter_active && view->filter_pattern != NULL)
+    {
+        /* Show filter status instead of the file label. */
+        gboolean scanning = (view->filter_scanned_up_to < mcview_get_filesize (view));
+        char *fstat;
+        guint match_count = (view->filter_offsets != NULL) ? view->filter_offsets->len : 0;
+
+        if (scanning)
+            fstat = g_strdup_printf (_ ("Filter: %s  %u matches  scanning..."),
+                                     view->filter_pattern, match_count);
+        else if (view->filter_follow)
+            fstat = g_strdup_printf (_ ("Filter: %s  %u matches  FOLLOW"), view->filter_pattern,
+                                     match_count);
+        else
+            fstat =
+                g_strdup_printf (_ ("Filter: %s  %u matches"), view->filter_pattern, match_count);
+
+        widget_gotoyx (view, r->y, r->x);
+        tty_print_string (str_fit_to_term (fstat, r->cols - 5, J_LEFT_FIT));
+        g_free (fstat);
+    }
     else
-        tty_print_string (str_fit_to_term (file_label, r->cols - 5, J_LEFT_FIT));
+    {
+        widget_gotoyx (view, r->y, r->x);
+        if (r->cols > 40)
+            tty_print_string (str_fit_to_term (file_label, r->cols - 34, J_LEFT_FIT));
+        else
+            tty_print_string (str_fit_to_term (file_label, r->cols - 5, J_LEFT_FIT));
+    }
     if (r->cols > 26)
         mcview_display_percent (view, view->mode_flags.hex ? view->hex_cursor : view->dpy_end);
 }
@@ -192,6 +216,10 @@ void
 mcview_update (WView *view)
 {
     static int dirt_limit = 1;
+
+    /* Advance the filter index before rendering so new matches are visible. */
+    if (view->filter_active)
+        mcview_filter_update (view);
 
     if (view->dpy_bbar_dirty)
     {

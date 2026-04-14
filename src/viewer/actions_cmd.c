@@ -380,6 +380,33 @@ mcview_execute_cmd (WView *view, long command)
 {
     int res = MSG_HANDLED;
 
+    /* In filter empty-state (active but no matches yet) block all movement so
+       the visible "(no matches)" screen stays consistent with dpy_start. */
+    if (view->filter_active && (view->filter_offsets == NULL || view->filter_offsets->len == 0))
+        switch (command)
+        {
+        case CK_Up:
+        case CK_Down:
+        case CK_HalfPageUp:
+        case CK_HalfPageDown:
+        case CK_PageUp:
+        case CK_PageDown:
+        case CK_Top:
+        case CK_Bottom:
+        case CK_Left:
+        case CK_Right:
+        case CK_LeftQuick:
+        case CK_RightQuick:
+        case CK_Home:
+        case CK_End:
+        case CK_Goto:
+        case CK_Bookmark:
+        case CK_BookmarkGoto:
+            return MSG_HANDLED;
+        default:
+            break;
+        }
+
     switch (command)
     {
     case CK_Help:
@@ -456,8 +483,20 @@ mcview_execute_cmd (WView *view, long command)
         mcview_search_options.backwards = direction;
     }
     break;
+    case CK_FilterActivate:
+        if (mcview_filter_dialog (view))
+            view->dirty++;
+        break;
+    case CK_FilterFollow:
+        mcview_filter_follow_toggle (view);
+        break;
+    case CK_FilterNext:
+        mcview_filter_nav_next (view);
+        break;
+    case CK_FilterPrev:
+        mcview_filter_nav_prev (view);
+        break;
     case CK_WrapMode:
-        // Toggle between wrapped and unwrapped view
         mcview_toggle_wrap_mode (view);
         break;
     case CK_MagicMode:
