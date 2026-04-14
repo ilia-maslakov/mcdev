@@ -144,6 +144,8 @@ mcview_filter_activate (WView *view, const char *pattern)
         g_array_set_size (view->filter_offsets, 0);
 
     view->filter_scanned_up_to = 0;
+    view->filter_partial_scan_offset = 0;
+    view->filter_skipping_long_line = FALSE;
     view->filter_active = TRUE;
 
     /* Disable wrap mode while filter is active (simplifies rendering). */
@@ -188,6 +190,8 @@ mcview_filter_deactivate (WView *view)
     }
 
     view->filter_scanned_up_to = 0;
+    view->filter_partial_scan_offset = 0;
+    view->filter_skipping_long_line = FALSE;
 
     /* Restore wrap mode. */
     if (view->filter_prev_wrap && !view->mode_flags.wrap)
@@ -214,7 +218,7 @@ mcview_filter_update (WView *view)
 {
     off_t filesize;
     off_t scan_end;
-    off_t pos;
+    off_t bol, pos;
     int lines_done = 0;
     off_t bytes_done = 0;
     gboolean budget_hit = FALSE;
@@ -224,7 +228,7 @@ mcview_filter_update (WView *view)
         return;
 
     filesize = mcview_get_filesize (view);
-    if (filesize <= view->filter_scanned_up_to)
+    if (filesize <= view->filter_partial_scan_offset)
         return;
 
     /* Remember last match offset before update for follow-mode check. */
@@ -233,68 +237,94 @@ mcview_filter_update (WView *view)
         : -1;
 
     scan_end = filesize;
-    pos = view->filter_scanned_up_to;
+    /* bol tracks the BOL of the line being scanned; filter_scanned_up_to
+       only advances when a complete line is processed.
+       pos is the byte-level scan cursor and may be mid-line. */
+    bol = view->filter_scanned_up_to;
+    pos = view->filter_partial_scan_offset;
 
     while (pos < scan_end)
     {
-        off_t bol, eol;
-        int ch;
+        int c;
 
-        /* Check budget BEFORE scanning for EOL to avoid reading a huge line
-           after the budget was already exhausted by previous lines. */
+        /* Per-byte budget: each byte costs one unit so even a single huge
+           line cannot exceed MCVIEW_FILTER_BUDGET_BYTES bytes per tick. */
         if (bytes_done >= MCVIEW_FILTER_BUDGET_BYTES || lines_done >= MCVIEW_FILTER_BUDGET_LINES)
         {
             budget_hit = TRUE;
             break;
         }
 
-        bol = pos;
-        eol = mcview_eol (view, bol);
+        if (!mcview_get_byte (view, pos, &c))
+            break; /* No data yet (growing buffer). */
 
-        if (eol == bol)
-            break; /* EOF -- no bytes at this position. */
+        bytes_done++;
+        pos++;
 
-        /* Check for a terminating newline. */
-        if (!mcview_get_byte (view, eol - 1, &ch) || ch != '\n')
+        if (c == '\n')
         {
-            /* Line has no terminating newline. For a stream that is still
-               growing, wait until the newline arrives.  For a static file
-               (or a fully-read growbuf), scan the last line anyway. */
-            if (mcview_may_still_grow (view))
-                break;
-            /* Static file: fall through to match the last incomplete line. */
-        }
-
-        /* Build a NUL-terminated line buffer for mc_search_run. */
-        {
-            off_t len = eol - bol;
-            gchar *buf;
-            gboolean matched;
-            off_t i;
-            int c;
-
-            buf = g_new (gchar, len + 1);
-            for (i = 0; i < len; i++)
+            if (!view->filter_skipping_long_line)
             {
-                if (!mcview_get_byte (view, bol + i, &c))
-                    break;
-                buf[i] = (gchar) c;
+                /* Build NUL-terminated line buffer [bol, pos) and match. */
+                off_t len = pos - bol;
+                gchar *buf;
+                off_t i;
+                int bc;
+
+                buf = g_new (gchar, len + 1);
+                for (i = 0; i < len; i++)
+                {
+                    if (!mcview_get_byte (view, bol + i, &bc))
+                        break;
+                    buf[i] = (gchar) bc;
+                }
+                buf[i] = '\0';
+
+                if (mc_search_run (view->filter_engine, buf, 0, i, NULL))
+                    g_array_append_val (view->filter_offsets, bol);
+                g_free (buf);
             }
-            buf[i] = '\0';
 
-            matched = mc_search_run (view->filter_engine, buf, 0, i, NULL);
-            g_free (buf);
-
-            if (matched)
-                g_array_append_val (view->filter_offsets, bol);
+            lines_done++;
+            bol = pos;
+            view->filter_skipping_long_line = FALSE;
         }
-
-        bytes_done += (eol - bol);
-        lines_done++;
-        pos = eol;
+        else if (!view->filter_skipping_long_line && (pos - bol) > MCVIEW_FILTER_BUDGET_BYTES)
+        {
+            /* Line exceeds hard cap: continue scanning to find \n but
+               skip matching -- avoids a huge allocation at line end. */
+            view->filter_skipping_long_line = TRUE;
+        }
     }
 
-    view->filter_scanned_up_to = pos;
+    /* Last line of a static file with no trailing newline: match it now
+       that we know no more bytes are coming. */
+    if (!budget_hit && pos > bol && !mcview_may_still_grow (view)
+        && !view->filter_skipping_long_line)
+    {
+        off_t len = pos - bol;
+        gchar *buf;
+        off_t i;
+        int c;
+
+        buf = g_new (gchar, len + 1);
+        for (i = 0; i < len; i++)
+        {
+            if (!mcview_get_byte (view, bol + i, &c))
+                break;
+            buf[i] = (gchar) c;
+        }
+        buf[i] = '\0';
+
+        if (mc_search_run (view->filter_engine, buf, 0, i, NULL))
+            g_array_append_val (view->filter_offsets, bol);
+        g_free (buf);
+
+        bol = pos; /* Mark as processed. */
+    }
+
+    view->filter_scanned_up_to = bol;
+    view->filter_partial_scan_offset = pos;
 
     /* If we hit the budget and there is more data, request another tick. */
     if (budget_hit && pos < filesize)
