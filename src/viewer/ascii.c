@@ -1033,6 +1033,22 @@ mcview_display_text (WView *view)
             state = view->dpy_state_top;
         }
 
+        /* In filter mode with no matches yet, draw a status line and stop. */
+        if (view->filter_active && (view->filter_offsets == NULL || view->filter_offsets->len == 0))
+        {
+            const char *msg;
+
+            tty_setcolor (STATUSBAR_COLOR);
+            widget_gotoyx (view, r->y, r->x);
+            msg = mcview_may_still_grow (view) ? _ ("(no matches -- waiting for data)")
+                                               : _ ("(no matches)");
+            tty_print_string (str_fit_to_term (msg, r->cols, J_LEFT));
+            /* dpy_end stays at dpy_start so scrolling stays a no-op. */
+            view->dpy_end = view->dpy_start;
+            view->dpy_state_bottom = state;
+            return;
+        }
+
         for (row = 0; row < r->lines; row += n)
         {
             n = mcview_display_paragraph (view, &state, row);
@@ -1049,6 +1065,24 @@ mcview_display_text (WView *view)
                     again = TRUE;
                 }
                 break;
+            }
+
+            /* In filter mode (unwrap only), skip non-matching lines between paragraphs. */
+            if (view->filter_active && !view->mode_flags.wrap && n > 0
+                && view->filter_offsets != NULL && view->filter_offsets->len > 0)
+            {
+                guint idx = mcview_filter_idx (view, state.offset);
+                off_t next_match = mcview_filter_offset (view, idx);
+
+                /* Advance idx if we're past this entry already. */
+                if (next_match < state.offset)
+                    next_match = mcview_filter_offset (view, idx + 1);
+
+                if (next_match == (off_t) -1)
+                    break; /* No more matches. */
+
+                if (next_match > state.offset)
+                    mcview_state_machine_init (&state, next_match);
             }
         }
     }
@@ -1083,6 +1117,28 @@ mcview_display_text (WView *view)
 void
 mcview_ascii_move_down (WView *view, off_t lines)
 {
+    if (view->filter_active && !view->mode_flags.wrap && view->filter_offsets != NULL
+        && view->filter_offsets->len > 0)
+    {
+        guint idx = mcview_filter_idx (view, view->dpy_start);
+        off_t target;
+
+        /* If dpy_start is exactly this entry, advance by lines. */
+        if (g_array_index (view->filter_offsets, off_t, idx) == view->dpy_start)
+            idx += (guint) lines;
+        else
+            idx += (guint) lines - 1;
+
+        target = mcview_filter_offset (view, idx);
+        if (target != (off_t) -1)
+        {
+            view->dpy_start = target;
+            view->dpy_paragraph_skip_lines = 0;
+            view->dpy_wrap_dirty = TRUE;
+        }
+        return;
+    }
+
     while (lines-- != 0)
     {
         gboolean paragraph_ended;
@@ -1132,6 +1188,22 @@ mcview_ascii_move_down (WView *view, off_t lines)
 void
 mcview_ascii_move_up (WView *view, off_t lines)
 {
+    if (view->filter_active && !view->mode_flags.wrap && view->filter_offsets != NULL
+        && view->filter_offsets->len > 0)
+    {
+        guint idx = mcview_filter_idx (view, view->dpy_start);
+
+        if (idx >= (guint) lines)
+            idx -= (guint) lines;
+        else
+            idx = 0;
+
+        view->dpy_start = g_array_index (view->filter_offsets, off_t, idx);
+        view->dpy_paragraph_skip_lines = 0;
+        view->dpy_wrap_dirty = TRUE;
+        return;
+    }
+
     if (!view->mode_flags.wrap)
     {
         while (lines-- != 0)
