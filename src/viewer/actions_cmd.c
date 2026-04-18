@@ -452,49 +452,67 @@ mcview_execute_cmd (WView *view, long command)
         mcview_hexedit_save_changes (view);
         break;
     case CK_Search:
-        mcview_search (view, TRUE);
+        if (!view->mode_flags.terminal)
+            mcview_search (view, TRUE);
         break;
     case CK_SearchContinue:
-        mcview_continue_search_cmd (view);
+        if (!view->mode_flags.terminal)
+            mcview_continue_search_cmd (view);
         break;
     case CK_SearchForward:
-        mcview_search_options.backwards = FALSE;
-        mcview_search (view, TRUE);
+        if (!view->mode_flags.terminal)
+        {
+            mcview_search_options.backwards = FALSE;
+            mcview_search (view, TRUE);
+        }
         break;
     case CK_SearchForwardContinue:
-        mcview_search_options.backwards = FALSE;
-        mcview_continue_search_cmd (view);
+        if (!view->mode_flags.terminal)
+        {
+            mcview_search_options.backwards = FALSE;
+            mcview_continue_search_cmd (view);
+        }
         break;
     case CK_SearchBackward:
-        mcview_search_options.backwards = TRUE;
-        mcview_search (view, TRUE);
+        if (!view->mode_flags.terminal)
+        {
+            mcview_search_options.backwards = TRUE;
+            mcview_search (view, TRUE);
+        }
         break;
     case CK_SearchBackwardContinue:
-        mcview_search_options.backwards = TRUE;
-        mcview_continue_search_cmd (view);
+        if (!view->mode_flags.terminal)
+        {
+            mcview_search_options.backwards = TRUE;
+            mcview_continue_search_cmd (view);
+        }
         break;
     case CK_SearchOppositeContinue:
-    {
-        gboolean direction;
+        if (!view->mode_flags.terminal)
+        {
+            gboolean direction;
 
-        direction = mcview_search_options.backwards;
-        mcview_search_options.backwards = !direction;
-        mcview_continue_search_cmd (view);
-        mcview_search_options.backwards = direction;
-    }
-    break;
+            direction = mcview_search_options.backwards;
+            mcview_search_options.backwards = !direction;
+            mcview_continue_search_cmd (view);
+            mcview_search_options.backwards = direction;
+        }
+        break;
     case CK_FilterActivate:
-        if (mcview_filter_dialog (view))
+        if (!view->mode_flags.terminal && mcview_filter_dialog (view))
             view->dirty++;
         break;
     case CK_FilterFollow:
-        mcview_filter_follow_toggle (view);
+        if (!view->mode_flags.terminal)
+            mcview_filter_follow_toggle (view);
         break;
     case CK_FilterNext:
-        mcview_filter_nav_next (view);
+        if (!view->mode_flags.terminal)
+            mcview_filter_nav_next (view);
         break;
     case CK_FilterPrev:
-        mcview_filter_nav_prev (view);
+        if (!view->mode_flags.terminal)
+            mcview_filter_nav_prev (view);
         break;
     case CK_WrapMode:
         mcview_toggle_wrap_mode (view);
@@ -508,41 +526,94 @@ mcview_execute_cmd (WView *view, long command)
     case CK_AnsiMode:
         mcview_toggle_ansi_mode (view);
         break;
+    case CK_EscRenderMode:
+        mcview_cycle_display_mode (view);
+        break;
     case CK_Home:
-        mcview_moveto_bol (view);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+            mcview_vterm_set_dpy_top_row (view->vterm, 0);
+        else
+            mcview_moveto_bol (view);
         break;
     case CK_End:
-        mcview_moveto_eol (view);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+            mcview_vterm_set_dpy_top_row (view->vterm, MCVIEW_VTERM_FOLLOW_END);
+        else
+            mcview_moveto_eol (view);
         break;
     case CK_Left:
-        mcview_move_left (view, 1);
+        if (!view->mode_flags.terminal)
+            mcview_move_left (view, 1);
         break;
     case CK_Right:
-        mcview_move_right (view, 1);
+        if (!view->mode_flags.terminal)
+            mcview_move_right (view, 1);
         break;
     case CK_Up:
-        mcview_move_up (view, 1);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top - 1);
+        }
+        else
+            mcview_move_up (view, 1);
         break;
     case CK_Down:
-        mcview_move_down (view, 1);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top + 1);
+        }
+        else
+            mcview_move_down (view, 1);
         break;
     case CK_HalfPageUp:
-        mcview_move_up (view, (view->data_area.lines + 1) / 2);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top - (view->data_area.lines + 1) / 2);
+        }
+        else
+            mcview_move_up (view, (view->data_area.lines + 1) / 2);
         break;
     case CK_HalfPageDown:
-        mcview_move_down (view, (view->data_area.lines + 1) / 2);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top + (view->data_area.lines + 1) / 2);
+        }
+        else
+            mcview_move_down (view, (view->data_area.lines + 1) / 2);
         break;
     case CK_PageUp:
-        mcview_move_up (view, view->data_area.lines);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top - view->data_area.lines);
+        }
+        else
+            mcview_move_up (view, view->data_area.lines);
         break;
     case CK_PageDown:
-        mcview_move_down (view, view->data_area.lines);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            int top = mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines);
+            mcview_vterm_set_dpy_top_row (view->vterm, top + view->data_area.lines);
+        }
+        else
+            mcview_move_down (view, view->data_area.lines);
         break;
     case CK_Top:
-        mcview_moveto_top (view);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+            mcview_vterm_set_dpy_top_row (view->vterm, 0);
+        else
+            mcview_moveto_top (view);
         break;
     case CK_Bottom:
-        mcview_moveto_bottom (view);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+            mcview_vterm_set_dpy_top_row (view->vterm, MCVIEW_VTERM_FOLLOW_END);
+        else
+            mcview_moveto_bottom (view);
         break;
     case CK_Shell:
         toggle_subshell ();
@@ -561,6 +632,11 @@ mcview_execute_cmd (WView *view, long command)
         break;
     case CK_SelectCodepage:
         mcview_select_encoding (view);
+        if (view->mode_flags.terminal && view->vterm != NULL)
+        {
+            mcview_vterm_free (view->vterm);
+            view->vterm = mcview_vterm_new ();
+        }
         view->dirty++;
         break;
     case CK_FileNext:

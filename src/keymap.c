@@ -539,7 +539,7 @@ static const global_keymap_ini_t default_viewer_keymap[] = {
     { "Search", "f7" },
     { "SearchContinue", "f17; n" },
     { "MagicMode", "f8" },
-    { "NroffMode", "f9" },
+    { "EscRenderMode", "f9" },
     { "Home", "ctrl-a" },
     { "End", "ctrl-e" },
     { "Left", "h; left" },

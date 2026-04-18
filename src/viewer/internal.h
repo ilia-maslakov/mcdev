@@ -18,6 +18,8 @@
 
 #include "mcviewer.h"
 #include "ansi.h"
+#include "terminal_buffer.h"
+#include "vterm.h"
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
@@ -210,6 +212,9 @@ struct WView
                               * Pointer is used here as reference to WPanel::dir::count */
     vfs_path_t *ext_script;  // Temporary script file created by regex_command_for()
 
+    // ANSI terminal replay mode (Alt-F9)
+    struct mcview_vterm_struct *vterm;  // non-NULL when terminal mode is active
+
     // line filter (F6 filter mode)
     gchar *filter_pattern;       // Active pattern, or NULL when filter is off
     mc_search_t *filter_engine;  // Compiled MC_SEARCH_T_NORMAL (plain-text, case-sensitive) search
@@ -257,6 +262,7 @@ cb_ret_t mcview_dialog_callback (Widget *w, Widget *sender, widget_msg_t msg, in
 /* ascii.c: */
 void mcview_display_text (WView *view);
 void mcview_state_machine_init (mcview_state_machine_t *, off_t);
+int mcview_ansi_get_color (const mcview_ansi_state_t *ansi);
 void mcview_ascii_move_down (WView *view, off_t lines);
 void mcview_ascii_move_up (WView *view, off_t lines);
 void mcview_ascii_moveto_bol (WView *view);
@@ -327,6 +333,7 @@ void mcview_toggle_magic_mode (WView *view);
 void mcview_toggle_wrap_mode (WView *view);
 void mcview_toggle_nroff_mode (WView *view);
 void mcview_toggle_ansi_mode (WView *view);
+void mcview_cycle_display_mode (WView *view);
 void mcview_toggle_hex_mode (WView *view);
 void mcview_init (WView *view);
 void mcview_done (WView *view);

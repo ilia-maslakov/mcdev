@@ -110,7 +110,7 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         MC_FALLTHROUGH;
 
     case MSG_MOUSE_CLICK:
-        if (!view->mode_flags.wrap)
+        if (!view->mode_flags.wrap && !view->mode_flags.terminal)
         {
             // Scrolling left and right
             int x;
@@ -142,10 +142,13 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
 
             if (y < r->y + r->lines * 1 / 3)
             {
-                if (mcview_mouse_move_pages)
-                    mcview_move_up (view, r->lines / 2);
+                int n = mcview_mouse_move_pages ? r->lines / 2 : 1;
+
+                if (view->mode_flags.terminal && view->vterm != NULL)
+                    mcview_vterm_set_dpy_top_row (
+                        view->vterm, mcview_vterm_resolve_top_row (view->vterm, r->lines) - n);
                 else
-                    mcview_move_up (view, 1);
+                    mcview_move_up (view, n);
 
                 event->result.repeat = msg == MSG_MOUSE_DOWN;
             }
@@ -156,10 +159,13 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
             }
             else
             {
-                if (mcview_mouse_move_pages)
-                    mcview_move_down (view, r->lines / 2);
+                int n = mcview_mouse_move_pages ? r->lines / 2 : 1;
+
+                if (view->mode_flags.terminal && view->vterm != NULL)
+                    mcview_vterm_set_dpy_top_row (
+                        view->vterm, mcview_vterm_resolve_top_row (view->vterm, r->lines) + n);
                 else
-                    mcview_move_down (view, 1);
+                    mcview_move_down (view, n);
 
                 event->result.repeat = msg == MSG_MOUSE_DOWN;
             }
@@ -169,7 +175,14 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
     case MSG_MOUSE_SCROLL_UP:
         // ignore mouse wheel events in the inactive quick view panel
         if (widget_get_state (w, WST_FOCUSED))
-            mcview_move_up (view, 2);
+        {
+            if (view->mode_flags.terminal && view->vterm != NULL)
+                mcview_vterm_set_dpy_top_row (
+                    view->vterm,
+                    mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines) - 2);
+            else
+                mcview_move_up (view, 2);
+        }
         else
             ok = FALSE;
         break;
@@ -177,7 +190,14 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
     case MSG_MOUSE_SCROLL_DOWN:
         // ignore mouse wheel events in the inactive quick view panel
         if (widget_get_state (w, WST_FOCUSED))
-            mcview_move_down (view, 2);
+        {
+            if (view->mode_flags.terminal && view->vterm != NULL)
+                mcview_vterm_set_dpy_top_row (
+                    view->vterm,
+                    mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines) + 2);
+            else
+                mcview_move_down (view, 2);
+        }
         else
             ok = FALSE;
         break;
