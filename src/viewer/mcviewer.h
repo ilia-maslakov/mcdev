@@ -19,11 +19,12 @@ typedef struct WView WView;
 
 typedef struct
 {
-    gboolean wrap;    // Wrap text lines to fit them on the screen
-    gboolean hex;     // Plainview or hexview
-    gboolean magic;   // Preprocess the file using external programs
-    gboolean nroff;   // Nroff-style highlighting
-    gboolean syntax;  // Syntax highlighting via external command
+    gboolean wrap;      // Wrap text lines to fit them on the screen
+    gboolean hex;       // Plainview or hexview
+    gboolean magic;     // Preprocess the file using external programs
+    gboolean nroff;     // Nroff-style highlighting
+    gboolean syntax;    // SGR background-color extension (ANSI text mode)
+    gboolean terminal;  // ANSI terminal replay mode (virtual screen buffer)
 } mcview_mode_flags_t;
 
 /*** global variables defined in .c file *********************************************************/

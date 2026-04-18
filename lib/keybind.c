@@ -352,6 +352,7 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (MagicMode, N_ ("Toggle magic mode")),
     ADD_KEYMAP_NAME_DESC (NroffMode, N_ ("Toggle nroff mode")),
     ADD_KEYMAP_NAME_DESC (AnsiMode, N_ ("Toggle ANSI color mode")),
+    ADD_KEYMAP_NAME_DESC (EscRenderMode, N_ ("Cycle ESC render mode: None/SGR/Term")),
     ADD_KEYMAP_NAME_DESC (BookmarkGoto, N_ ("Go to bookmark")),
     ADD_KEYMAP_NAME_DESC (Ruler, N_ ("Toggle ruler")),
     ADD_KEYMAP_NAME_DESC (SearchForward, N_ ("Search forward")),

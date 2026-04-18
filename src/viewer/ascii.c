@@ -343,7 +343,7 @@ mcview_get_next_char (WView *view, mcview_state_machine_t *state, int *c)
  * When all attributes are default, returns VIEWER_NORMAL_COLOR to avoid
  * unnecessary color pair allocation.
  */
-static int
+int
 mcview_ansi_get_color (const mcview_ansi_state_t *ansi)
 {
     tty_color_pair_t color;
@@ -440,6 +440,14 @@ mcview_ansi_get_color (const mcview_ansi_state_t *ansi)
 static gboolean
 mcview_get_next_maybe_ansi_char (WView *view, mcview_state_machine_t *state, int *c, int *color)
 {
+    if (!view->mode_flags.syntax)
+    {
+        /* Raw (none) mode: return bytes as-is, no ANSI parsing, no color. */
+        if (color != NULL)
+            *color = VIEWER_NORMAL_COLOR;
+        return mcview_get_next_char (view, state, c);
+    }
+
     while (TRUE)
     {
         mcview_state_machine_t state_saved;

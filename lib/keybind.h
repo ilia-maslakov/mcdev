@@ -329,6 +329,7 @@ enum
     CK_MagicMode,
     CK_NroffMode,
     CK_AnsiMode,
+    CK_EscRenderMode,
     CK_HexMode,
     CK_HexEditMode,
     CK_BookmarkGoto,

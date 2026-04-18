@@ -128,6 +128,9 @@ mcview_toggle_nroff_mode (WView *view)
 void
 mcview_toggle_ansi_mode (WView *view)
 {
+    if (view->mode_flags.terminal)
+        return; /* syntax flag is irrelevant while terminal mode is active */
+
     view->mode_flags.syntax = !view->mode_flags.syntax;
     mcview_altered_flags.syntax = TRUE;
     view->dpy_wrap_dirty = TRUE;
@@ -138,11 +141,55 @@ mcview_toggle_ansi_mode (WView *view)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+mcview_cycle_display_mode (WView *view)
+{
+    if (view->mode_flags.hex)
+        return;
+
+    if (view->mode_flags.terminal)
+    {
+        view->mode_flags.terminal = FALSE;
+        mcview_vterm_free (view->vterm);
+        view->vterm = NULL;
+        view->mode_flags.syntax = FALSE;
+        mcview_altered_flags.syntax = TRUE;
+        view->dpy_wrap_dirty = TRUE;
+    }
+    else if (view->mode_flags.syntax)
+    {
+        if (view->filter_active)
+            mcview_filter_deactivate (view);
+        view->mode_flags.terminal = TRUE;
+        view->vterm = mcview_vterm_new ();
+    }
+    else
+    {
+        view->mode_flags.syntax = TRUE;
+        mcview_altered_flags.syntax = TRUE;
+        view->dpy_wrap_dirty = TRUE;
+    }
+
+    view->dpy_bbar_dirty = TRUE;
+    view->dirty++;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 mcview_toggle_hex_mode (WView *view)
 {
-    /* Filter is text-mode only: deactivate it before entering hex. */
-    if (!view->mode_flags.hex && view->filter_active)
-        mcview_filter_deactivate (view);
+    /* Filter and terminal mode are text-mode only: deactivate before entering hex. */
+    if (!view->mode_flags.hex)
+    {
+        if (view->filter_active)
+            mcview_filter_deactivate (view);
+        if (view->mode_flags.terminal)
+        {
+            view->mode_flags.terminal = FALSE;
+            mcview_vterm_free (view->vterm);
+            view->vterm = NULL;
+        }
+    }
 
     view->mode_flags.hex = !view->mode_flags.hex;
 
@@ -215,6 +262,8 @@ mcview_init (WView *view)
     view->update_activate = 0;
 
     view->saved_bookmarks = NULL;
+
+    view->vterm = NULL;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -265,6 +314,13 @@ mcview_done (WView *view)
     view->last_search_string = NULL;
 
     mcview_filter_deactivate (view);
+
+    if (view->vterm != NULL)
+    {
+        mcview_vterm_free (view->vterm);
+        view->vterm = NULL;
+    }
+    view->mode_flags.terminal = FALSE;
 
     mcview_hexedit_free_change_list (view);
 

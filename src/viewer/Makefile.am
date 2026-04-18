@@ -18,6 +18,8 @@ libmcviewer_la_SOURCES = \
 	mcviewer.h \
 	move.c \
 	nroff.c \
-	search.c
+	search.c \
+	terminal_buffer.c terminal_buffer.h \
+	vterm.c vterm.h
 
 AM_CPPFLAGS = -I$(top_srcdir) $(GLIB_CFLAGS)

@@ -49,6 +49,8 @@
 #include "src/keymap.h"
 
 #include "internal.h"
+#include "vterm.h"
+#include "terminal_buffer.h"
 
 /*** global variables ****************************************************************************/
 
@@ -112,9 +114,12 @@ mcview_set_buttonbar (WView *view)
     if (!mcview_is_in_panel (view))  // don't override some panel buttonbar keys
     {
         buttonbar_set_label (b, 3, Q_ ("ButtonBar|Quit"), keymap, w);
-        buttonbar_set_label (
-            b, 9, view->mode_flags.nroff ? Q_ ("ButtonBar|Unform") : Q_ ("ButtonBar|Format"),
-            keymap, w);
+        if (view->mode_flags.terminal)
+            buttonbar_set_label (b, 9, Q_ ("ButtonBar|Unform"), keymap, w);
+        else if (view->mode_flags.syntax)
+            buttonbar_set_label (b, 9, Q_ ("ButtonBar|Term mode"), keymap, w);
+        else
+            buttonbar_set_label (b, 9, Q_ ("ButtonBar|Format"), keymap, w);
         buttonbar_set_label (b, 10, Q_ ("ButtonBar|Quit"), keymap, w);
     }
 }
@@ -260,6 +265,87 @@ mcview_update (WView *view)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/** Replay datasource into virtual screen, then render the viewport. */
+static void
+mcview_display_terminal (WView *view)
+{
+    mcview_vterm_t *vt = view->vterm;
+    mcview_terminal_buffer_t *buf;
+    const WRect *r = &view->data_area;
+    off_t filesize, pos;
+    int top_row, row, col;
+
+    if (vt == NULL)
+        return;
+
+    buf = mcview_vterm_buf (vt);
+
+    filesize = mcview_get_filesize (view);
+    pos = mcview_vterm_replay_offset (vt);
+
+    while (pos < filesize)
+    {
+        int c;
+        vterm_event_t ev;
+
+        if (!mcview_get_byte (view, pos, &c))
+            break;
+
+        ev = mcview_vterm_feed (vt, (unsigned char) c);
+        mcview_vterm_apply_event (vt, &ev);
+        pos++;
+    }
+    mcview_vterm_set_replay_offset (vt, pos);
+    view->dpy_end = filesize;
+
+    /* Re-fetch buf: VTERM_ALT_SCREEN_EXIT may have swapped it for the snapshot. */
+    buf = mcview_vterm_buf (vt);
+
+    /* Render virtual screen into data area. */
+    top_row = mcview_vterm_resolve_top_row (vt, r->lines);
+    tty_setcolor (VIEWER_NORMAL_COLOR);
+
+    for (row = 0; row < r->lines; row++)
+    {
+        int canvas_row = top_row + row;
+
+        for (col = 0; col < r->cols; col++)
+        {
+            const mcview_vterm_cell_t *cell;
+
+            /* Position explicitly per column so that ambiguous-width characters
+             * printed as 2-wide by tty_print_anychar() do not shift subsequent
+             * cells to the right on screen. */
+            widget_gotoyx (view, r->y + row, r->x + col);
+
+            cell = mcview_terminal_buffer_get (buf, canvas_row, col);
+
+            if (cell != NULL && cell->ch != 0)
+            {
+                const mcview_cell_attr_t *a = &cell->attr;
+                mcview_ansi_state_t tmp;
+
+                mcview_ansi_state_init (&tmp);
+                tmp.fg = a->fg;
+                tmp.bg = a->bg;
+                tmp.bold = a->bold;
+                tmp.italic = a->italic;
+                tmp.underline = a->underline;
+                tmp.blink = a->blink;
+                tmp.reverse = a->reverse;
+                tty_setcolor (mcview_ansi_get_color (&tmp));
+                tty_print_anychar (cell->ch);
+            }
+            else
+            {
+                tty_setcolor (VIEWER_NORMAL_COLOR);
+                tty_print_char (' ');
+            }
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /** Displays as much data from view->dpy_start as fits on the screen */
 
 MC_MOCKABLE void
@@ -267,6 +353,8 @@ mcview_display (WView *view)
 {
     if (view->mode_flags.hex)
         mcview_display_hex (view);
+    else if (view->mode_flags.terminal)
+        mcview_display_terminal (view);
     else
         mcview_display_text (view);
     mcview_display_status (view);
