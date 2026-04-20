@@ -174,65 +174,102 @@ mcview_terminal_buffer_get (const mcview_terminal_buffer_t *buf, int row, int co
 /* --------------------------------------------------------------------------------------------- */
 
 void
-mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col,
-                                  const mcview_ansi_state_t *ansi)
+mcview_terminal_buffer_fill_range (mcview_terminal_buffer_t *buf, int row, int col_from, int col_to,
+                                   gunichar ch, const mcview_ansi_state_t *ansi)
 {
     GArray *arr;
+    mcview_cell_attr_t attr;
     int i;
 
-    arr = (GArray *) g_hash_table_lookup (buf->rows, GINT_TO_POINTER (row));
-    if (arr == NULL)
+    if (row < 0 || col_from > col_to || col_to < 0)
         return;
 
-    for (i = col; i < (int) arr->len; i++)
+    cell_attr_from_ansi (&attr, ansi);
+    arr = get_or_create_row (buf, row);
+    ensure_col (arr, col_to);
+
+    for (i = col_from; i <= col_to; i++)
     {
         mcview_vterm_cell_t *cell = &g_array_index (arr, mcview_vterm_cell_t, i);
-        cell->ch = 0;
-        cell_attr_from_ansi (&cell->attr, ansi);
+        cell->ch = ch;
+        cell->attr = attr;
     }
+
+    if (row > buf->max_row)
+        buf->max_row = row;
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 void
-mcview_terminal_buffer_erase_bol (mcview_terminal_buffer_t *buf, int row, int col,
+mcview_terminal_buffer_scroll_up (mcview_terminal_buffer_t *buf, int top, int bottom, int cols,
                                   const mcview_ansi_state_t *ansi)
 {
-    GArray *arr;
-    int i, limit;
+    int row;
 
-    arr = (GArray *) g_hash_table_lookup (buf->rows, GINT_TO_POINTER (row));
-    if (arr == NULL)
+    if (top >= bottom || cols <= 0)
         return;
 
-    limit = MIN (col + 1, (int) arr->len);
-    for (i = 0; i < limit; i++)
+    /* Shift rows top..bottom-1: each row gets the content of the row below it. */
+    for (row = top; row < bottom; row++)
     {
-        mcview_vterm_cell_t *cell = &g_array_index (arr, mcview_vterm_cell_t, i);
-        cell->ch = 0;
-        cell_attr_from_ansi (&cell->attr, ansi);
+        gpointer key_dst = GINT_TO_POINTER (row);
+        gpointer key_src = GINT_TO_POINTER (row + 1);
+        GArray *src_arr;
+
+        g_hash_table_remove (buf->rows, key_dst);
+
+        src_arr = (GArray *) g_hash_table_lookup (buf->rows, key_src);
+        if (src_arr != NULL)
+        {
+            GArray *dst_arr = g_array_new (FALSE, TRUE, sizeof (mcview_vterm_cell_t));
+            if (src_arr->len > 0)
+                g_array_append_vals (dst_arr, src_arr->data, src_arr->len);
+            g_hash_table_insert (buf->rows, key_dst, dst_arr);
+        }
     }
+
+    /* Clear the vacated bottom row. */
+    g_hash_table_remove (buf->rows, GINT_TO_POINTER (bottom));
+    mcview_terminal_buffer_fill_range (buf, bottom, 0, cols - 1, ' ', ansi);
+
+    if (buf->max_row < bottom)
+        buf->max_row = bottom;
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 void
-mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row,
+mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col, int term_cols,
+                                  const mcview_ansi_state_t *ansi)
+{
+    if (col >= term_cols || term_cols <= 0)
+        return;
+    mcview_terminal_buffer_fill_range (buf, row, col, term_cols - 1, ' ', ansi);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_terminal_buffer_erase_bol (mcview_terminal_buffer_t *buf, int row, int col, int term_cols,
+                                  const mcview_ansi_state_t *ansi)
+{
+    if (col < 0)
+        return;
+    if (col >= term_cols)
+        col = term_cols - 1;
+    mcview_terminal_buffer_fill_range (buf, row, 0, col, ' ', ansi);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row, int term_cols,
                                    const mcview_ansi_state_t *ansi)
 {
-    GArray *arr;
-    int i;
-
-    arr = (GArray *) g_hash_table_lookup (buf->rows, GINT_TO_POINTER (row));
-    if (arr == NULL)
+    if (term_cols <= 0)
         return;
-
-    for (i = 0; i < (int) arr->len; i++)
-    {
-        mcview_vterm_cell_t *cell = &g_array_index (arr, mcview_vterm_cell_t, i);
-        cell->ch = 0;
-        cell_attr_from_ansi (&cell->attr, ansi);
-    }
+    mcview_terminal_buffer_fill_range (buf, row, 0, term_cols - 1, ' ', ansi);
 }
 
 /* --------------------------------------------------------------------------------------------- */

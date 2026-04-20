@@ -43,13 +43,19 @@ void mcview_terminal_buffer_put_char (mcview_terminal_buffer_t *buf, int row, in
 const mcview_vterm_cell_t *mcview_terminal_buffer_get (const mcview_terminal_buffer_t *buf, int row,
                                                        int col);
 
-void mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col,
+void mcview_terminal_buffer_fill_range (mcview_terminal_buffer_t *buf, int row, int col_from,
+                                        int col_to, gunichar ch, const mcview_ansi_state_t *ansi);
+
+void mcview_terminal_buffer_scroll_up (mcview_terminal_buffer_t *buf, int top, int bottom, int cols,
                                        const mcview_ansi_state_t *ansi);
+
+void mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col,
+                                       int term_cols, const mcview_ansi_state_t *ansi);
 
 void mcview_terminal_buffer_erase_bol (mcview_terminal_buffer_t *buf, int row, int col,
-                                       const mcview_ansi_state_t *ansi);
+                                       int term_cols, const mcview_ansi_state_t *ansi);
 
-void mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row,
+void mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row, int term_cols,
                                         const mcview_ansi_state_t *ansi);
 
 int mcview_terminal_buffer_max_row (const mcview_terminal_buffer_t *buf);
