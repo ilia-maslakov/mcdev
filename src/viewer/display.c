@@ -278,6 +278,9 @@ mcview_display_terminal (WView *view)
     if (vt == NULL)
         return;
 
+    if (mcview_vterm_set_size (vt, r->lines, r->cols))
+        mcview_vterm_reset (vt);
+
     buf = mcview_vterm_buf (vt);
 
     filesize = mcview_get_filesize (view);

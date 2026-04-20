@@ -28,6 +28,9 @@ typedef enum
     VTERM_ERASE_LINE,
     VTERM_ERASE_SCREEN,
     VTERM_ALT_SCREEN_EXIT,
+    VTERM_SET_SCROLL_REGION, /* param1=top_row (0-based), param2=bottom_row (0-based) */
+    VTERM_CURSOR_ROW_ABS,    /* param1=target_row (0-based), col unchanged */
+    VTERM_ERASE_CHARS,       /* param1=count; erase from cursor_col, cursor stays */
     VTERM_CONSUMED,
 } vterm_result_t;
 
@@ -65,6 +68,9 @@ int mcview_vterm_dpy_top_row (const mcview_vterm_t *vt);
 void mcview_vterm_set_dpy_top_row (mcview_vterm_t *vt, int row);
 int mcview_vterm_resolve_top_row (const mcview_vterm_t *vt, int data_lines);
 void mcview_vterm_reset (mcview_vterm_t *vt);
+
+/* Update terminal size; returns TRUE on change. */
+gboolean mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols);
 
 /*** inline functions ****************************************************************************/
 

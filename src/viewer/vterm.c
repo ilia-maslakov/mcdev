@@ -68,6 +68,11 @@ struct mcview_vterm_struct
     int cursor_row;
     int cursor_col;
 
+    int term_rows;
+    int term_cols;
+    int scroll_top;
+    int scroll_bottom;
+
     off_t replay_offset;
 
     mcview_terminal_buffer_t *buf;
@@ -222,6 +227,38 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
             return vterm_make (vt, VTERM_ERASE_SCREEN);
         return vterm_make (vt, VTERM_CONSUMED);
 
+    case 'r': /* DECSTBM -- set scroll region (1-based top;bottom) */
+    {
+        int top = (p0 > 0 ? p0 : 1) - 1;
+        int bot = (p1 > 0 ? p1 : vt->term_rows) - 1;
+        vterm_event_t ev;
+
+        if (top < 0)
+            top = 0;
+        if (bot >= vt->term_rows)
+            bot = vt->term_rows - 1;
+        if (top >= bot) /* invalid region: consume without effect */
+            return vterm_make (vt, VTERM_CONSUMED);
+        ev = vterm_make (vt, VTERM_SET_SCROLL_REGION);
+        ev.param1 = top;
+        ev.param2 = bot;
+        return ev;
+    }
+
+    case 'd': /* VPA -- vertical position absolute (1-based row) */
+    {
+        vterm_event_t ev = vterm_make (vt, VTERM_CURSOR_ROW_ABS);
+        ev.param1 = (p0 > 0 ? p0 : 1) - 1;
+        return ev;
+    }
+
+    case 'X': /* ECH -- erase characters */
+    {
+        vterm_event_t ev = vterm_make (vt, VTERM_ERASE_CHARS);
+        ev.param1 = (p0 > 0) ? p0 : 1;
+        return ev;
+    }
+
     default:
         return vterm_make (vt, VTERM_CONSUMED);
     }
@@ -334,6 +371,10 @@ mcview_vterm_new (void)
     mcview_ansi_state_init (&vt->ansi);
     vt->buf = mcview_terminal_buffer_new ();
     vt->dpy_top_row = MCVIEW_VTERM_FOLLOW_END;
+    vt->term_rows = 24;
+    vt->term_cols = 80;
+    vt->scroll_top = 0;
+    vt->scroll_bottom = 23;
     return vt;
 }
 
@@ -368,12 +409,42 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     vt->utf8_expected = 0;
     vt->cursor_row = 0;
     vt->cursor_col = 0;
+    vt->scroll_top = 0;
+    vt->scroll_bottom = vt->term_rows - 1;
     vt->replay_offset = 0;
     vt->dpy_top_row = MCVIEW_VTERM_FOLLOW_END;
     mcview_terminal_buffer_free (vt->snapshot_buf);
     vt->snapshot_buf = NULL;
     vt->new_chars_since_snapshot = FALSE;
     mcview_terminal_buffer_clear (vt->buf);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols)
+{
+    if (rows < 1)
+        rows = 1;
+    if (cols < 1)
+        cols = 1;
+
+    if (rows == vt->term_rows && cols == vt->term_cols)
+        return FALSE;
+
+    vt->term_rows = rows;
+    vt->term_cols = cols;
+
+    if (vt->scroll_bottom >= vt->term_rows)
+        vt->scroll_bottom = vt->term_rows - 1;
+    if (vt->scroll_top >= vt->scroll_bottom)
+        vt->scroll_top = 0;
+    if (vt->cursor_row >= vt->term_rows)
+        vt->cursor_row = vt->term_rows - 1;
+    if (vt->cursor_col >= vt->term_cols)
+        vt->cursor_col = vt->term_cols - 1;
+
+    return TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -527,8 +598,14 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         break;
 
     case VTERM_LF:
-        vt->cursor_row++;
         vt->cursor_col = 0;
+        if (vt->cursor_row >= vt->scroll_top && vt->cursor_row < vt->scroll_bottom)
+            vt->cursor_row++;
+        else if (vt->cursor_row == vt->scroll_bottom)
+            mcview_terminal_buffer_scroll_up (vt->buf, vt->scroll_top, vt->scroll_bottom,
+                                              vt->term_cols, &ev->ansi);
+        else if (vt->cursor_row < vt->term_rows - 1)
+            vt->cursor_row++;
         break;
 
     case VTERM_CURSOR_ABS:
@@ -546,13 +623,15 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
             vt->new_chars_since_snapshot = FALSE;
         }
 
-        vt->cursor_row = new_row;
-        vt->cursor_col = new_col;
+        vt->cursor_row = (new_row < vt->term_rows) ? new_row : vt->term_rows - 1;
+        vt->cursor_col = (new_col < vt->term_cols) ? new_col : vt->term_cols - 1;
     }
     break;
 
     case VTERM_CURSOR_FWD:
         vt->cursor_col += (ev->param1 > 0) ? ev->param1 : 1;
+        if (vt->cursor_col >= vt->term_cols)
+            vt->cursor_col = vt->term_cols - 1;
         break;
 
     case VTERM_CURSOR_BACK:
@@ -572,18 +651,22 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
 
     case VTERM_CURSOR_DOWN:
         vt->cursor_row += ev->param1;
+        if (vt->cursor_row >= vt->term_rows)
+            vt->cursor_row = vt->term_rows - 1;
         break;
 
     case VTERM_ERASE_EOL:
-        mcview_terminal_buffer_erase_eol (vt->buf, vt->cursor_row, vt->cursor_col, &ev->ansi);
+        mcview_terminal_buffer_erase_eol (vt->buf, vt->cursor_row, vt->cursor_col, vt->term_cols,
+                                          &ev->ansi);
         break;
 
     case VTERM_ERASE_BOL:
-        mcview_terminal_buffer_erase_bol (vt->buf, vt->cursor_row, vt->cursor_col, &ev->ansi);
+        mcview_terminal_buffer_erase_bol (vt->buf, vt->cursor_row, vt->cursor_col, vt->term_cols,
+                                          &ev->ansi);
         break;
 
     case VTERM_ERASE_LINE:
-        mcview_terminal_buffer_erase_line (vt->buf, vt->cursor_row, &ev->ansi);
+        mcview_terminal_buffer_erase_line (vt->buf, vt->cursor_row, vt->term_cols, &ev->ansi);
         break;
 
     case VTERM_ERASE_SCREEN:
@@ -609,6 +692,35 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         }
         vt->new_chars_since_snapshot = FALSE;
         break;
+
+    case VTERM_SET_SCROLL_REGION:
+        vt->scroll_top = ev->param1;
+        vt->scroll_bottom = ev->param2;
+        vt->cursor_row = 0;
+        vt->cursor_col = 0;
+        break;
+
+    case VTERM_CURSOR_ROW_ABS:
+    {
+        int row = ev->param1;
+        if (row < 0)
+            row = 0;
+        if (row >= vt->term_rows)
+            row = vt->term_rows - 1;
+        vt->cursor_row = row;
+    }
+    break;
+
+    case VTERM_ERASE_CHARS:
+    {
+        int count = (ev->param1 > 0) ? ev->param1 : 1;
+        int col_to = vt->cursor_col + count - 1;
+        if (col_to >= vt->term_cols)
+            col_to = vt->term_cols - 1;
+        mcview_terminal_buffer_fill_range (vt->buf, vt->cursor_row, vt->cursor_col, col_to, ' ',
+                                           &ev->ansi);
+    }
+    break;
 
     case VTERM_SGR:
     case VTERM_CONSUMED:
