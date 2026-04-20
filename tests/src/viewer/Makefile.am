@@ -18,6 +18,7 @@ endif
 TESTS = \
 	mcview__load_zip_magic \
 	mcview__stream \
+	mcview__filter \
 	ansi_parser \
 	vterm_terminal
 
@@ -28,6 +29,9 @@ mcview__load_zip_magic_SOURCES = \
 
 mcview__stream_SOURCES = \
 	mcview__stream.c
+
+mcview__filter_SOURCES = \
+	mcview__filter.c
 
 ansi_parser_SOURCES = \
 	ansi_parser.c

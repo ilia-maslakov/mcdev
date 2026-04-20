@@ -29,6 +29,8 @@
 
 #include "lib/global.h"
 #include "lib/search.h"
+#include "lib/strutil.h"
+#include "lib/charsets.h"
 #include "lib/widget.h"
 
 #include "src/history.h"
@@ -36,6 +38,15 @@
 #include "internal.h"
 
 /*** global variables ****************************************************************************/
+
+/* Default filter options.  case_sens=FALSE by default (matches typical log-filtering expectations).
+ */
+mcview_filter_options_t mcview_filter_options = {
+    .type = MC_SEARCH_T_NORMAL,
+    .case_sens = FALSE,
+    .whole_words = FALSE,
+    .all_codepages = FALSE,
+};
 
 /*** file scope macro definitions ****************************************************************/
 
@@ -54,16 +65,26 @@
 /* --------------------------------------------------------------------------------------------- */
 
 /**
- * Show "Filter:" input dialog.  On OK stores pattern into view and activates filter.
- * On empty input, deactivates any current filter.  Cancel leaves filter unchanged.
+ * Show "Filter:" dialog (same layout as F7 Search, without Backwards).
+ * On OK: activates filter with chosen options.
+ * On empty input: deactivates any current filter.
+ * On Cancel: leaves filter and options unchanged.
  *
- * @return TRUE if filter was changed (activated or deactivated).
+ * @return TRUE if filter state was changed (activated or deactivated).
  */
 gboolean
 mcview_filter_dialog (WView *view)
 {
     char *exp = NULL;
     int qd_result;
+    size_t num_of_types = 0;
+    gchar **list_of_types;
+    mcview_filter_options_t opts;
+
+    /* Work on a local copy -- committed to global only on successful activation. */
+    opts = mcview_filter_options;
+
+    list_of_types = mc_search_get_types_strings_array (&num_of_types);
 
     {
         quick_widget_t quick_widgets[] = {
@@ -72,12 +93,21 @@ mcview_filter_dialog (WView *view)
                                  view->filter_pattern != NULL ? view->filter_pattern : "",
                                  "mc.view.filter", &exp, NULL, FALSE, FALSE,
                                  INPUT_COMPLETE_NONE),
+            QUICK_SEPARATOR (TRUE),
+            QUICK_START_COLUMNS,
+                QUICK_RADIO (num_of_types, (const char **) list_of_types,
+                             (int *) &opts.type, NULL),
+            QUICK_NEXT_COLUMN,
+                QUICK_CHECKBOX (_ ("Cas&e sensitive"), &opts.case_sens, NULL),
+                QUICK_CHECKBOX (_ ("&Whole words"), &opts.whole_words, NULL),
+                QUICK_CHECKBOX (_ ("&All charsets"), &opts.all_codepages, NULL),
+            QUICK_STOP_COLUMNS,
             QUICK_BUTTONS_OK_CANCEL,
             QUICK_END,
             // clang-format on
         };
 
-        WRect r = { -1, -1, 0, 50 };
+        WRect r = { -1, -1, 0, 58 };
 
         quick_dialog_t qdlg = {
             .rect = r,
@@ -91,6 +121,8 @@ mcview_filter_dialog (WView *view)
         qd_result = quick_dialog (&qdlg);
     }
 
+    g_strfreev (list_of_types);
+
     if (qd_result == B_CANCEL)
     {
         g_free (exp);
@@ -100,6 +132,8 @@ mcview_filter_dialog (WView *view)
     if (exp == NULL || exp[0] == '\0')
     {
         g_free (exp);
+        /* Commit options even on clear so next open reflects what user set. */
+        mcview_filter_options = opts;
         if (view->filter_active)
         {
             mcview_filter_deactivate (view);
@@ -108,7 +142,31 @@ mcview_filter_dialog (WView *view)
         return FALSE;
     }
 
-    mcview_filter_activate (view, exp);
+    /* Apply charset conversion, same as F7 Search (dialogs.c). */
+    {
+        GString *tmp;
+
+        tmp = str_convert_to_input (exp);
+        g_free (exp);
+        exp = (tmp != NULL) ? g_string_free (tmp, FALSE) : g_strdup ("");
+    }
+
+    {
+        gchar *err = NULL;
+
+        if (!mcview_filter_activate (view, exp, &opts, &err))
+        {
+            message (D_ERROR, MSG_ERROR, _ ("Filter error: %s"),
+                     err != NULL ? err : _ ("unknown error"));
+            g_free (err);
+            g_free (exp);
+            return FALSE;
+        }
+
+        /* Commit options only after successful activation. */
+        mcview_filter_options = opts;
+    }
+
     g_free (exp);
     return TRUE;
 }
@@ -116,24 +174,54 @@ mcview_filter_dialog (WView *view)
 /* --------------------------------------------------------------------------------------------- */
 
 /**
- * Activate filter mode with the given plain-text pattern.
+ * Activate filter mode with the given pattern and options.
  * O(1): does not scan the datasource -- mcview_filter_update() does that
  * incrementally over successive redraw ticks.
+ *
+ * Compile-first, commit-on-success: the old filter state is not touched until
+ * the new engine passes mc_search_prepare().  This means an invalid regex or
+ * hex pattern leaves the active filter running.
+ *
+ * NOTE: filter matching is line-by-line (within a single line only).
+ * Cross-line patterns in regex/wildcard/hex will never produce matches.
+ *
+ * @param opts  Search options to apply (caller's local copy, not the global).
+ * @param err_msg  If non-NULL, receives a newly-allocated error string on
+ *                 failure (caller must g_free()).  Set to NULL on success.
+ * @return TRUE on success, FALSE if the engine could not be prepared.
  */
-void
-mcview_filter_activate (WView *view, const char *pattern)
+gboolean
+mcview_filter_activate (WView *view, const char *pattern, const mcview_filter_options_t *opts,
+                        gchar **err_msg)
 {
-    /* Deactivate any current filter first to free old state. */
+    mc_search_t *engine;
+
+    if (err_msg != NULL)
+        *err_msg = NULL;
+
+    engine = mc_search_new (pattern, NULL);
+    if (engine == NULL)
+        return FALSE;
+
+    engine->search_type = opts->type;
+    engine->is_case_sensitive = opts->case_sens;
+    engine->whole_words = opts->whole_words;
+    engine->is_all_charsets = opts->all_codepages;
+
+    /* mc_search_new() does not compile the pattern; mc_search_prepare() does. */
+    if (!mc_search_prepare (engine))
+    {
+        if (err_msg != NULL)
+            *err_msg = g_strdup (engine->error_str);
+        mc_search_free (engine);
+        return FALSE;
+    }
+
+    /* Pattern is valid -- now it is safe to tear down old state. */
     if (view->filter_active)
         mcview_filter_deactivate (view);
 
-    view->filter_engine = mc_search_new (pattern, NULL);
-    if (view->filter_engine == NULL)
-        return;
-
-    view->filter_engine->search_type = MC_SEARCH_T_NORMAL;
-    view->filter_engine->is_case_sensitive = TRUE;
-    view->filter_engine->whole_words = FALSE;
+    view->filter_engine = engine;
 
     g_free (view->filter_pattern);
     view->filter_pattern = g_strdup (pattern);
@@ -157,6 +245,7 @@ mcview_filter_activate (WView *view, const char *pattern)
     }
 
     view->dirty++;
+    return TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */

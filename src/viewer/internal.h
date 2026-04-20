@@ -217,7 +217,7 @@ struct WView
 
     // line filter (F6 filter mode)
     gchar *filter_pattern;       // Active pattern, or NULL when filter is off
-    mc_search_t *filter_engine;  // Compiled MC_SEARCH_T_NORMAL (plain-text, case-sensitive) search
+    mc_search_t *filter_engine;  // Compiled search engine (type/options from mcview_filter_options)
     GArray *filter_offsets;      // off_t[], BOL of every matching line, append-only
     off_t filter_scanned_up_to;  // BOL of the line currently being scanned (index complete up to
                                  // here)
@@ -249,9 +249,18 @@ typedef struct mcview_search_options_t
     gboolean all_codepages;
 } mcview_search_options_t;
 
+typedef struct
+{
+    mc_search_type_t type;
+    gboolean case_sens;
+    gboolean whole_words;
+    gboolean all_codepages;
+} mcview_filter_options_t;
+
 /*** global variables defined in .c file *********************************************************/
 
 extern mcview_search_options_t mcview_search_options;
+extern mcview_filter_options_t mcview_filter_options;
 
 /*** declarations of public functions ************************************************************/
 
@@ -372,7 +381,8 @@ int mcview_nroff_seq_prev (mcview_nroff_t *nroff);
 
 /* filter.c: */
 gboolean mcview_filter_dialog (WView *view);
-void mcview_filter_activate (WView *view, const char *pattern);
+gboolean mcview_filter_activate (WView *view, const char *pattern,
+                                 const mcview_filter_options_t *opts, gchar **err_msg);
 void mcview_filter_deactivate (WView *view);
 void mcview_filter_update (WView *view);
 guint mcview_filter_idx (WView *view, off_t offset);
