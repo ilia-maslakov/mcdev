@@ -18,7 +18,8 @@ endif
 TESTS = \
 	mcview__load_zip_magic \
 	mcview__stream \
-	ansi_parser
+	ansi_parser \
+	vterm_terminal
 
 check_PROGRAMS = $(TESTS)
 
@@ -30,3 +31,6 @@ mcview__stream_SOURCES = \
 
 ansi_parser_SOURCES = \
 	ansi_parser.c
+
+vterm_terminal_SOURCES = \
+	vterm_terminal.c
