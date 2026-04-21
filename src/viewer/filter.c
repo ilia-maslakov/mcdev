@@ -31,6 +31,7 @@
 #include "lib/search.h"
 #include "lib/strutil.h"
 #include "lib/charsets.h"
+#include "lib/tty/tty.h"
 #include "lib/widget.h"
 
 #include "src/history.h"
@@ -50,15 +51,248 @@ mcview_filter_options_t mcview_filter_options = {
 
 /*** file scope macro definitions ****************************************************************/
 
+/* Extra button code for [ Check pattern ] in the filter dialog. */
+#define B_CHECK  (B_USER + 1)
+
+/* Width of the Regex Check dialog. */
+#define REGEX_CHECK_COLS  58
+/* Left/right content margin inside the Regex Check dialog. */
+#define REGEX_CHECK_UX    3
+
 /*** file scope type declarations ****************************************************************/
+
+/* Context shared between the Regex Check dialog and its [Test] button callback. */
+typedef struct
+{
+    WView *view;
+    WInput *input;
+    WLabel *status_label;
+    WLabel **preview_labels;
+    int preview_rows;
+    WButton *test_button;
+    mcview_filter_options_t opts;
+} regex_check_ctx_t;
 
 /*** forward declarations (file scope functions) *************************************************/
 
+static int regex_check_test_cb (WButton *button, int action);
+
 /*** file scope variables ************************************************************************/
+
+static regex_check_ctx_t regex_check_ctx;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Run a bounded preview scan and update the Regex Check dialog labels.
+ * Scans from view->dpy_start, stops after preview_rows matches or budget. */
+static void
+regex_check_run (void)
+{
+    regex_check_ctx_t *ctx = &regex_check_ctx;
+    const char *pattern;
+    mc_search_t *engine;
+    off_t pos, bol, filesize;
+    int lines_scanned = 0;
+    off_t bytes_scanned = 0;
+    int matches_found = 0;
+    int i;
+
+    /* Clear preview labels. */
+    for (i = 0; i < ctx->preview_rows; i++)
+        label_set_text (ctx->preview_labels[i], "");
+
+    pattern = input_get_text (ctx->input);
+
+    if (pattern == NULL || pattern[0] == '\0')
+    {
+        label_set_text (ctx->status_label, _ ("First matches:"));
+        widget_show (WIDGET (ctx->test_button));
+        return;
+    }
+
+    engine = mc_search_new (pattern, NULL);
+    if (engine == NULL)
+    {
+        label_set_text (ctx->status_label, _ ("Error: out of memory"));
+        widget_hide (WIDGET (ctx->test_button));
+        return;
+    }
+
+    engine->search_type = ctx->opts.type;
+    engine->is_case_sensitive = ctx->opts.case_sens;
+    engine->whole_words = ctx->opts.whole_words;
+    engine->is_all_charsets = ctx->opts.all_codepages;
+
+    if (!mc_search_prepare (engine))
+    {
+        gchar *msg;
+
+        msg = g_strdup_printf (_ ("Error: %s"),
+                               engine->error_str != NULL ? engine->error_str : _ ("unknown"));
+        label_set_text (ctx->status_label, msg);
+        g_free (msg);
+        mc_search_free (engine);
+        widget_hide (WIDGET (ctx->test_button));
+        return;
+    }
+
+    filesize = mcview_get_filesize (ctx->view);
+    bol = ctx->view->dpy_start;
+    pos = bol;
+
+    while (pos < filesize && matches_found < ctx->preview_rows)
+    {
+        int c;
+
+        if (bytes_scanned >= MCVIEW_FILTER_BUDGET_BYTES || lines_scanned >= MCVIEW_FILTER_BUDGET_LINES)
+            break;
+
+        if (!mcview_get_byte (ctx->view, pos, &c))
+            break;
+
+        bytes_scanned++;
+        pos++;
+
+        if (c == '\n')
+        {
+            off_t len = pos - bol;
+            gchar *buf;
+            off_t j;
+            int bc;
+
+            buf = g_new (gchar, len + 1);
+            for (j = 0; j < len; j++)
+            {
+                if (!mcview_get_byte (ctx->view, bol + j, &bc))
+                    break;
+                buf[j] = (gchar) bc;
+            }
+            buf[j] = '\0';
+
+            if (mc_search_run (engine, buf, 0, j, NULL))
+            {
+                /* Strip trailing newline for display. */
+                if (j > 0 && buf[j - 1] == '\n')
+                    buf[j - 1] = '\0';
+                label_set_text (ctx->preview_labels[matches_found], buf);
+                matches_found++;
+            }
+
+            g_free (buf);
+            lines_scanned++;
+            bol = pos;
+        }
+    }
+
+    mc_search_free (engine);
+
+    if (matches_found > 0)
+        label_set_text (ctx->status_label, _ ("First matches:"));
+    else
+        label_set_text (ctx->status_label, _ ("No matches found."));
+
+    widget_show (WIDGET (ctx->test_button));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+regex_check_test_cb (WButton *button, int action)
+{
+    (void) button;
+    (void) action;
+    regex_check_run ();
+    return 0;  /* keep dialog open */
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Open the Regex Check helper dialog pre-filled with @initial_pattern.
+ * Options are taken from @opts (inherited from Filter dialog, not editable here).
+ * Returns TRUE and stores result in *out_pattern (caller must g_free) if user pressed OK.
+ * Returns FALSE on Cancel. */
+static gboolean
+mcview_regex_check_dialog (WView *view, const char *initial_pattern,
+                            const mcview_filter_options_t *opts, char **out_pattern)
+{
+    WDialog *dlg;
+    WGroup *g;
+    int preview_rows, dlg_lines;
+    int y, btn_x_test, btn_x_ok;
+    int result;
+    int i;
+    regex_check_ctx_t *ctx = &regex_check_ctx;
+    int content_width = REGEX_CHECK_COLS - 2 * REGEX_CHECK_UX;
+
+    preview_rows = CLAMP (LINES - 12, 4, 12);
+    /* Fixed rows: label + input + sep + status + sep + buttons = 6; plus 2 borders. */
+    dlg_lines = preview_rows + 8;
+
+    dlg = dlg_create (TRUE, 0, 0, dlg_lines, REGEX_CHECK_COLS, WPOS_CENTER, FALSE, dialog_colors,
+                      NULL, NULL, "[Filter]", _ ("Regex Check"));
+    g = GROUP (dlg);
+
+    y = 1;
+
+    group_add_widget (g, label_new (y++, REGEX_CHECK_UX, _ ("Expression:")));
+
+    ctx->input = input_new (y++, REGEX_CHECK_UX, input_colors, content_width,
+                            initial_pattern != NULL ? initial_pattern : "", "mc.view.filter",
+                            INPUT_COMPLETE_NONE);
+    group_add_widget (g, ctx->input);
+
+    group_add_widget (g, hline_new (y++, 1, -1));
+
+    ctx->status_label = label_new (y++, REGEX_CHECK_UX, _ ("First matches:"));
+    WIDGET (ctx->status_label)->rect.cols = content_width;
+    ctx->status_label->auto_adjust_cols = FALSE;
+    group_add_widget (g, ctx->status_label);
+
+    ctx->preview_labels = g_new0 (WLabel *, preview_rows);
+    ctx->preview_rows = preview_rows;
+    for (i = 0; i < preview_rows; i++)
+    {
+        ctx->preview_labels[i] = label_new (y++, REGEX_CHECK_UX, "");
+        WIDGET (ctx->preview_labels[i])->rect.cols = content_width;
+        ctx->preview_labels[i]->auto_adjust_cols = FALSE;
+        group_add_widget (g, ctx->preview_labels[i]);
+    }
+
+    group_add_widget (g, hline_new (y++, 1, -1));
+
+    /* Center [ Test ] and [ OK ] buttons.
+     * NORMAL_BUTTON width = text_len + 4; DEFPUSH_BUTTON width = text_len + 6.
+     * "Test" = 4 chars -> 8 wide; "OK" = 2 chars -> 8 wide; gap = 4. */
+    btn_x_test = (REGEX_CHECK_COLS - 8 - 4 - 8) / 2;
+    btn_x_ok = btn_x_test + 8 + 4;
+
+    ctx->test_button =
+        button_new (y, btn_x_test, B_USER, NORMAL_BUTTON, _ ("Test"), regex_check_test_cb);
+    group_add_widget (g, ctx->test_button);
+    group_add_widget (g, button_new (y, btn_x_ok, B_ENTER, DEFPUSH_BUTTON, _ ("OK"), NULL));
+
+    ctx->view = view;
+    ctx->opts = *opts;
+
+    widget_select (WIDGET (ctx->input));
+
+    result = dlg_run (dlg);
+
+    if (result == B_ENTER && out_pattern != NULL)
+        *out_pattern = g_strdup (input_get_text (ctx->input));
+
+    g_free (ctx->preview_labels);
+    ctx->preview_labels = NULL;
+    ctx->preview_rows = 0;
+
+    widget_destroy (WIDGET (dlg));
+
+    return (result == B_ENTER);
+}
 
 /* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
@@ -76,6 +310,7 @@ gboolean
 mcview_filter_dialog (WView *view)
 {
     char *exp = NULL;
+    const char *current_pattern;
     int qd_result;
     size_t num_of_types = 0;
     gchar **list_of_types;
@@ -86,40 +321,63 @@ mcview_filter_dialog (WView *view)
 
     list_of_types = mc_search_get_types_strings_array (&num_of_types);
 
+    /* Loop so that [ Check pattern ] can open the helper dialog and return here
+     * with an updated pattern without closing the filter dialog permanently. */
+    current_pattern = view->filter_pattern != NULL ? view->filter_pattern : "";
+    do
     {
-        quick_widget_t quick_widgets[] = {
-            // clang-format off
-            QUICK_LABELED_INPUT (_ ("Filter pattern (empty = clear):"), input_label_above,
-                                 view->filter_pattern != NULL ? view->filter_pattern : "",
-                                 "mc.view.filter", &exp, NULL, FALSE, FALSE,
-                                 INPUT_COMPLETE_NONE),
-            QUICK_SEPARATOR (TRUE),
-            QUICK_START_COLUMNS,
-                QUICK_RADIO (num_of_types, (const char **) list_of_types,
-                             (int *) &opts.type, NULL),
-            QUICK_NEXT_COLUMN,
-                QUICK_CHECKBOX (_ ("Cas&e sensitive"), &opts.case_sens, NULL),
-                QUICK_CHECKBOX (_ ("&Whole words"), &opts.whole_words, NULL),
-                QUICK_CHECKBOX (_ ("&All charsets"), &opts.all_codepages, NULL),
-            QUICK_STOP_COLUMNS,
-            QUICK_BUTTONS_OK_CANCEL,
-            QUICK_END,
-            // clang-format on
-        };
+        exp = NULL;
 
-        WRect r = { -1, -1, 0, 58 };
+        {
+            quick_widget_t quick_widgets[] = {
+                // clang-format off
+                QUICK_LABELED_INPUT (_ ("Filter pattern (empty = clear):"), input_label_above,
+                                     current_pattern, "mc.view.filter", &exp, NULL, FALSE, FALSE,
+                                     INPUT_COMPLETE_NONE),
+                QUICK_SEPARATOR (TRUE),
+                QUICK_START_COLUMNS,
+                    QUICK_RADIO (num_of_types, (const char **) list_of_types,
+                                 (int *) &opts.type, NULL),
+                QUICK_NEXT_COLUMN,
+                    QUICK_CHECKBOX (_ ("Cas&e sensitive"), &opts.case_sens, NULL),
+                    QUICK_CHECKBOX (_ ("&Whole words"), &opts.whole_words, NULL),
+                    QUICK_CHECKBOX (_ ("&All charsets"), &opts.all_codepages, NULL),
+                QUICK_STOP_COLUMNS,
+                QUICK_BUTTON (_ ("C&heck pattern"), B_CHECK, NULL, NULL),
+                QUICK_BUTTON (_ ("&OK"), B_ENTER, NULL, NULL),
+                QUICK_BUTTON (_ ("&Cancel"), B_CANCEL, NULL, NULL),
+                QUICK_END,
+                // clang-format on
+            };
 
-        quick_dialog_t qdlg = {
-            .rect = r,
-            .title = _ ("Filter"),
-            .help = "[Input Line Keys]",
-            .widgets = quick_widgets,
-            .callback = NULL,
-            .mouse_callback = NULL,
-        };
+            WRect r = { -1, -1, 0, 58 };
 
-        qd_result = quick_dialog (&qdlg);
+            quick_dialog_t qdlg = {
+                .rect = r,
+                .title = _ ("Filter"),
+                .help = "[Input Line Keys]",
+                .widgets = quick_widgets,
+                .callback = NULL,
+                .mouse_callback = NULL,
+            };
+
+            qd_result = quick_dialog (&qdlg);
+        }
+
+        if (qd_result == B_CHECK)
+        {
+            char *checked = NULL;
+
+            /* Pass current input value to helper; on OK get back (possibly edited) pattern. */
+            if (mcview_regex_check_dialog (view, exp != NULL ? exp : "", &opts, &checked))
+            {
+                g_free (exp);
+                exp = checked;
+            }
+            current_pattern = exp != NULL ? exp : "";
+        }
     }
+    while (qd_result == B_CHECK);
 
     g_strfreev (list_of_types);
 
