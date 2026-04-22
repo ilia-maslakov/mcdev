@@ -77,9 +77,15 @@ struct mcview_vterm_struct
 
     mcview_terminal_buffer_t *buf;
     mcview_terminal_buffer_t *snapshot_buf;
+    int snapshot_cursor_row;
+    int snapshot_cursor_col;
 
     /* Cursor-home with no new chars since last snapshot is exit cleanup. */
     gboolean new_chars_since_snapshot;
+
+    /* TRUE while inside ESC[?1049h / ESC[?1049l alt-screen bracket.
+     * Snapshot is taken on entry and must not be overwritten by TUI redraws. */
+    gboolean in_alt_screen;
 
     int dpy_top_row;
 };
@@ -132,9 +138,14 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
     /* DEC private sequences (prefixed with ?): handle known ones, consume the rest. */
     if (vt->csi_private)
     {
-        /* ESC[?1049l = exit alt-screen (DEC private mode 1049 reset) */
-        if (final_byte == 'l' && vt->param_count > 0 && vt->params[0] == 1049)
-            return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+        if (vt->param_count > 0 && vt->params[0] == 1049)
+        {
+            /* ESC[?1049h = enter alt-screen, ESC[?1049l = exit alt-screen */
+            if (final_byte == 'h')
+                return vterm_make (vt, VTERM_ALT_SCREEN_ENTER);
+            if (final_byte == 'l')
+                return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+        }
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
@@ -225,7 +236,9 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
     case 'J': /* erase in display */
         if (p0 == 2)
             return vterm_make (vt, VTERM_ERASE_SCREEN);
-        return vterm_make (vt, VTERM_CONSUMED);
+        if (p0 == 1)
+            return vterm_make (vt, VTERM_ERASE_TO_BOS);
+        return vterm_make (vt, VTERM_ERASE_TO_EOS);
 
     case 'r': /* DECSTBM -- set scroll region (1-based top;bottom) */
     {
@@ -416,6 +429,7 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     mcview_terminal_buffer_free (vt->snapshot_buf);
     vt->snapshot_buf = NULL;
     vt->new_chars_since_snapshot = FALSE;
+    vt->in_alt_screen = FALSE;
     mcview_terminal_buffer_clear (vt->buf);
 }
 
@@ -613,13 +627,16 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         int new_row = (ev->param1 >= 0) ? ev->param1 : 0;
         int new_col = (ev->param2 >= 0) ? ev->param2 : 0;
 
-        /* Keep the last complete frame for alt-screen exit. */
-        if (new_row == 0 && vt->new_chars_since_snapshot
+        /* Keep the last complete frame for alt-screen exit (non-alt-screen path only:
+         * programs using ESC[2J/ESC[H without ESC[?1049h wrappers). */
+        if (!vt->in_alt_screen && new_row == 0 && vt->new_chars_since_snapshot
             && mcview_terminal_buffer_max_row (vt->buf) >= 0
             && mcview_terminal_buffer_max_row (vt->buf) < MCVIEW_VTERM_MAX_CANVAS_ROWS)
         {
             mcview_terminal_buffer_free (vt->snapshot_buf);
             vt->snapshot_buf = mcview_terminal_buffer_copy (vt->buf);
+            vt->snapshot_cursor_row = vt->cursor_row;
+            vt->snapshot_cursor_col = vt->cursor_col;
             vt->new_chars_since_snapshot = FALSE;
         }
 
@@ -670,12 +687,15 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         break;
 
     case VTERM_ERASE_SCREEN:
-        /* Keep the pre-clear frame if it is still meaningful. */
-        if (vt->new_chars_since_snapshot && mcview_terminal_buffer_max_row (vt->buf) >= 0
+        /* Keep the pre-clear frame if it is still meaningful (non-alt-screen path only). */
+        if (!vt->in_alt_screen && vt->new_chars_since_snapshot
+            && mcview_terminal_buffer_max_row (vt->buf) >= 0
             && mcview_terminal_buffer_max_row (vt->buf) < MCVIEW_VTERM_MAX_CANVAS_ROWS)
         {
             mcview_terminal_buffer_free (vt->snapshot_buf);
             vt->snapshot_buf = mcview_terminal_buffer_copy (vt->buf);
+            vt->snapshot_cursor_row = vt->cursor_row;
+            vt->snapshot_cursor_col = vt->cursor_col;
         }
         vt->new_chars_since_snapshot = FALSE;
         mcview_terminal_buffer_clear (vt->buf);
@@ -683,13 +703,70 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         vt->cursor_col = 0;
         break;
 
+    case VTERM_ERASE_TO_EOS:
+    {
+        int r;
+        /* Erase from cursor to end of current line, then clear all rows below. */
+        mcview_terminal_buffer_erase_eol (vt->buf, vt->cursor_row, vt->cursor_col, vt->term_cols,
+                                          &ev->ansi);
+        for (r = vt->cursor_row + 1; r <= mcview_terminal_buffer_max_row (vt->buf); r++)
+            mcview_terminal_buffer_erase_line (vt->buf, r, vt->term_cols, &ev->ansi);
+        break;
+    }
+
+    case VTERM_ERASE_TO_BOS:
+    {
+        int r;
+        /* Clear all rows above cursor, then erase from start of current line to cursor. */
+        for (r = 0; r < vt->cursor_row; r++)
+            mcview_terminal_buffer_erase_line (vt->buf, r, vt->term_cols, &ev->ansi);
+        mcview_terminal_buffer_erase_bol (vt->buf, vt->cursor_row, vt->cursor_col, vt->term_cols,
+                                          &ev->ansi);
+        break;
+    }
+
+    case VTERM_ALT_SCREEN_ENTER:
+        /* Snapshot the main screen so TUI redraws inside the alt-screen bracket
+         * cannot overwrite it.  Subsequent CURSOR_ABS/ERASE_SCREEN handlers
+         * are guarded by in_alt_screen and skip snapshot updates. */
+        if (mcview_terminal_buffer_max_row (vt->buf) < MCVIEW_VTERM_MAX_CANVAS_ROWS)
+        {
+            mcview_terminal_buffer_free (vt->snapshot_buf);
+            vt->snapshot_buf = mcview_terminal_buffer_copy (vt->buf);
+            vt->snapshot_cursor_row = vt->cursor_row;
+            vt->snapshot_cursor_col = vt->cursor_col;
+        }
+        vt->in_alt_screen = TRUE;
+        vt->new_chars_since_snapshot = FALSE;
+        break;
+
     case VTERM_ALT_SCREEN_EXIT:
         if (vt->snapshot_buf != NULL)
         {
-            mcview_terminal_buffer_free (vt->buf);
-            vt->buf = vt->snapshot_buf;
-            vt->snapshot_buf = NULL;
+            if (mcview_terminal_buffer_max_row (vt->snapshot_buf) >= 0)
+            {
+                /* Snapshot has content: restore it (normal shell->app->shell flow). */
+                mcview_terminal_buffer_free (vt->buf);
+                vt->buf = vt->snapshot_buf;
+                vt->snapshot_buf = NULL;
+                vt->cursor_row = vt->snapshot_cursor_row;
+                vt->cursor_col = vt->snapshot_cursor_col;
+            }
+            else
+            {
+                /* Snapshot is empty (app started on bare terminal with no prior
+                 * shell output): discard snapshot and keep the alt-screen buffer
+                 * so the last app frame remains visible. */
+                mcview_terminal_buffer_free (vt->snapshot_buf);
+                vt->snapshot_buf = NULL;
+            }
         }
+        else
+        {
+            vt->cursor_row = 0;
+            vt->cursor_col = 0;
+        }
+        vt->in_alt_screen = FALSE;
         vt->new_chars_since_snapshot = FALSE;
         break;
 
@@ -743,6 +820,14 @@ int
 mcview_vterm_cursor_col (const mcview_vterm_t *vt)
 {
     return vt->cursor_col;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcview_vterm_in_alt_screen (const mcview_vterm_t *vt)
+{
+    return vt->in_alt_screen;
 }
 
 /* --------------------------------------------------------------------------------------------- */

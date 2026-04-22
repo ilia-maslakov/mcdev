@@ -27,6 +27,9 @@ typedef enum
     VTERM_ERASE_BOL,
     VTERM_ERASE_LINE,
     VTERM_ERASE_SCREEN,
+    VTERM_ERASE_TO_EOS, /* ESC[J  or ESC[0J: cursor to end of screen */
+    VTERM_ERASE_TO_BOS, /* ESC[1J: start of screen to cursor */
+    VTERM_ALT_SCREEN_ENTER,
     VTERM_ALT_SCREEN_EXIT,
     VTERM_SET_SCROLL_REGION, /* param1=top_row (0-based), param2=bottom_row (0-based) */
     VTERM_CURSOR_ROW_ABS,    /* param1=target_row (0-based), col unchanged */
@@ -58,6 +61,7 @@ void mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev);
 
 int mcview_vterm_cursor_row (const mcview_vterm_t *vt);
 int mcview_vterm_cursor_col (const mcview_vterm_t *vt);
+gboolean mcview_vterm_in_alt_screen (const mcview_vterm_t *vt);
 mcview_terminal_buffer_t *mcview_vterm_buf (mcview_vterm_t *vt);
 off_t mcview_vterm_replay_offset (const mcview_vterm_t *vt);
 void mcview_vterm_set_replay_offset (mcview_vterm_t *vt, off_t offset);
