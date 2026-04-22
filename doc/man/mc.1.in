@@ -3029,6 +3029,197 @@ at the
 Edit Extension File section
 .\"Edit Extension File"
 
+.\"NODE "  Regex Quick Reference"
+.SH "  Regex Quick Reference"
+.B Common Tokens
+.nf
+A single character of: a, b or c        \fB[abc]\fP
+A character except: a, b or c           \fB[^abc]\fP
+A character in the range: a\-z           \fB[a\-z]\fP
+A character not in the range: a\-z       \fB[^a\-z]\fP
+A character in the range: a\-z or A\-Z    \fB[a\-zA\-Z]\fP
+Any single character                    \fB.\fP
+Alternate - match either a or b         \fBa|b\fP
+Any whitespace character                \fB\es\fP
+Any non\-whitespace character            \fB\eS\fP
+Any digit                               \fB\ed\fP
+Any non\-digit                           \fB\eD\fP
+Any word character                      \fB\ew\fP
+Any non\-word character                  \fB\eW\fP
+Non\-capturing group                     \fB(?:...)\fP
+Capturing group                         \fB(...)\fP
+Zero or one of a                        \fBa?\fP
+Zero or more of a                       \fBa*\fP
+One or more of a                        \fBa+\fP
+Exactly 3 of a                          \fBa{3}\fP
+3 or more of a                          \fBa{3,}\fP
+Between 3 and 6 of a                    \fBa{3,6}\fP
+Start of string                         \fB^\fP
+End of string                           \fB$\fP
+A word boundary                         \fB\eb\fP
+Non\-word boundary                       \fB\eB\fP
+.fi
+.PP
+.B Anchors
+.nf
+Start of match                          \fB\eG\fP
+Start of string                         \fB^\fP
+End of string                           \fB$\fP
+Start of string                         \fB\eA\fP
+End of string                           \fB\eZ\fP
+Absolute end of string                  \fB\ez\fP
+A word boundary                         \fB\eb\fP
+Non\-word boundary                       \fB\eB\fP
+.fi
+.PP
+.B General Tokens
+.nf
+Newline                                 \fB\en\fP
+Carriage return                         \fB\er\fP
+Tab                                     \fB\et\fP
+Null character                          \fB\e0\fP
+.fi
+.PP
+.B Meta Sequences
+.nf
+Any single character                    \fB.\fP
+Alternate: match a or b                 \fBa|b\fP
+Any whitespace character                \fB\es\fP
+Any non\-whitespace character            \fB\eS\fP
+Any digit                               \fB\ed\fP
+Any non\-digit                           \fB\eD\fP
+Any word character                      \fB\ew\fP
+Any non\-word character                  \fB\eW\fP
+Unicode seq., linebreaks included       \fB\eX\fP
+Unicode newlines                        \fB\eR\fP
+Match anything but a newline            \fB\eN\fP
+Vertical whitespace character           \fB\ev\fP
+Negation of \ev                          \fB\eV\fP
+Horizontal whitespace character         \fB\eh\fP
+Negation of \eh                          \fB\eH\fP
+Reset match                             \fB\eK\fP
+Match subpattern number #               \fB\e#\fP
+Unicode property X                      \fB\epX\fP
+Unicode property or script category     \fB\ep{...}\fP
+Negation of \epX                         \fB\ePX\fP
+Negation of \ep{...}                     \fB\eP{...}\fP
+Quote; treat as literals                \fB\eQ...\eE\fP
+Match subpattern 'name'                 \fB\ek{name}\fP
+Match subpattern 'name'                 \fB\ek<name>\fP
+Match subpattern 'name'                 \fB\ek'name'\fP
+Match nth subpattern                    \fB\egn\fP
+Match nth subpattern                    \fB\eg{n}\fP
+Nth relative previous subpattern        \fB\eg{-n}\fP
+Nth capture group expression            \fB\eg<n>\fP
+Nth upcoming capture group expr.        \fB\eg<+n>\fP
+Nth capture group expression            \fB\eg'n'\fP
+Nth upcoming subpattern expr.           \fB\eg'+n'\fP
+Match named capture group               \fB\eg{letter}\fP
+Named capture group expression          \fB\eg<letter>\fP
+Named capture group expression          \fB\eg'letter'\fP
+Hex character YY                        \fB\exYY\fP
+Hex character YYYY                      \fB\ex{YYYY}\fP
+Octal character ddd                     \fB\eddd\fP
+Control character Y                     \fB\ecY\fP
+Backspace character                     \fB[\eb]\fP
+Makes any character literal             \fB\e\fP
+.fi
+.PP
+.B Quantifiers
+.nf
+Zero or one of a                        \fBa?\fP
+Zero or more of a                       \fBa*\fP
+One or more of a                        \fBa+\fP
+Exactly 3 of a                          \fBa{3}\fP
+3 or more of a                          \fBa{3,}\fP
+Between 3 and 6 of a                    \fBa{3,6}\fP
+Greedy quantifier                       \fBa*\fP
+Lazy quantifier                         \fBa*?\fP
+Possessive quantifier                   \fBa*+\fP
+.fi
+.PP
+.B Character Classes
+.nf
+A single character of: a, b or c        \fB[abc]\fP
+A character except: a, b or c           \fB[^abc]\fP
+A character in the range: a\-z           \fB[a\-z]\fP
+A character not in the range: a\-z       \fB[^a\-z]\fP
+Character in range: a\-z or A\-Z          \fB[a\-zA\-Z]\fP
+Letters and digits                      \fB[[:alnum:]]\fP
+Letters                                 \fB[[:alpha:]]\fP
+ASCII codes 0\-127                       \fB[[:ascii:]]\fP
+Space or tab only                       \fB[[:blank:]]\fP
+Control characters                      \fB[[:cntrl:]]\fP
+Decimal digits                          \fB[[:digit:]]\fP
+Visible characters (not space)          \fB[[:graph:]]\fP
+Lowercase letters                       \fB[[:lower:]]\fP
+Visible characters                      \fB[[:print:]]\fP
+Visible punctuation characters          \fB[[:punct:]]\fP
+Whitespace                              \fB[[:space:]]\fP
+Uppercase letters                       \fB[[:upper:]]\fP
+Word characters                         \fB[[:word:]]\fP
+Hexadecimal digits                      \fB[[:xdigit:]]\fP
+Start of word                           \fB[[:<:]]\fP
+End of word                             \fB[[:>:]]\fP
+.fi
+.PP
+.B Flags/Modifiers
+.nf
+Multiline                               \fBm\fP
+Case insensitive                        \fBi\fP
+Ignore whitespace / verbose             \fBx\fP
+Single line                             \fBs\fP
+Unicode                                 \fBu\fP
+eXtra                                   \fBX\fP
+Ungreedy                                \fBU\fP
+Anchor                                  \fBA\fP
+Duplicate group names                   \fBJ\fP
+Non\-capturing groups                    \fBn\fP
+Ignore all whitespace / verbose         \fBxx\fP
+.fi
+.PP
+.B Group Constructs
+.nf
+Non\-capturing group                 \fB(?:...)\fP
+Capturing group                     \fB(...)\fP
+Atomic group (non\-capturing)        \fB(?>...)\fP
+Reset subpattern group number       \fB(?|...)\fP
+Comment group                       \fB(?#...)\fP
+Named capturing group               \fB(?'name'...)\fP
+Named capturing group               \fB(?<name>...)\fP
+Named capturing group               \fB(?P<name>...)\fP
+Inline modifiers                    \fB(?imsxUJnxx)\fP
+Localized inline modifiers          \fB(?imsxUJnxx:...)\fP
+Conditional statement               \fB(?(1)yes|no)\fP
+Conditional statement               \fB(?(R)yes|no)\fP
+Recursive conditional statement     \fB(?(R#)yes|no)\fP
+Conditional statement               \fB(?(R&name)yes|no)\fP
+Lookahead conditional               \fB(?(?=...)yes|no)\fP
+Lookbehind conditional              \fB(?(?<=...)yes|no)\fP
+Recurse entire pattern              \fB(?R)\fP
+Match expr. in capture group 1      \fB(?1)\fP
+First relative capture group        \fB(?+1)\fP
+Named capture group expression      \fB(?&name)\fP
+Match subpattern 'name'             \fB(?P=name)\fP
+Match expr. in group '{name}'       \fB(?P>name)\fP
+Pre\-define patterns before use      \fB(?(DEFINE)...)\fP
+Positive lookahead                  \fB(?=...)\fP
+Negative lookahead                  \fB(?!...)\fP
+Positive lookbehind                 \fB(?<=...)\fP
+Negative lookbehind                 \fB(?<!...)\fP
+Alphabetic lookaround assertions    \fB(*pla:...)\fP
+Non\-atomic lookaround assertion     \fB(*non_atomic_positive_lookahead:...)\fP
+Script run assertion                \fB(*script_run:...)\fP
+Script run (shorthand)              \fB(*sr:...)\fP
+Control verb                        \fB(*ACCEPT)\fP
+Control verb                        \fB(*FAIL)\fP
+Control verb                        \fB(*MARK:NAME)\fP
+Control verb                        \fB(*COMMIT)\fP
+Control verb                        \fB(*PRUNE)\fP
+Control verb                        \fB(*SKIP)\fP
+Control verb                        \fB(*THEN)\fP
+.fi
+
 .\"NODE "Internal File Editor"
 .SH "Internal File Editor"
 The internal file editor is a full\-featured full screen editor.  It can

@@ -211,9 +211,31 @@ sub print_string($)
     # Copying verbatim?
     if ($verbatim_flag)
     {
-        # Attempt to handle backslash quoting
+        my $font_change_flag = 0;
+        # Attempt to handle backslash quoting and \fB/\fI/\fP font changes
         foreach (split //, $buffer)
         {
+            if ($font_change_flag)
+            {
+                if    ($_ eq 'B')              { print $f_out $CHAR_FONT_BOLD; }
+                elsif ($_ eq 'I')              { print $f_out $CHAR_FONT_ITALIC; }
+                elsif ($_ eq 'R' || $_ eq 'P') { print $f_out $CHAR_FONT_NORMAL; }
+                else                           { print $f_out 'f' . $_; }
+                $font_change_flag = 0;
+                next;
+            }
+            if ($_ eq 'f' && $backslash_flag)
+            {
+                $font_change_flag = 1;
+                $backslash_flag = 0;
+                next;
+            }
+            if ($_ eq 'e' && $backslash_flag)
+            {
+                print $f_out '\\';
+                $backslash_flag = 0;
+                next;
+            }
             if ($_ eq '\\' && !$backslash_flag)
             {
                 $backslash_flag = 1;
