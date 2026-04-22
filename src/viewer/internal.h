@@ -381,6 +381,21 @@ int mcview_nroff_seq_prev (mcview_nroff_t *nroff);
 
 /* filter.c: */
 gboolean mcview_filter_dialog (WView *view);
+/* One matched line returned by mcview_filter_preview_scan(). */
+typedef struct
+{
+    gchar *text;     /* matched line without trailing newline; caller must g_free */
+    int match_start; /* byte offset of first match within text */
+    int match_len;   /* byte length of first match */
+} mcview_preview_match_t;
+
+/* Scan view from view->dpy_start, collect up to max_matches matched lines.
+ * Fills out[0..n-1] (caller must g_free each .text).
+ * Returns number of matches found, or -1 on pattern error (sets *err, caller g_free). */
+int mcview_filter_preview_scan (WView *view, const char *pattern,
+                                const mcview_filter_options_t *opts, mcview_preview_match_t *out,
+                                int max_matches, gchar **err);
+
 gboolean mcview_filter_activate (WView *view, const char *pattern,
                                  const mcview_filter_options_t *opts, gchar **err_msg);
 void mcview_filter_deactivate (WView *view);
