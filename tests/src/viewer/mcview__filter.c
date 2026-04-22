@@ -233,6 +233,54 @@ START_TEST (test_deactivate_clears_state)
 }
 END_TEST
 
+/* @Test: hex mode activates filter engine with correct search type */
+START_TEST (test_activate_hex_type_propagated)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_HEX, FALSE, FALSE, FALSE);
+
+    ck_assert (mcview_filter_activate (&test_view, "41 42", &opts, NULL));
+    ck_assert (test_view.filter_active);
+    ck_assert_int_eq ((int) test_view.filter_engine->search_type, (int) MC_SEARCH_T_HEX);
+}
+END_TEST
+
+/* @Test: invalid hex pattern (non-hex digits) returns FALSE, leaves view clean */
+START_TEST (test_activate_hex_invalid_pattern)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_HEX, FALSE, FALSE, FALSE);
+    gchar *err = NULL;
+
+    ck_assert (!mcview_filter_activate (&test_view, "zz qq", &opts, &err));
+    ck_assert (!test_view.filter_active);
+    ck_assert (test_view.filter_engine == NULL);
+    g_free (err);
+}
+END_TEST
+
+/* @Test: invalid pattern error message is non-empty */
+START_TEST (test_activate_invalid_regex_errmsg_nonempty)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
+    gchar *err = NULL;
+
+    ck_assert (!mcview_filter_activate (&test_view, "[[invalid", &opts, &err));
+    ck_assert (err != NULL);
+    ck_assert (err[0] != '\0');
+    g_free (err);
+}
+END_TEST
+
+/* @Test: glob mode activates filter engine with correct search type */
+START_TEST (test_activate_glob_type_propagated)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_GLOB, FALSE, FALSE, FALSE);
+
+    ck_assert (mcview_filter_activate (&test_view, "*.log", &opts, NULL));
+    ck_assert (test_view.filter_active);
+    ck_assert_int_eq ((int) test_view.filter_engine->search_type, (int) MC_SEARCH_T_GLOB);
+}
+END_TEST
+
 /* @Test: second activate replaces first after deactivating old state */
 START_TEST (test_activate_replaces_previous)
 {
@@ -244,6 +292,136 @@ START_TEST (test_activate_replaces_previous)
     ck_assert (mcview_filter_activate (&test_view, "second", &opts, NULL));
     ck_assert_str_eq (test_view.filter_pattern, "second");
     ck_assert (test_view.filter_active);
+}
+END_TEST
+
+/*** scan tests ******************************************************************************/
+
+/* Helper: load string datasource into test_view (cleaned up in teardown via mcview_close). */
+static void
+scan_setup (const char *content)
+{
+    mcview_set_datasource_string (&test_view, content);
+    test_view.dpy_start = 0;
+}
+
+static void
+scan_teardown (void)
+{
+    mcview_close_datasource (&test_view);
+}
+
+/* @Test: single normal match returns correct text and offsets */
+START_TEST (test_scan_normal_match)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[4];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("alpha\nerror: disk full\nbeta\n");
+    n = mcview_filter_preview_scan (&test_view, "error", &opts, out, 4, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, 1);
+    ck_assert (err == NULL);
+    ck_assert_str_eq (out[0].text, "error: disk full");
+    ck_assert_int_eq (out[0].match_start, 0);
+    ck_assert_int_eq (out[0].match_len, 5);
+    g_free (out[0].text);
+}
+END_TEST
+
+/* @Test: file without trailing newline -- last line is still matched */
+START_TEST (test_scan_no_trailing_newline)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[4];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("first line\nlast line no newline");
+    n = mcview_filter_preview_scan (&test_view, "last", &opts, out, 4, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, 1);
+    ck_assert (err == NULL);
+    ck_assert_str_eq (out[0].text, "last line no newline");
+    g_free (out[0].text);
+}
+END_TEST
+
+/* @Test: invalid regex returns -1 and non-empty error string */
+START_TEST (test_scan_invalid_pattern)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[4];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("some content\n");
+    n = mcview_filter_preview_scan (&test_view, "[unclosed", &opts, out, 4, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, -1);
+    ck_assert (err != NULL);
+    ck_assert (err[0] != '\0');
+    g_free (err);
+}
+END_TEST
+
+/* @Test: pattern that matches nothing returns 0 */
+START_TEST (test_scan_no_match)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[4];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("alpha\nbeta\ngamma\n");
+    n = mcview_filter_preview_scan (&test_view, "zzz", &opts, out, 4, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, 0);
+    ck_assert (err == NULL);
+}
+END_TEST
+
+/* @Test: max_matches limits results */
+START_TEST (test_scan_max_matches_limit)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[2];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("hit one\nhit two\nhit three\n");
+    n = mcview_filter_preview_scan (&test_view, "hit", &opts, out, 2, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, 2);
+    ck_assert (err == NULL);
+    g_free (out[0].text);
+    g_free (out[1].text);
+}
+END_TEST
+
+/* @Test: regex match offset is correct for mid-line match */
+START_TEST (test_scan_regex_match_offset)
+{
+    mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
+    mcview_preview_match_t out[4];
+    gchar *err = NULL;
+    int n;
+
+    scan_setup ("prefix error: timeout\n");
+    n = mcview_filter_preview_scan (&test_view, "error:.*", &opts, out, 4, &err);
+    scan_teardown ();
+
+    ck_assert_int_eq (n, 1);
+    ck_assert (err == NULL);
+    ck_assert_int_eq (out[0].match_start, 7);
+    g_free (out[0].text);
 }
 END_TEST
 
@@ -267,6 +445,16 @@ main (void)
     tcase_add_test (tc, test_activate_whole_words_propagated);
     tcase_add_test (tc, test_deactivate_clears_state);
     tcase_add_test (tc, test_activate_replaces_previous);
+    tcase_add_test (tc, test_activate_hex_type_propagated);
+    tcase_add_test (tc, test_activate_hex_invalid_pattern);
+    tcase_add_test (tc, test_activate_invalid_regex_errmsg_nonempty);
+    tcase_add_test (tc, test_activate_glob_type_propagated);
+    tcase_add_test (tc, test_scan_normal_match);
+    tcase_add_test (tc, test_scan_no_trailing_newline);
+    tcase_add_test (tc, test_scan_invalid_pattern);
+    tcase_add_test (tc, test_scan_no_match);
+    tcase_add_test (tc, test_scan_max_matches_limit);
+    tcase_add_test (tc, test_scan_regex_match_offset);
 
     return mctest_run_all (tc);
 }
