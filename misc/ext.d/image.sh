@@ -24,7 +24,9 @@ do_view_action() {
         if [ $E != 0 ] && command -v exiftool >/dev/null 2>&1; then
             exiftool "${MC_EXT_FILENAME}" 2>/dev/null
         fi
-        identify "${MC_EXT_FILENAME}"
+        if command -v identify >/dev/null 2>&1; then
+            identify "${MC_EXT_FILENAME}"
+        fi
         ;;
     esac
 }
