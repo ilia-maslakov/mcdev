@@ -1,77 +1,772 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-  <meta charset='utf-8'>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>mcdev | Extended GNU Midnight Commander</title>
+  <meta name="description" content="mcdev is a long-term project extending GNU Midnight Commander with panel plugins, viewer improvements, editor plugins, and better key handling.">
+  <meta name="theme-color" content="#0f3b36">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4efe3;
+      --bg-soft: #fff9ef;
+      --ink: #132238;
+      --muted: #566579;
+      --line: rgba(19, 34, 56, 0.12);
+      --surface: rgba(255, 252, 245, 0.84);
+      --surface-strong: #11273f;
+      --accent: #0f6a5b;
+      --accent-2: #e79022;
+      --accent-3: #4d7c0f;
+      --shadow: 0 20px 60px rgba(17, 39, 63, 0.14);
+      --radius-xl: 28px;
+      --radius-lg: 22px;
+      --radius-md: 16px;
+      --max: 1180px;
+    }
 
-  <title>ilia-maslakov/mc @ GitHub</title>
+    * {
+      box-sizing: border-box;
+    }
 
-  <style type="text/css">
+    html {
+      scroll-behavior: smooth;
+    }
+
     body {
-      margin-top: 1.0em;
-      background-color: #d1e1f5;
-      font-family: Helvetica, Arial, FreeSans, san-serif;
-      color: #000000;
+      margin: 0;
+      color: var(--ink);
+      font-family: "Space Grotesk", "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at top left, rgba(231, 144, 34, 0.18), transparent 30%),
+        radial-gradient(circle at top right, rgba(15, 106, 91, 0.16), transparent 34%),
+        linear-gradient(180deg, #fbf6ea 0%, #f4efe3 42%, #eef5ef 100%);
     }
-    #container {
+
+    a {
+      color: inherit;
+      text-decoration: none;
+    }
+
+    img {
+      max-width: 100%;
+      display: block;
+    }
+
+    .page {
+      width: min(var(--max), calc(100% - 32px));
       margin: 0 auto;
-      width: 700px;
+      padding: 28px 0 56px;
     }
-    h1 { font-size: 3.8em; color: #2e1e0a; margin-bottom: 3px; }
-    h1 .small { font-size: 0.4em; }
-    h1 a { text-decoration: none }
-    h2 { font-size: 1.5em; color: #2e1e0a; }
-    h3 { text-align: center; color: #2e1e0a; }
-    a { color: #2e1e0a; }
-    .description { font-size: 1.2em; margin-bottom: 30px; margin-top: 30px; font-style: italic;}
-    .download { float: right; }
-    pre { background: #000; color: #fff; padding: 15px;}
-    hr { border: 0; width: 80%; border-bottom: 1px solid #aaa}
-    .footer { text-align:center; padding-top:30px; font-style: italic; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 30px;
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 12px;
+      font-weight: 700;
+      letter-spacing: 0.02em;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(135deg, var(--accent), #093c48);
+      color: #f7fbff;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 15px;
+      box-shadow: var(--shadow);
+    }
+
+    .top-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+    }
+
+    .nav-chip {
+      padding: 10px 14px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.6);
+      color: var(--muted);
+      font-size: 14px;
+      transition: transform 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+    }
+
+    .nav-chip:hover {
+      transform: translateY(-1px);
+      border-color: rgba(15, 106, 91, 0.35);
+      color: var(--ink);
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(320px, 0.85fr);
+      gap: 28px;
+      align-items: stretch;
+      margin-bottom: 28px;
+    }
+
+    .hero-copy,
+    .hero-panel,
+    .card,
+    .summary {
+      border: 1px solid rgba(255, 255, 255, 0.55);
+      background: var(--surface);
+      backdrop-filter: blur(14px);
+      box-shadow: var(--shadow);
+      animation: rise 0.65s ease both;
+    }
+
+    .hero-copy {
+      border-radius: var(--radius-xl);
+      padding: 36px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-copy::before {
+      content: "";
+      position: absolute;
+      inset: auto -90px -90px auto;
+      width: 220px;
+      height: 220px;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(231, 144, 34, 0.24), transparent 70%);
+      pointer-events: none;
+    }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 18px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: rgba(15, 106, 91, 0.1);
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      box-shadow: 0 0 0 6px rgba(15, 106, 91, 0.12);
+    }
+
+    h1 {
+      margin: 0;
+      font-size: clamp(50px, 8vw, 88px);
+      line-height: 0.95;
+      letter-spacing: -0.05em;
+    }
+
+    .subtitle {
+      margin: 18px 0 14px;
+      max-width: 42rem;
+      font-size: clamp(18px, 2vw, 24px);
+      line-height: 1.45;
+      color: var(--ink);
+    }
+
+    .hero-copy p {
+      margin: 0;
+      max-width: 40rem;
+      color: var(--muted);
+      font-size: 16px;
+      line-height: 1.8;
+    }
+
+    .cta-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin: 28px 0 26px;
+    }
+
+    .button {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 0 18px;
+      border-radius: 14px;
+      font-weight: 700;
+      transition: transform 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+    }
+
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 32px rgba(17, 39, 63, 0.16);
+    }
+
+    .button-primary {
+      background: linear-gradient(135deg, var(--accent), #0e4e70);
+      color: #f8fcff;
+    }
+
+    .button-secondary {
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.72);
+      color: var(--ink);
+    }
+
+    .branch-strip {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 18px;
+    }
+
+    .branch-box {
+      padding: 18px;
+      border-radius: 18px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.58);
+    }
+
+    .branch-label {
+      display: inline-flex;
+      align-items: center;
+      padding: 7px 10px;
+      border-radius: 999px;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      font-weight: 700;
+      margin-bottom: 12px;
+    }
+
+    .branch-label.stable {
+      background: rgba(77, 124, 15, 0.12);
+      color: var(--accent-3);
+    }
+
+    .branch-label.dev {
+      background: rgba(231, 144, 34, 0.14);
+      color: #a25d00;
+    }
+
+    .branch-box p {
+      margin: 0;
+      font-size: 15px;
+      line-height: 1.7;
+      color: var(--ink);
+    }
+
+    .hero-panel {
+      border-radius: var(--radius-xl);
+      padding: 22px;
+      display: grid;
+      gap: 16px;
+      animation-delay: 0.08s;
+    }
+
+    .terminal {
+      overflow: hidden;
+      border-radius: 22px;
+      background: linear-gradient(180deg, #16273a 0%, #0d1726 100%);
+      color: #d9f3e3;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    .terminal-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      background: rgba(255, 255, 255, 0.03);
+    }
+
+    .terminal-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+    }
+
+    .terminal-dot.red { background: #ef6a5b; }
+    .terminal-dot.yellow { background: #f4c15d; }
+    .terminal-dot.green { background: #5cc88a; }
+
+    .terminal-title {
+      margin-left: auto;
+      font-family: "JetBrains Mono", monospace;
+      font-size: 12px;
+      color: rgba(217, 243, 227, 0.72);
+    }
+
+    .terminal pre {
+      margin: 0;
+      padding: 18px 18px 20px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font: 14px/1.75 "JetBrains Mono", monospace;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .stat {
+      border-radius: 18px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.72);
+      border: 1px solid var(--line);
+    }
+
+    .stat strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 28px;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .stat span {
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    .summary {
+      border-radius: var(--radius-xl);
+      padding: 26px 28px;
+      margin-bottom: 24px;
+      animation-delay: 0.12s;
+    }
+
+    .section-tag {
+      color: var(--accent);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 28px;
+      align-items: center;
+    }
+
+    .summary h2 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 4vw, 44px);
+      line-height: 1.05;
+      letter-spacing: -0.04em;
+    }
+
+    .summary p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.8;
+      font-size: 16px;
+    }
+
+    .summary-panel {
+      padding: 18px 20px;
+      border-radius: 20px;
+      background: linear-gradient(135deg, rgba(15, 106, 91, 0.08), rgba(231, 144, 34, 0.08));
+      border: 1px solid rgba(15, 106, 91, 0.14);
+    }
+
+    .summary-panel code {
+      display: block;
+      margin-top: 10px;
+      font: 13px/1.9 "JetBrains Mono", monospace;
+      color: var(--ink);
+      white-space: pre-wrap;
+    }
+
+    .feature-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 18px;
+    }
+
+    .card {
+      border-radius: var(--radius-lg);
+      padding: 24px;
+      animation-delay: 0.18s;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 24px;
+      letter-spacing: -0.03em;
+    }
+
+    .card p {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.75;
+      font-size: 15px;
+    }
+
+    .card-wide {
+      grid-column: span 7;
+    }
+
+    .card-narrow {
+      grid-column: span 5;
+    }
+
+    .plugin-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .plugin-item {
+      padding: 16px;
+      border-radius: 16px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.65);
+    }
+
+    .plugin-item strong {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 15px;
+    }
+
+    .plugin-item span {
+      display: block;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.6;
+    }
+
+    .feature-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      display: grid;
+      gap: 10px;
+    }
+
+    .feature-list li {
+      position: relative;
+      padding-left: 18px;
+      color: var(--ink);
+      line-height: 1.65;
+      font-size: 15px;
+    }
+
+    .feature-list li::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.72em;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, var(--accent), var(--accent-2));
+      transform: translateY(-50%);
+    }
+
+    .footer {
+      margin-top: 26px;
+      padding: 24px 0 10px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 20px;
+      justify-content: space-between;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .footer a {
+      color: var(--accent);
+      font-weight: 700;
+    }
+
+    @keyframes rise {
+      from {
+        opacity: 0;
+        transform: translateY(16px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    @media (max-width: 980px) {
+      .hero,
+      .summary-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .card-wide,
+      .card-narrow {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 760px) {
+      .page {
+        width: min(var(--max), calc(100% - 20px));
+        padding-top: 18px;
+      }
+
+      .topbar {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+
+      .hero-copy,
+      .hero-panel,
+      .summary,
+      .card {
+        padding: 22px;
+      }
+
+      .branch-strip,
+      .plugin-grid,
+      .stats {
+        grid-template-columns: 1fr;
+      }
+
+      .cta-row {
+        flex-direction: column;
+      }
+
+      .button {
+        width: 100%;
+      }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      html {
+        scroll-behavior: auto;
+      }
+
+      *, *::before, *::after {
+        animation: none !important;
+        transition: none !important;
+      }
+    }
   </style>
 </head>
-
 <body>
-  <a href="http://github.com/ilia-maslakov/mc"><img style="position: absolute; top: 0; right: 0; border: 0;" src="http://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub" /></a>
+  <main class="page">
+    <header class="topbar">
+      <a class="brand" href="https://github.com/ilia-maslakov/mcdev">
+        <span class="brand-mark">mc</span>
+        <span>ilia-maslakov / mcdev</span>
+      </a>
+      <nav class="top-links" aria-label="Primary">
+        <a class="nav-chip" href="https://github.com/ilia-maslakov/mcdev">Repository</a>
+        <a class="nav-chip" href="https://github.com/ilia-maslakov/mcdev/branches">Branches</a>
+        <a class="nav-chip" href="https://github.com/ilia-maslakov/mcdev/pulls">Pull Requests</a>
+      </nav>
+    </header>
 
-  <div id="container">
+    <section class="hero">
+      <div class="hero-copy">
+        <div class="eyebrow">GNU Midnight Commander - extended</div>
+        <h1>mcdev</h1>
+        <p class="subtitle">This is a long-term project extending GNU Midnight Commander with new capabilities.</p>
+        <p>
+          The goal is not to replace Midnight Commander, but to push it further: richer data sources,
+          a stronger viewer, plugin-based editor extensions, better terminal input tooling, and practical
+          improvements that make the daily workflow sharper.
+        </p>
 
-    <div class="download">
-      <a href="http://github.com/ilia-maslakov/mc/zipball/master">
-        <img border="0" width="90" src="http://github.com/images/modules/download/zip.png"></a>
-      <a href="http://github.com/ilia-maslakov/mc/tarball/master">
-        <img border="0" width="90" src="http://github.com/images/modules/download/tar.png"></a>
-    </div>
+        <div class="cta-row">
+          <a class="button button-primary" href="https://github.com/ilia-maslakov/mcdev">View on GitHub</a>
+          <a class="button button-secondary" href="#features">See extended features</a>
+        </div>
 
-    <h1><a href="http://github.com/ilia-maslakov/mc">mc</a>
-      <span class="small">by <a href="http://github.com/ilia-maslakov">ilia-maslakov</a></span></h1>
+        <div class="branch-strip">
+          <div class="branch-box">
+            <span class="branch-label stable">master</span>
+            <p>The <strong>master</strong> branch contains stable features.</p>
+          </div>
+          <div class="branch-box">
+            <span class="branch-label dev">DEV_*</span>
+            <p>Branches named <strong>DEV_*</strong> contain work in progress.</p>
+          </div>
+        </div>
+      </div>
 
-    <div class="description">
-      midnight commander
-    </div>
+      <aside class="hero-panel">
+        <div class="terminal" aria-label="Example terminal session">
+          <div class="terminal-bar">
+            <span class="terminal-dot red"></span>
+            <span class="terminal-dot yellow"></span>
+            <span class="terminal-dot green"></span>
+            <span class="terminal-title">mcdev branch model</span>
+          </div>
+          <pre>$ git clone https://github.com/ilia-maslakov/mcdev.git
+$ cd mcdev
 
-    <h2>Authors</h2>
-<p>Sanlig Badral (Badral@chinggis.com)<br/>Benedikt Roth (Benedikt.Roth@gmx.net)<br/>Curtis Doty (Curtis@GreenKey.net)<br/>Vincent van Adrighem (V.vanAdrighem@dirck.mine.nu)<br/>Andreas Hyden (a.hyden@cyberpoint.se)<br/>Sergey (a_s_y@sama.ru)<br/>Andrew Borodin (aborodin@vmail.ru)<br/>A. Costa (agcosta@gis.net)<br/>Alexander Shopov (al_shopov@web.bg)<br/>Alan Cox (alan@redhat.com)<br/>alexander.stohr (alexander.stohr@gmx.de)<br/>Aliaksey Kandratsenka (alk@tut.by)<br/>Aleksey Lim (alsroot@member.fsf.org)<br/>Anders Carlsson (andersca@gnome.org)<br/>Andraz Tori (andraz.tori1@guest.arnes.si)<br/>Andrew T. Veliath (andrewtv@usa.net)<br/>Andy Shevchenko (andy.shevchenko@gmail.com)<br/>Anton Novosyolov (anton.novosyolov@gmail.com)<br/>Arkadiusz Miśkiewicz (arekm@maven.pl)<br/>Leonid Myravjev (asm@asm.pp.ru)<br/>Balwinder S Dheeman (bdheeman@gmail.com)<br/>Birger Langkjer (birger.langkjer@image.dk)<br/>Christopher Blizzard (blizzard@appliedtheory.com)<br/>Cody Russell (bratsche@gnome.org)<br/>Kang Bundo (bundo@bundo.biz)<br/>Carlos Perelló Marín (carlos@gnome-db.org)<br/>Christopher R. Gabriel (cgabriel@pluto.linux.it)<br/>Christian Meyer (chrisime@gnome.org)<br/>Christophe Merlet (christophe@merlet.net)<br/>Marco Ciampa (ciampix@libero.it)<br/>Francesco Cosoleto (cosoleto@gmail.com)<br/>Zbigniew Chyla (cyba@gnome.pl)<br/>Martin Norbdck (d95mback@dtek.chalmers.se)<br/>Dan Damian (dand@dnttm.ro)<br/>Dan Winship (danw@helixcode.com)<br/>David Sterba (dave@jikos.cz)<br/>Daniel Borca (dborca@yahoo.com)<br/>Denis Kostousov (denis.kostousov@gmail.com)<br/>Denis Briand (denis@narcan.fr)<br/>nikk (dev.nul@mail.ru)<br/>Dirk-Jan C. Binnema (djcb@djcbsoftware.nl)<br/>David Martin (dmartina@excite.com)<br/>Dmitry Alexeyev (dmi_a@qnx.org.ru)<br/>Egmont Koblinger (egmont@gmail.com)<br/>karesmakro (email@unknown.com)<br/>Emmanuel Trillaud (etrillaud@gmail.com)<br/>Sergey Fionov (fionov@gmail.com)<br/>Max Khon (fjoe@samodelkin.net)<br/>George Vasilakos (forfolias@gmail.com)<br/>Franz Wuerl (franz.wuerl@stahlgruber.de)<br/>Sebastian Siebert (freespacer@gmx.de)<br/>Valek Filippov (frob@df.ru)<br/>Filip Sefrna (fsefrna@gmail.com)<br/>nmk (galtgendo@o2.pl)<br/>Dimitris Glezos (glezos@indifex.com)<br/>Jake Li (gnozil@gmail.com)<br/>Jorge Godoy (godoy@conectiva.com.br)<br/>GoTaR (gotar@poczta.onet.pl)<br/>Tomasz Pala (gotar@polanet.pl)<br/>Gregory McLean (gregm@comstar.net)<br/>Duarte Loreto (happyguy_pt@hotmail.com)<br/>Raja R Harinath (harinath@cs.umn.edu)<br/>Ivan Masár (helix84@centrum.sk)<br/>Richard Hestilow (hestgray@ionet.net)<br/>Nikita Ofitserov (himikof@gmail.com)<br/>Havoc Pennington (hp@pobox.com)<br/>Herbert Valerio Riedel (hvr@hvrlab.ml.org)<br/>Igor Zubkov (igor.zubkov@gmail.com)<br/>Igor Zhuravlov (igor@uic.dvgu.ru)<br/>igor_b (igor_b@mail.ru)<br/>Ilia Maslakov (il.smind@gmail.com)<br/>Alexander Moiseenko (imdagger@yandex.ru)<br/>Alexander Glyzov (isee@inbox.ru)<br/>Ismael Olea (ismael@olea.org)<br/>Jacob Berkman (jacob@helixcode.com)<br/>Jakob Kemi (jakob.kemi@gmail.com)<br/>Jan Engelhardt (jengelh@medozas.de)<br/>Jeff Garzik (jgarzik@pobox.com)<br/>George Lebl (jirka@5z.com)<br/>Jindrich Novy (jnovy@redhat.com)<br/>Jonathan Blandford (jrb@redhat.com)<br/>Janne Kukonlehto (jtklehto@paju.oulu.fi)<br/>Fatih Demir (kabalak@gmx.net)<br/>Karsten Hilbert (karsten.hilbert@gmx.net)<br/>Keld Simonsen (keld@dkuug.dk)<br/>Kenneth Christiansen (kenneth@gnome.dk)<br/>kenny (kenny@tpol.lan)<br/>Kai Lahmann (kl@linuxfaqs.de)<br/>Tomasz Kłoczko (kloczek@rudy.mif.pg.gda.pl)<br/>Kjartan Maraas (kmaraas@online.no)<br/>Wang Jian (lark@linux.net.cn)<br/>onto (lenton_91@mail.ru)<br/>Leonard den Ottolander (leonard@den.ottolander.nl)<br/>Lee Bigelow (ligelowbee@yahoo.com)<br/>Michelle Konzack (linux4michelle@tamay-dogan.net)<br/>Tuomas J. Lukka (lukka@iki.fi)<br/>Abel Cheung (maddog@linux.org.hk)<br/>Jindrich Makovicka (makovick@gmail.com)<br/>Mandrake (Geoff Harrison) (mandrake@mandrake.net)<br/>Marius Andreiana (mandreiana@yahoo.com)<br/>Marc Ewing (marc@redhat.com)<br/>Marcel Telka (marcel@telka.sk)<br/>fragkakis (markos.fragkakis@gmail.com)<br/>Matthias Warkus (mawa@iname.com)<br/>mbouzada (mbouzada@gmail.com)<br/>Timur Bakeyev (mc@bat.ru)<br/>Matthieu Crapet (mcrapet@gmail.com)<br/>Benny Pedersen (me@junc.org)<br/>Claes Nästén (me@pekdon.net)<br/>Gediminas Paulauskas (menesis@delfi.lt)<br/>Christian Rose (menthos@menthos.com)<br/>Miguel de Icaza (miguel@novell.com)<br/>Milan Cermak (milan.cermak@sun.com)<br/>Miloslav Trmac (mitr@volny.cz)<br/>Mikko Rauhala (mjr@iki.fi)<br/>mpol (mpol@gmx.net)<br/>Michael Fulbright (msf@majestic.labs.redhat.com)<br/>Manish Vachharajani (mvachhar@vger.rutgers.edu)<br/>username (my.somewhat.lengthy.loginname@gmail.com)<br/>Yukihiro Nakai (nacai@iname.com)<br/>Andres Farfan (nafraf@linuxmail.org)<br/>Sung-Hyun Nam (namsh@lgic.co.kr)<br/>Nerijus Baliunas (nerijus@users.sourceforge.net)<br/>Carsten Schaar (nhadcasc@fs-maphy.uni-hannover.de)<br/>nixtrian (nixtrian@gmail.com)<br/>Nuno Ferreira (nmrf@rnl.ist.utl.pt)<br/>Vsevolod Novikov (nnseva@mail.ru)<br/>Norbert Warmuth (nwarmuth@privat.circular.de)<br/>Sergei E. Ovsyannikov (ose@ntmk.ru)<br/>Oswald Buddenhagen (ossi@kde.org)<br/>Owen Taylor (otaylor@redhat.com)<br/>Pablo Saratxaga (pablo@mandrakesoft.com)<br/>Stan. S. Krupoderov (pashelper@gmail.com)<br/>Pavel Vasilyev (pavel@pavlinux.ru)<br/>Pavel Machek (pavel@suse.cz)<br/>pavlinux (pavlinux@jabber.org)<br/>Peteris Krisjanis (pecisk@inbox.lv)<br/>Oleksandr Natalenko (pfactum@gmail.com)<br/>Piotr Drąg (piotrdrag@gmail.com)<br/>Yuan-Chung Cheng (platin@linux.org.tw)<br/>Alexandr Prenko (prenko@gmail.com)<br/>Pavel Roskin (proski@gnu.org)<br/>Paul Sheer (psheer@obsidian.co.za)<br/>Pavel Tsekov (ptsekov@gmx.net)<br/>Yuri Syrota (rasta@renome.rovno.ua)<br/>The Rasterman (raster@redhat.com)<br/>rezso (rezso@rezso.net)<br/>Richard Hult (rhult@hem2.passagen.se)<br/>Robert Brady (robert@suse.co.uk)<br/>Radek Doulik (rodo@ucw.cz)<br/>Roland Illig (roland.illig@gmx.de)<br/>Rosanna Yuen (rwsy@mit.edu)<br/>Andrew V. Samoilov (sav@bcs.zp.ua)<br/>Jing-Jong Shyue (shyue@sonoma.com.tw)<br/>Sergey Panov (sipan@mit.edu)<br/>Slava Zanko (slavazanko@gmail.com)<br/>Mihail Slobodyanuk (slobodyanukma@ukr.net)<br/>Sergei Trofimovich (slyfox@gentoo.org)<br/>Elliot Lee (sopwith@redhat.com)<br/>Spiros Papadimitriou (spapadim+@cs.cmu.edu)<br/>Serhiy Storchaka (storchaka@gmail.com)<br/>Mikhail S. Pobolovets (styx.mp@gmail.com)<br/>Gergely Szabo (sub.o.gero@gmail.com)<br/>Sven Wegener (sven.wegener@stealer.net)<br/>Gergely Szabó (szg@subogero.com)<br/>Artem S. Tashkinov (t.artem@mailcity.com)<br/>Akira TAGOH (tagoh@gnome.gr.jp)<br/>Rainer Tammer (tammer@tammer.net)<br/>Vladislav Grishenko (themiron@mail.ru)<br/>Thomas Jarosch (thomas.jarosch@intra2net.com)<br/>Tuomas Kuosmanen (tigert@gimp.org)<br/>Andras Timar (timar@gnome.hu)<br/>thorsky (tomas@thorsky.info)<br/>Chris Toshok (toshok@ximian.com)<br/>Tom Tromey (tromey@cygnus.com)<br/>Martin Petricek (tux@centrum.cz)<br/>Stanislav Brabec (utx@penguin.cz)<br/>Vladimir Brednikov (vbrednikov@gmail.com)<br/>Vladimir Prodan (vc@artstyle.net)<br/>Denys Vlasenko (vda.linux@googlemail.com)<br/>Vincent Renardias (vincent@waw.com)<br/>Stanislav Visnovsky (visnovsky@nenya.ms.mff.cuni.cz)<br/>Vit Rosin (vit_r@list.ru)<br/>Vitaliy Filippov (vitalif@yourcmc.ru)<br/>Vladimir (vladimir.elisseev@gmail.com)<br/>Aleksey Cheusov (vle@gmx.net)<br/>Enrico Weigelt, metux IT service (weigelt@metux.de)<br/>Sebastian Wilhelmi (wilhelmi@ira.uka.de)<br/>Patrick Winnertz (winnie@debian.org)<br/>wjaguar (wjaguar@mail.ru)<br/>Andrey Rahmatullin (wrar@wrar.name)<br/>Iñigo Salvador Azurmendi (xalba@euskalnet.net)<br/>xgizzmo (xgizzmo@slackbuilds.org)<br/>Yasen Pramatarov (yasen@lindeas.com)<br/>Iouri Kharon (yjh@cabel.net)<br/>Yuri Fil (yurifil@etersoft.ru)<br/>Yury V. Zaytsev (yury@shurup.com)<br/>Andrew Zabolotny (zap@homelink.ru)<br/>Martin Zoubek (zoubek@seznam.cz)<br/>Richard van der Luit (zuma@xs4all.nl)<br/><br/>      </p>
-<h2>Contact</h2>
-<p>Ilia Maslakov (il.smind@gmail.com)<br/>      </p>
+$ git checkout master
+# stable features
 
+$ git checkout DEV_viewer_feature
+# work in progress</pre>
+        </div>
 
-    <h2>Download</h2>
-    <p>
-      You can download this project in either
-      <a href="http://github.com/ilia-maslakov/mc/zipball/master">zip</a> or
-      <a href="http://github.com/ilia-maslakov/mc/tarball/master">tar</a> formats.
-    </p>
-    <p>You can also clone the project with <a href="http://git-scm.com">Git</a>
-      by running:
-      <pre>$ git clone git://github.com/ilia-maslakov/mc</pre>
-    </p>
+        <div class="stats" aria-label="Project summary">
+          <div class="stat">
+            <strong>7</strong>
+            <span>panel plugins for non-file data sources</span>
+          </div>
+          <div class="stat">
+            <strong>6</strong>
+            <span>major viewer upgrades</span>
+          </div>
+          <div class="stat">
+            <strong>4+</strong>
+            <span>key handling and workflow improvements</span>
+          </div>
+        </div>
+      </aside>
+    </section>
 
-    <div class="footer">
-      get the source code on GitHub : <a href="http://github.com/ilia-maslakov/mc">ilia-maslakov/mc</a>
-    </div>
+    <section class="summary">
+      <div class="summary-grid">
+        <div>
+          <div class="section-tag">Project Focus</div>
+          <h2>Midnight Commander, rebuilt for modern workflows</h2>
+          <p>
+            mcdev keeps the familiar Midnight Commander core and extends it where terminal work has changed
+            the most: containers, object storage, remote systems, archive-heavy workflows, streaming logs,
+            live filtering, and better tooling around keys, editor helpers, and privilege-sensitive actions.
+          </p>
+        </div>
+        <div class="summary-panel">
+          <div class="section-tag">What it means</div>
+          <code>classic two-panel workflow
++ plugin panels
++ terminal-aware viewer
++ editor plugins
++ stronger key tooling
+= mcdev</code>
+        </div>
+      </div>
+    </section>
 
-  </div>
+    <section id="features" class="feature-grid" aria-label="Extended features">
+      <article class="card card-wide">
+        <div class="section-tag">Extended Features</div>
+        <h3>Panel Plugins</h3>
+        <p>
+          A plugin system for panels similar to VFS, but designed for arbitrary data sources.
+        </p>
+        <div class="plugin-grid">
+          <div class="plugin-item">
+            <strong>Docker</strong>
+            <span>Container and image browser with project grouping.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>Git</strong>
+            <span>Commit list with diff, favorites, and cross-panel navigation.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>Samba</strong>
+            <span>SMB/CIFS browser.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>SFTP</strong>
+            <span>SSH connections with progress, key auth, and compression.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>FTP</strong>
+            <span>FTP browser.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>S3</strong>
+            <span>Object storage browser.</span>
+          </div>
+          <div class="plugin-item">
+            <strong>arcmc</strong>
+            <span>Archive browser for zip, tar, jar, war, and ear.</span>
+          </div>
+        </div>
+      </article>
 
-  
+      <article class="card card-narrow">
+        <div class="section-tag">Viewer</div>
+        <h3>Terminal-aware file inspection</h3>
+        <ul class="feature-list">
+          <li>Real-time streaming with F3 on commands like <code>docker logs</code>.</li>
+          <li>ANSI color rendering.</li>
+          <li>Terminal emulation mode.</li>
+          <li>Live grep filtering.</li>
+          <li>Markdown rendering.</li>
+          <li>Fixes for archive viewing crashes.</li>
+        </ul>
+      </article>
+
+      <article class="card card-narrow">
+        <div class="section-tag">Editor</div>
+        <h3>Focused, extensible editing</h3>
+        <ul class="feature-list">
+          <li>Code folding.</li>
+          <li>Spell checker as plugin.</li>
+          <li><code>etags</code> as plugin.</li>
+        </ul>
+      </article>
+
+      <article class="card card-narrow">
+        <div class="section-tag">Key Handling</div>
+        <h3>Better control over terminal input</h3>
+        <ul class="feature-list">
+          <li>Incremental history search.</li>
+          <li>Key bindings editor.</li>
+          <li>Learn terminal keys.</li>
+          <li>Key sniffer.</li>
+        </ul>
+      </article>
+
+      <article class="card card-wide">
+        <div class="section-tag">Misc</div>
+        <h3>Practical workflow improvements</h3>
+        <p>
+          Small improvements matter in a terminal file manager. mcdev also includes quality-of-life changes
+          that remove friction from everyday use.
+        </p>
+        <ul class="feature-list">
+          <li>Plugin panels in drive menu.</li>
+          <li>Temp file extension preservation.</li>
+          <li>Save with sudo.</li>
+          <li>Various fixes across the codebase.</li>
+        </ul>
+      </article>
+    </section>
+
+    <footer class="footer">
+      <span>mcdev is a long-term Midnight Commander extension project maintained by <a href="https://github.com/ilia-maslakov">Ilia Maslakov</a>.</span>
+      <span>Source: <a href="https://github.com/ilia-maslakov/mcdev/tree/gh-pages">gh-pages</a> branch.</span>
+    </footer>
+  </main>
 </body>
 </html>
