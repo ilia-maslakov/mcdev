@@ -87,6 +87,8 @@
 
 #include "src/consaver/cons.saver.h"  // show_console_contents
 #include "src/file_history.h"         // show_file_history()
+#include "src/mcterm/mcterm.h"
+#include "src/mcterm/mcterm_cwd.h"
 
 #include "filemanager.h"
 
@@ -124,6 +126,9 @@ char *mc_prompt = NULL;
 /*** file scope variables ************************************************************************/
 
 static menu_t *left_menu, *right_menu;
+
+static WMcTerm *mcterm_panel = NULL;
+static gboolean mcterm_mode = FALSE;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
@@ -265,7 +270,7 @@ create_command_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Directory tree"), CK_Tree));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Find file"), CK_Find));
     entries = g_list_prepend (entries, menu_entry_new (_ ("S&wap panels"), CK_Swap));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Switch &panels on/off"), CK_Shell));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Toggle &terminal"), CK_Shell));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Compare directories"), CK_CompareDirs));
 #ifdef USE_DIFF_VIEW
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&ompare files"), CK_CompareFiles));
@@ -1118,6 +1123,176 @@ toggle_show_hidden (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Render colored shell prompt from vterm at the cmdline row and draw WInput after it. */
+static void
+mcterm_draw_cmdline_row (void)
+{
+    int cmdline_y, cursor_col;
+    const WRect *mwr;
+
+    if (!command_prompt)
+        return;
+
+    mwr = &CONST_WIDGET (filemanager)->rect;
+    cmdline_y = WIDGET (cmdline)->rect.y;
+    cursor_col = mcterm_cursor_col (mcterm_panel);
+    if (cursor_col < 0 || cursor_col >= mwr->cols)
+        cursor_col = 0;
+
+    mcterm_draw_prompt_row (mcterm_panel, cmdline_y);
+    widget_set_size (WIDGET (cmdline), cmdline_y, mwr->x + cursor_col, 1, mwr->cols - cursor_col);
+}
+
+/* Keep the hidden panel cwd in step with shell cwd while terminal mode is
+ * active.  Otherwise the panel appears to "remember" its old path until the
+ * next terminal/panel toggle. */
+static void
+mcterm_sync_current_panel_from_shell (void)
+{
+    char *new_cwd;
+
+    if (!mcterm_mode || mcterm_panel == NULL || current_panel == NULL
+        || !mcterm_shell_at_prompt (mcterm_panel) || !mcterm_osc7_capable (mcterm_panel)
+        || !vfs_file_is_local (current_panel->cwd_vpath))
+        return;
+
+    new_cwd = mcterm_cwd_on_exit (mcterm_panel, vfs_path_as_str (current_panel->cwd_vpath));
+    if (new_cwd != NULL)
+    {
+        vfs_path_t *vp = vfs_path_from_str (new_cwd);
+
+        if (vp != NULL)
+        {
+            panel_cd (current_panel, vp, cd_exact);
+            vfs_path_free (vp, TRUE);
+        }
+        g_free (new_cwd);
+    }
+}
+
+/* Called from mcterm's PTY read callback when the shell returns to its prompt
+ * (shell_at_prompt FALSE -> TRUE via OSC 7). */
+static void
+mcterm_prompt_ready_cb (void *data)
+{
+    (void) data;
+
+    if (!mcterm_mode || mcterm_panel == NULL)
+        return;
+
+    mcterm_sync_current_panel_from_shell ();
+
+    if (!command_prompt)
+        return;
+
+    mcterm_draw_cmdline_row ();
+    send_message (WIDGET (cmdline), NULL, MSG_CURSOR, 0, NULL);
+    tty_refresh ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+toggle_mcterm (void)
+{
+    WGroup *g = GROUP (filemanager);
+    const WRect *mwr = &CONST_WIDGET (filemanager)->rect;
+
+    if (!mcterm_mode)
+    {
+        int start_y = mwr->y + (menubar_visible ? 1 : 0);
+        /* mcterm fills the full area; the cmdline row is kept visible but the
+         * the_prompt label is hidden -- the shell's colored prompt in vterm
+         * serves as the visible prompt, and cmdline gets the full row width. */
+        int height = mwr->lines - (menubar_visible ? 1 : 0) - (mc_global.keybar_visible ? 1 : 0)
+            - (command_prompt ? 1 : 0);
+        WRect r = { start_y, mwr->x, height, mwr->cols };
+
+        if (mcterm_panel != NULL && !mcterm_is_alive (mcterm_panel))
+        {
+            group_remove_widget (mcterm_widget (mcterm_panel));
+            mcterm_free (mcterm_panel);
+            mcterm_panel = NULL;
+        }
+
+        if (mcterm_panel == NULL)
+        {
+            mcterm_panel = mcterm_new (&r);
+            if (mcterm_panel == NULL)
+                return;
+            mcterm_set_prompt_callback (mcterm_panel, mcterm_prompt_ready_cb, NULL);
+            group_add_widget (g, mcterm_widget (mcterm_panel));
+        }
+        else
+        {
+            widget_set_size_rect (mcterm_widget (mcterm_panel), &r);
+            widget_show (mcterm_widget (mcterm_panel));
+        }
+
+        widget_hide (get_panel_widget (0));
+        widget_hide (get_panel_widget (1));
+        widget_hide (WIDGET (the_hint));
+        if (command_prompt)
+        {
+            /* Hide the plain-text MC prompt; vterm renders the colored shell
+             * prompt.  Give cmdline the full row width so input is not offset. */
+            widget_hide (WIDGET (the_prompt));
+            widget_set_size (WIDGET (cmdline), WIDGET (cmdline)->rect.y, mwr->x, 1, mwr->cols);
+        }
+
+#ifdef ENABLE_SUBSHELL
+        if (mc_global.tty.use_subshell)
+            delete_select_channel (mc_global.tty.subshell_pty);
+#endif
+
+        mcterm_mode = TRUE;
+        /* Allow TAB to reach the mcterm widget (dlg_key_event normally
+         * intercepts TAB to cycle focus before calling the dialog callback). */
+        WIDGET (filemanager)->options |= WOP_WANT_TAB;
+        widget_select (mcterm_widget (mcterm_panel));
+
+        do_refresh ();
+    }
+    else
+    {
+        if (mcterm_panel != NULL)
+        {
+            if (!mcterm_is_alive (mcterm_panel))
+            {
+                group_remove_widget (mcterm_widget (mcterm_panel));
+                mcterm_free (mcterm_panel);
+                mcterm_panel = NULL;
+            }
+            else
+            {
+                widget_hide (mcterm_widget (mcterm_panel));
+                mcterm_sync_current_panel_from_shell ();
+            }
+        }
+
+        widget_show (get_panel_widget (0));
+        widget_show (get_panel_widget (1));
+        widget_set_visibility (WIDGET (the_hint), mc_global.message_visible);
+        /* Restore the MC prompt label; layout_change() -> setup_cmdline() will
+         * reposition both the_prompt and cmdline to their normal sizes. */
+        if (command_prompt)
+            widget_show (WIDGET (the_prompt));
+
+#ifdef ENABLE_SUBSHELL
+        if (mc_global.tty.use_subshell)
+            add_select_channel (mc_global.tty.subshell_pty, load_prompt, NULL);
+#endif
+
+        mcterm_mode = FALSE;
+        WIDGET (filemanager)->options &= ~(widget_options_t) WOP_WANT_TAB;
+        layout_change ();
+        widget_select (WIDGET (current_panel));
+        do_refresh ();
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static cb_ret_t
 midnight_execute_cmd (Widget *sender, long command)
 {
@@ -1466,7 +1641,7 @@ midnight_execute_cmd (Widget *sender, long command)
         res = send_message (current_panel, filemanager, MSG_ACTION, command, NULL);
         break;
     case CK_Shell:
-        toggle_subshell ();
+        toggle_mcterm ();
         break;
     case CK_DirSize:
         smart_dirsize_cmd (current_panel);
@@ -1606,33 +1781,6 @@ is_cmdline_mute (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Handles the Enter key on the command-line.
- *
- * Returns TRUE if non-whitespace was indeed processed.
- */
-static gboolean
-handle_cmdline_enter (void)
-{
-    const char *s;
-
-    for (s = input_get_ctext (cmdline); *s != '\0' && whitespace (*s); s++)
-        ;
-
-    if (*s != '\0')
-    {
-        send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
-        return TRUE;
-    }
-
-    input_insert (cmdline, "", FALSE);
-    cmdline->point = 0;
-
-    return FALSE;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static cb_ret_t
 midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
 {
@@ -1648,8 +1796,17 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
     case MSG_DRAW:
         load_hint (TRUE);
         group_default_callback (w, NULL, MSG_DRAW, 0, NULL);
+        /* In terminal mode at prompt: overlay the colored shell prompt from
+         * vterm onto the cmdline row (mcterm draws last in group order, so
+         * this runs after mcterm; we then redraw cmdline on top). */
+        if (mcterm_mode && mcterm_panel != NULL && mcterm_shell_at_prompt (mcterm_panel)
+            && mcterm_osc7_capable (mcterm_panel))
+        {
+            mcterm_draw_cmdline_row ();
+            send_message (WIDGET (cmdline), NULL, MSG_CURSOR, 0, NULL);
+        }
         // We handle the special case of the output lines
-        if (mc_global.tty.console_flag != '\0' && output_lines != 0)
+        if (!mcterm_mode && mc_global.tty.console_flag != '\0' && output_lines != 0)
         {
             unsigned char end_line;
 
@@ -1660,6 +1817,22 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
     case MSG_RESIZE:
         widget_adjust_position (w->pos_flags, &w->rect);
+        if (mcterm_mode && mcterm_panel != NULL)
+        {
+            const WRect *mwr = &w->rect;
+            int start_y = mwr->y + (menubar_visible ? 1 : 0);
+            int height = mwr->lines - (menubar_visible ? 1 : 0) - (mc_global.keybar_visible ? 1 : 0)
+                - (command_prompt ? 1 : 0);
+            WRect r = { start_y, mwr->x, height, mwr->cols };
+
+            /* Resize mcterm before setup_panels() so its final redraw
+             * uses the correct dimensions. widget_set_size_rect() updates
+             * w->rect (via widget_default_resize inside MSG_RESIZE) and
+             * sends TIOCSWINSZ, so no second send_message is needed. */
+            widget_set_size_rect (mcterm_widget (mcterm_panel), &r);
+            if (command_prompt)
+                widget_set_size (WIDGET (cmdline), WIDGET (cmdline)->rect.y, mwr->x, 1, mwr->cols);
+        }
         setup_panels ();
         menubar_arrange (the_menubar);
         return MSG_HANDLED;
@@ -1678,6 +1851,85 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         return MSG_HANDLED;
 
     case MSG_KEY:
+        if (mcterm_mode && mcterm_panel != NULL)
+        {
+            gboolean in_alt = mcterm_in_alt_screen (mcterm_panel);
+            /* Without OSC 7 we cannot tell idle prompt from a running process,
+             * so route all keys to the PTY. */
+            gboolean at_prompt =
+                mcterm_shell_at_prompt (mcterm_panel) && mcterm_osc7_capable (mcterm_panel);
+
+            /* Ctrl+O: always toggle terminal/panel mode unless in an alt-screen
+             * app (vim/nano use Ctrl+O themselves). */
+            if ((parm == 0x0F || parm == XCTRL ('O')) && !in_alt)
+                return MSG_NOT_HANDLED; /* -> dlg_handle_key -> CK_Shell -> toggle */
+
+            /* Alt-screen app or foreground process running: all keys go to mcterm. */
+            if (in_alt || !at_prompt)
+                return send_message (mcterm_widget (mcterm_panel), NULL, MSG_KEY, parm, NULL);
+
+            /* Shell at prompt: check MC keybindings (both normal and ext keymap)
+             * before routing to cmdline, so F10/Esc/menu shortcuts are not
+             * swallowed.  widget_lookup_key internally selects ext vs normal
+             * keymap based on w->ext_mode (and clears ext_mode afterwards). */
+            /* '\n' and '\t' are handled explicitly below; skip keymap lookup for them. */
+            if (parm != '\n' && parm != '\t')
+            {
+                long cmd = widget_lookup_key (w, parm);
+                if (cmd != CK_IgnoreKey)
+                    return midnight_execute_cmd (NULL, cmd);
+            }
+
+            /* Route typing to cmdline.
+             * '\n' falls through to the block below which reads cmdline text and
+             * calls mcterm_send_line or the cd/exit path as appropriate.
+             * '\t' flushes cmdline to PTY for bash readline completion.
+             * KEY_UP/KEY_DOWN are not handled by WInput's MSG_KEY; translate
+             * them to history actions via MSG_ACTION. */
+            if (parm == '\t')
+            {
+                /* Flush cmdline text + Tab to PTY for bash readline completion.
+                 * Only attempt completion when there is text -- an empty Tab would
+                 * cause bash to output a newline + "Display all possibilities?"
+                 * which looks like Enter was pressed.
+                 * mcterm_send_tab_complete transitions shell_at_prompt=FALSE so
+                 * follow-up keys (more Tabs, arrows) route to PTY directly. */
+                const char *text = input_get_ctext (cmdline);
+                if (text == NULL || *text == '\0')
+                    return MSG_HANDLED; /* nothing to complete */
+                if (!mcterm_send_tab_complete (mcterm_panel, text))
+                    return MSG_HANDLED;
+                input_assign_text (cmdline, "");
+                widget_set_size (WIDGET (cmdline), WIDGET (cmdline)->rect.y,
+                                 CONST_WIDGET (filemanager)->rect.x, 1,
+                                 CONST_WIDGET (filemanager)->rect.cols);
+                /* Redraw mcterm immediately so the terminal area shows the
+                 * non-clipped viewport (shell_at_prompt is now FALSE) before
+                 * PTY data arrives, and move the cursor into the mcterm area. */
+                widget_draw (mcterm_widget (mcterm_panel));
+                send_message (mcterm_widget (mcterm_panel), NULL, MSG_CURSOR, 0, NULL);
+                tty_refresh ();
+                return MSG_HANDLED;
+            }
+            if (parm == KEY_UP)
+            {
+                send_message (WIDGET (cmdline), NULL, MSG_ACTION, CK_HistoryPrev, NULL);
+                return MSG_HANDLED;
+            }
+            if (parm == KEY_DOWN)
+            {
+                send_message (WIDGET (cmdline), NULL, MSG_ACTION, CK_HistoryNext, NULL);
+                return MSG_HANDLED;
+            }
+            if (parm != '\n')
+            {
+                send_message (WIDGET (cmdline), NULL, MSG_KEY, parm, NULL);
+                /* Consume so unhandled keys don't leak to mcterm PTY. */
+                return MSG_HANDLED;
+            }
+            /* '\n': fall through */
+        }
+
         if (w->ext_mode)
         {
             command = widget_lookup_key (w, parm);
@@ -1691,9 +1943,56 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
         if (parm == '\n' && !is_cmdline_mute ())
         {
-            if (handle_cmdline_enter ())
+            const char *s;
+
+            for (s = input_get_ctext (cmdline); *s != '\0' && whitespace (*s); s++)
+                ;
+
+            if (*s != '\0')
+            {
+                gboolean is_cd, is_exit;
+
+                is_cd = strncmp (s, "cd", 2) == 0 && (s[2] == '\0' || whitespace (s[2]));
+                is_exit = strcmp (s, "exit") == 0;
+
+                if ((is_cd && !mcterm_mode) || is_exit || mcterm_panel == NULL
+                    || !mcterm_is_alive (mcterm_panel) || !mcterm_shell_at_prompt (mcterm_panel)
+                    || !mcterm_osc7_capable (mcterm_panel))
+                {
+                    /* exit and cd (in non-terminal mode) stay on the old panel path.
+                     * Also used as fallback when no live mcterm session exists or
+                     * when a foreground process is running (shell not at prompt). */
+                    send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
+                }
+                else
+                {
+                    /* Route to the persistent mcterm shell; create and switch to
+                     * terminal mode lazily so the user sees the output. */
+                    const char *cmd;
+
+                    if (!mcterm_mode)
+                        toggle_mcterm ();
+
+                    /* toggle_mcterm() may fail to create the PTY (openpty/fork error).
+                     * Fall back to the normal panel path so the command is not lost. */
+                    if (mcterm_panel == NULL || !mcterm_is_alive (mcterm_panel))
+                    {
+                        send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
+                        return MSG_HANDLED;
+                    }
+
+                    for (cmd = input_get_ctext (cmdline); *cmd != '\0' && whitespace (*cmd); cmd++)
+                        ;
+                    if (mcterm_send_line (mcterm_panel, cmd))
+                        input_clean (cmdline);
+                }
+
                 return MSG_HANDLED;
-            // Else: the panel will handle it.
+            }
+
+            input_insert (cmdline, "", FALSE);
+            cmdline->point = 0;
+            return MSG_NOT_HANDLED;
         }
 
         if ((!mc_global.tty.alternate_plus_minus
