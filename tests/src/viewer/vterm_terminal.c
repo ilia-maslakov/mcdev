@@ -95,6 +95,28 @@ canvas_to_text (mcview_vterm_t *vt, int rows, int cols)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static void
+feed_with_sync_restore (mcview_vterm_t *vt, const char *data, mcview_terminal_buffer_t **snap_buf,
+                        int snap_cursor_row, guint *last_osc7_gen)
+{
+    size_t i;
+
+    for (i = 0; data[i] != '\0'; i++)
+    {
+        vterm_event_t ev = mcview_vterm_feed (vt, (unsigned char) data[i]);
+
+        mcview_vterm_apply_event (vt, &ev);
+        if (*snap_buf != NULL && mcview_vterm_osc7_generation (vt) != *last_osc7_gen)
+        {
+            *last_osc7_gen = mcview_vterm_osc7_generation (vt);
+            mcview_vterm_restore_sync_snapshot (vt, *snap_buf, snap_cursor_row);
+            *snap_buf = NULL;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /* Tests *****************************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
@@ -354,6 +376,78 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Internal cwd sync restores the old canvas on OSC 7, then lets the new PS1 render. */
+
+START_TEST (test_sync_snapshot_split_osc7_and_prompt)
+{
+    mcview_vterm_t *vt = mcview_vterm_new ();
+    mcview_terminal_buffer_t *snap_buf;
+    int snap_cursor_row;
+    guint last_osc7_gen;
+    char *got;
+
+    mcview_vterm_set_size (vt, 6, 40);
+    mcview_vterm_reset (vt);
+
+    FEED (vt, "old output\r\nold:/a$ ");
+    snap_buf = mcview_terminal_buffer_copy (mcview_vterm_buf (vt));
+    snap_cursor_row = mcview_vterm_cursor_row (vt);
+    last_osc7_gen = mcview_vterm_osc7_generation (vt);
+
+    FEED (vt, "cd /b\r\n");
+    feed_with_sync_restore (vt, "\033]7;file:///b\007", &snap_buf, snap_cursor_row, &last_osc7_gen);
+    FEED (vt, "new:/b$ ");
+
+    got = canvas_to_text (vt, 3, 16);
+    ck_assert_str_eq (got,
+                      "old output      \n"
+                      "new:/b$         \n"
+                      "                \n");
+    g_free (got);
+    ck_assert_ptr_null (snap_buf);
+
+    mcview_vterm_free (vt);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* OSC 7 and PS1 may arrive in the same PTY read.  Restore must happen at the
+ * OSC 7 byte boundary, before the remaining PS1 bytes are applied. */
+
+START_TEST (test_sync_snapshot_batched_osc7_and_prompt)
+{
+    mcview_vterm_t *vt = mcview_vterm_new ();
+    mcview_terminal_buffer_t *snap_buf;
+    int snap_cursor_row;
+    guint last_osc7_gen;
+    char *got;
+
+    mcview_vterm_set_size (vt, 6, 40);
+    mcview_vterm_reset (vt);
+
+    FEED (vt, "old output\r\nold:/a$ ");
+    snap_buf = mcview_terminal_buffer_copy (mcview_vterm_buf (vt));
+    snap_cursor_row = mcview_vterm_cursor_row (vt);
+    last_osc7_gen = mcview_vterm_osc7_generation (vt);
+
+    feed_with_sync_restore (vt, "cd /b\r\n\033]7;file:///b\007new:/b$ ", &snap_buf, snap_cursor_row,
+                            &last_osc7_gen);
+
+    got = canvas_to_text (vt, 3, 16);
+    ck_assert_str_eq (got,
+                      "old output      \n"
+                      "new:/b$         \n"
+                      "                \n");
+    g_free (got);
+    ck_assert_ptr_null (snap_buf);
+
+    mcview_vterm_free (vt);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* mcview_vterm_set_size returns TRUE when size changes */
 
 START_TEST (test_set_size_returns_true_on_change)
@@ -495,6 +589,8 @@ main (void)
     tcase_add_test (tc_core, test_cursor_abs_row_clamps_to_term_rows);
     tcase_add_test (tc_core, test_cursor_down_clamps_to_term_rows);
     tcase_add_test (tc_core, test_erase_bol_does_not_expand_past_term_cols);
+    tcase_add_test (tc_core, test_sync_snapshot_split_osc7_and_prompt);
+    tcase_add_test (tc_core, test_sync_snapshot_batched_osc7_and_prompt);
     tcase_add_test (tc_core, test_set_size_returns_true_on_change);
     tcase_add_test (tc_core, test_set_size_returns_false_on_same_size);
     tcase_add_test (tc_core, test_golden_draw_move_erase);

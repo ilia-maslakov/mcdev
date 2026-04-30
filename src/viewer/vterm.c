@@ -65,6 +65,11 @@ struct mcview_vterm_struct
     int utf8_len;
     int utf8_expected;
 
+    char osc_buf[2048];
+    int osc_len;
+    char *osc7_raw;        /* raw OSC 7 string, e.g. "7;file:///path" */
+    guint osc7_generation; /* incremented each time OSC 7 is received */
+
     int cursor_row;
     int cursor_col;
 
@@ -88,6 +93,10 @@ struct mcview_vterm_struct
      * Snapshot is taken on entry and must not be overwritten by TUI redraws. */
     gboolean in_alt_screen;
 
+    /* TRUE when ESC[?1h (DECCKM) has been received: cursor keys should be
+     * sent with ESC O prefix (application mode) instead of ESC [ (normal). */
+    gboolean app_cursor_keys;
+
     int dpy_top_row;
 };
 
@@ -99,6 +108,7 @@ static vterm_event_t vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final
 static vterm_event_t vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte);
 static void vterm_finalize_param (mcview_vterm_t *vt);
 static vterm_event_t vterm_make (mcview_vterm_t *vt, vterm_result_t type);
+static void vterm_handle_osc (mcview_vterm_t *vt);
 
 /*** file scope functions ************************************************************************/
 
@@ -139,13 +149,24 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
     /* DEC private sequences (prefixed with ?): handle known ones, consume the rest. */
     if (vt->csi_private)
     {
-        if (vt->param_count > 0 && vt->params[0] == 1049)
+        if (vt->param_count > 0)
         {
-            /* ESC[?1049h = enter alt-screen, ESC[?1049l = exit alt-screen */
-            if (final_byte == 'h')
-                return vterm_make (vt, VTERM_ALT_SCREEN_ENTER);
-            if (final_byte == 'l')
-                return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+            switch (vt->params[0])
+            {
+            case 1:
+                /* DECCKM: application cursor key mode (ESC[?1h on, ESC[?1l off) */
+                vt->app_cursor_keys = (final_byte == 'h');
+                break;
+            case 1049:
+                /* ESC[?1049h = enter alt-screen, ESC[?1049l = exit alt-screen */
+                if (final_byte == 'h')
+                    return vterm_make (vt, VTERM_ALT_SCREEN_ENTER);
+                if (final_byte == 'l')
+                    return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+                break;
+            default:
+                break;
+            }
         }
         return vterm_make (vt, VTERM_CONSUMED);
     }
@@ -273,6 +294,13 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
         return ev;
     }
 
+    case 'P': /* DCH -- delete characters, shift left */
+    {
+        vterm_event_t ev = vterm_make (vt, VTERM_DCH);
+        ev.param1 = (p0 > 0) ? p0 : 1;
+        return ev;
+    }
+
     default:
         return vterm_make (vt, VTERM_CONSUMED);
     }
@@ -373,6 +401,20 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+/* Called when an OSC sequence is complete. Store OSC 7 strings for cwd tracking. */
+static void
+vterm_handle_osc (mcview_vterm_t *vt)
+{
+    if (strncmp (vt->osc_buf, "7;", 2) == 0)
+    {
+        g_free (vt->osc7_raw);
+        vt->osc7_raw = g_strdup (vt->osc_buf);
+        vt->osc7_generation++;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
@@ -402,6 +444,7 @@ mcview_vterm_free (mcview_vterm_t *vt)
     mcview_terminal_buffer_free (vt->buf);
     mcview_terminal_buffer_free (vt->snapshot_buf);
     mcview_terminal_buffer_free (vt->alt_frame_buf);
+    g_free (vt->osc7_raw);
     g_free (vt);
 }
 
@@ -434,6 +477,9 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     vt->alt_frame_buf = NULL;
     vt->new_chars_since_snapshot = FALSE;
     vt->in_alt_screen = FALSE;
+    g_free (vt->osc7_raw);
+    vt->osc7_raw = NULL;
+    vt->osc_len = 0;
     mcview_terminal_buffer_clear (vt->buf);
 }
 
@@ -450,11 +496,15 @@ mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols)
     if (rows == vt->term_rows && cols == vt->term_cols)
         return FALSE;
 
+    /* If scroll_bottom was tracking the natural terminal bottom (not set by
+     * DECSTBM to a custom region), update it to the new terminal bottom. */
+    if (vt->scroll_bottom == vt->term_rows - 1)
+        vt->scroll_bottom = rows - 1;
+    else if (vt->scroll_bottom >= rows)
+        vt->scroll_bottom = rows - 1;
+
     vt->term_rows = rows;
     vt->term_cols = cols;
-
-    if (vt->scroll_bottom >= vt->term_rows)
-        vt->scroll_bottom = vt->term_rows - 1;
     if (vt->scroll_top >= vt->scroll_bottom)
         vt->scroll_top = 0;
     if (vt->cursor_row >= vt->term_rows)
@@ -470,23 +520,33 @@ mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols)
 vterm_event_t
 mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
 {
-    /* OSC: consume bytes until BEL or ST (ESC \). */
+    /* OSC: accumulate bytes until BEL or ST (ESC \), then parse. */
     if (vt->in_osc)
     {
         if (vt->in_osc_esc)
         {
             vt->in_osc_esc = FALSE;
             if (byte == '\\')
+            {
                 vt->in_osc = FALSE;
+                vt->osc_buf[vt->osc_len] = '\0';
+                vterm_handle_osc (vt);
+            }
             /* Any other char after ESC in OSC: stay in OSC. */
         }
         else if (byte == 0x07u)
         {
-            vt->in_osc = FALSE; /* BEL terminates OSC */
+            vt->in_osc = FALSE;
+            vt->osc_buf[vt->osc_len] = '\0';
+            vterm_handle_osc (vt);
         }
         else if (byte == ESC_CHAR)
         {
             vt->in_osc_esc = TRUE;
+        }
+        else if (vt->osc_len < (int) sizeof (vt->osc_buf) - 1)
+        {
+            vt->osc_buf[vt->osc_len++] = (char) byte;
         }
         /* Do not feed OSC content to ansi.c -- it would misinterpret it. */
         return vterm_make (vt, VTERM_CONSUMED);
@@ -524,12 +584,18 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         {
             vt->in_osc = TRUE;
             vt->in_osc_esc = FALSE;
+            vt->osc_len = 0;
         }
         else if (byte == '(' || byte == ')' || byte == '*' || byte == '+')
         {
             vt->in_esc_char = TRUE; /* charset designations: consume next byte */
         }
-        /* ESC = / ESC > / ESC M / ESC c / etc.: just consumed. */
+        else if (byte == 'M')
+        {
+            /* RI -- Reverse Index: scroll region down, move cursor up */
+            return vterm_make (vt, VTERM_RI);
+        }
+        /* ESC = / ESC > / ESC c / etc.: just consumed. */
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
@@ -763,7 +829,7 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
     case VTERM_ALT_SCREEN_EXIT:
         if (vt->snapshot_buf != NULL)
         {
-            if (mcview_terminal_buffer_max_row (vt->snapshot_buf) > 0)
+            if (mcview_terminal_buffer_max_row (vt->snapshot_buf) >= 0)
             {
                 /* Main screen had content spanning multiple rows: restore it
                  * (shell->app->shell flow).  Single-row noise (debug output,
@@ -841,6 +907,19 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
     }
     break;
 
+    case VTERM_DCH:
+        mcview_terminal_buffer_delete_chars (vt->buf, vt->cursor_row, vt->cursor_col, ev->param1,
+                                             vt->term_cols, &ev->ansi);
+        break;
+
+    case VTERM_RI:
+        if (vt->cursor_row > vt->scroll_top)
+            vt->cursor_row--;
+        else
+            mcview_terminal_buffer_scroll_down (vt->buf, vt->scroll_top, vt->scroll_bottom,
+                                                vt->term_cols, &ev->ansi);
+        break;
+
     case VTERM_SGR:
     case VTERM_CONSUMED:
     default:
@@ -870,6 +949,14 @@ gboolean
 mcview_vterm_in_alt_screen (const mcview_vterm_t *vt)
 {
     return vt->in_alt_screen;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcview_vterm_app_cursor_keys (const mcview_vterm_t *vt)
+{
+    return vt->app_cursor_keys;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -930,6 +1017,41 @@ mcview_vterm_resolve_top_row (const mcview_vterm_t *vt, int data_lines)
         return 0;
     top = max - data_lines + 1;
     return (top > 0) ? top : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+const char *
+mcview_vterm_osc7_raw (const mcview_vterm_t *vt)
+{
+    return (vt != NULL) ? vt->osc7_raw : NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+guint
+mcview_vterm_osc7_generation (const mcview_vterm_t *vt)
+{
+    return (vt != NULL) ? vt->osc7_generation : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_vterm_restore_sync_snapshot (mcview_vterm_t *vt, mcview_terminal_buffer_t *snap_buf,
+                                    int snap_cursor_row)
+{
+    mcview_ansi_state_t blank_ansi;
+
+    /* Clear the target row so PS1 renders on a clean line -- avoids stale
+     * characters if the old prompt was longer than the new one. */
+    memset (&blank_ansi, 0, sizeof (blank_ansi));
+    mcview_terminal_buffer_erase_line (snap_buf, snap_cursor_row, vt->term_cols, &blank_ansi);
+
+    mcview_terminal_buffer_free (vt->buf);
+    vt->buf = snap_buf; /* takes ownership */
+    vt->cursor_row = snap_cursor_row;
+    vt->cursor_col = 0;
 }
 
 /* --------------------------------------------------------------------------------------------- */

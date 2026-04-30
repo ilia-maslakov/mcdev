@@ -49,6 +49,9 @@ void mcview_terminal_buffer_fill_range (mcview_terminal_buffer_t *buf, int row, 
 void mcview_terminal_buffer_scroll_up (mcview_terminal_buffer_t *buf, int top, int bottom, int cols,
                                        const mcview_ansi_state_t *ansi);
 
+void mcview_terminal_buffer_scroll_down (mcview_terminal_buffer_t *buf, int top, int bottom,
+                                         int cols, const mcview_ansi_state_t *ansi);
+
 void mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col,
                                        int term_cols, const mcview_ansi_state_t *ansi);
 
@@ -58,9 +61,16 @@ void mcview_terminal_buffer_erase_bol (mcview_terminal_buffer_t *buf, int row, i
 void mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row, int term_cols,
                                         const mcview_ansi_state_t *ansi);
 
+void mcview_terminal_buffer_delete_chars (mcview_terminal_buffer_t *buf, int row, int col,
+                                          int count, int term_cols,
+                                          const mcview_ansi_state_t *ansi);
+
 int mcview_terminal_buffer_max_row (const mcview_terminal_buffer_t *buf);
 
 mcview_terminal_buffer_t *mcview_terminal_buffer_copy (const mcview_terminal_buffer_t *src);
+
+void mcview_render_terminal_canvas (const mcview_terminal_buffer_t *buf, int top_row, int screen_y,
+                                    int screen_x, int rows, int cols);
 
 /*** inline functions ****************************************************************************/
 
