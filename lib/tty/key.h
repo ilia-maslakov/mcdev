@@ -97,7 +97,9 @@ void load_xtra_key_defines (void);
 
 /* Learn a single key */
 char *learn_key (void);
-/* Look up escape sequence for a keycode */
+/* Normalize a keycode to its canonical form (Shift+Fn → Fn+10 etc.) */
+int tty_normalize_keycode (int code);
+/* Look up the latest learned escape sequence for a keycode */
 char *tty_key_lookup_sequence (int code);
 /* Match raw escape sequence to keycode (0 = not found) */
 int tty_match_seq_to_keycode (const char *seq, int len);

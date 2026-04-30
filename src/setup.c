@@ -656,6 +656,20 @@ load_keys_from_section (const char *terminal, mc_config_t *cfg)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+load_keys_for_terminal (const char *terminal, mc_config_t *cfg)
+{
+    if (terminal == NULL)
+        return;
+
+    if (g_str_has_prefix (terminal, "xterm") && strcmp (terminal, "xterm") != 0)
+        load_keys_from_section ("xterm", cfg);
+
+    load_keys_from_section (terminal, cfg);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 panel_save_type (const char *section, panel_view_mode_t type)
 {
     size_t i;
@@ -1245,11 +1259,12 @@ load_key_defs (void)
     if (mc_global_config != NULL)
     {
         load_keys_from_section ("general", mc_global_config);
-        load_keys_from_section (getenv ("TERM"), mc_global_config);
+        load_keys_for_terminal (getenv ("TERM"), mc_global_config);
         mc_config_deinit (mc_global_config);
     }
 
     load_keys_from_section ("general", mc_global.main_config);
+    load_keys_for_terminal (getenv ("TERM"), mc_global.main_config);
 
     /* migrate old [terminal:$TERM] from ini to separate file */
     migrate_term_keys ();

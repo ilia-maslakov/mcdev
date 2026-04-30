@@ -229,10 +229,10 @@ extfs_generate_entry (struct extfs_super_t *archive, const char *name, struct vf
 /* --------------------------------------------------------------------------------------------- */
 
 static struct vfs_s_entry *
-extfs_find_entry_int (struct vfs_s_inode *dir, const char *name, GSList *list, int flags)
+extfs_find_entry_int (struct vfs_s_inode *dir, char *name, GSList *list, int flags)
 {
     struct vfs_s_entry *pent, *pdir;
-    const char *p, *name_end;
+    char *p, *name_end;
     char *q;
     char c = PATH_SEP;
     struct extfs_super_t *super;
@@ -240,7 +240,7 @@ extfs_find_entry_int (struct vfs_s_inode *dir, const char *name, GSList *list, i
     if (g_path_is_absolute (name))
     {
         // Handle absolute paths
-        name = g_path_skip_root (name);
+        name = (char *) g_path_skip_root (name);
         dir = dir->super->root;
     }
 
@@ -253,7 +253,7 @@ extfs_find_entry_int (struct vfs_s_inode *dir, const char *name, GSList *list, i
     {
         q = strchr (p, PATH_SEP);
         if (q == NULL)
-            q = (char *) name_end;
+            q = name_end;
 
         c = *q;
         *q = '\0';
@@ -309,7 +309,7 @@ extfs_find_entry_int (struct vfs_s_inode *dir, const char *name, GSList *list, i
 /* --------------------------------------------------------------------------------------------- */
 
 static struct vfs_s_entry *
-extfs_find_entry (struct vfs_s_inode *dir, const char *name, int flags)
+extfs_find_entry (struct vfs_s_inode *dir, char *name, int flags)
 {
     struct vfs_s_entry *res;
 
@@ -779,7 +779,7 @@ extfs_open_and_read_archive (int fstype, const char *name, struct extfs_super_t 
 /**
  * Dissect the path and create corresponding superblock.
  */
-static const char *
+static char *
 extfs_get_path (const vfs_path_t *vpath, struct extfs_super_t **archive, int flags)
 {
     char *archive_name;
@@ -1019,7 +1019,7 @@ static void
 extfs_run (const vfs_path_t *vpath)
 {
     struct extfs_super_t *archive = NULL;
-    const char *p;
+    char *p;
     char *q, *archive_name, *quoted_archive_name;
     char *cmd;
     const extfs_plugin_info_t *info;
@@ -1048,7 +1048,7 @@ extfs_open (const vfs_path_t *vpath, int flags, mode_t mode)
 {
     vfs_file_handler_t *extfs_info;
     struct extfs_super_t *archive = NULL;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     int local_handle;
     gboolean created = FALSE;
@@ -1181,7 +1181,7 @@ static void *
 extfs_opendir (const vfs_path_t *vpath)
 {
     struct extfs_super_t *archive = NULL;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     GList **info;
 
@@ -1259,7 +1259,7 @@ static int
 extfs_internal_stat (const vfs_path_t *vpath, struct stat *buf, gboolean resolve)
 {
     struct extfs_super_t *archive;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     int result = -1;
 
@@ -1314,7 +1314,7 @@ static int
 extfs_readlink (const vfs_path_t *vpath, char *buf, size_t size)
 {
     struct extfs_super_t *archive;
-    const char *q;
+    char *q;
     size_t len;
     struct vfs_s_entry *entry;
     int result = -1;
@@ -1357,7 +1357,7 @@ static int
 extfs_unlink (const vfs_path_t *vpath)
 {
     struct extfs_super_t *archive;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     int result = -1;
 
@@ -1392,7 +1392,7 @@ static int
 extfs_mkdir (const vfs_path_t *vpath, mode_t mode)
 {
     struct extfs_super_t *archive;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     int result = -1;
     struct vfs_class *me;
@@ -1438,7 +1438,7 @@ static int
 extfs_rmdir (const vfs_path_t *vpath)
 {
     struct extfs_super_t *archive;
-    const char *q;
+    char *q;
     struct vfs_s_entry *entry;
     int result = -1;
 
@@ -1500,7 +1500,7 @@ static vfsid
 extfs_getid (const vfs_path_t *vpath)
 {
     struct extfs_super_t *archive = NULL;
-    const char *p;
+    char *p;
 
     p = extfs_get_path (vpath, &archive, FL_NO_OPEN);
     return (p == NULL ? NULL : (vfsid) archive);

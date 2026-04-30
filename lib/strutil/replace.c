@@ -61,7 +61,7 @@ str_replace_all (const char *haystack, const char *needle, const char *replaceme
 {
     size_t needle_len, replacement_len;
     GString *return_str = NULL;
-    char *needle_in_str;
+    const char *needle_in_str;
 
     needle_len = strlen (needle);
     replacement_len = strlen (replacement);
@@ -73,7 +73,7 @@ str_replace_all (const char *haystack, const char *needle, const char *replaceme
 
         if (str_is_char_escaped (haystack, needle_in_str))
         {
-            char *backslash = needle_in_str - 1;
+            const char *backslash = needle_in_str - 1;
 
             if (haystack != backslash)
                 g_string_append_len (return_str, haystack, backslash - haystack);

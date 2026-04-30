@@ -1169,7 +1169,7 @@ find_ignore_dir_search (const char *dir, size_t len)
                 break;
             case 1:  // dir is absolute, ignore_dir is relative
             {
-                char *d;
+                const char *d;
 
                 d = strstr (dir, *ignore_dir);
                 if (d != NULL && IS_PATH_SEP (d[-1]) && (d[ilen] == '\0' || IS_PATH_SEP (d[ilen])))

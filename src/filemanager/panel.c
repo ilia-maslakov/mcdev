@@ -3494,7 +3494,7 @@ chdir_other_panel (WPanel *panel)
 {
     const file_entry_t *entry;
     vfs_path_t *new_dir_vpath;
-    char *curr_entry = NULL;
+    const char *curr_entry = NULL;
     WPanel *p;
 
     entry = panel_current_entry (panel);

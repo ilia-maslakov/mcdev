@@ -34,6 +34,7 @@ TESTS = \
 	file_history \
 	keymap_reload \
 	learn_modifiers \
+	mcterm_key_encode \
 	term_key_merge \
 	usermenu__test_condition \
 	usermenu__test_expand_format
@@ -59,6 +60,9 @@ keymap_reload_SOURCES = \
 
 learn_modifiers_SOURCES = \
 	learn_modifiers.c
+
+mcterm_key_encode_SOURCES = \
+	mcterm_key_encode.c
 
 term_key_merge_SOURCES = \
 	term_key_merge.c

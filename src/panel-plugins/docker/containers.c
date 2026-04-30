@@ -309,7 +309,7 @@ docker_format_ports (const char *raw_ports)
 static gboolean
 docker_parse_port_range (const char *text, int *start, int *end)
 {
-    char *dash;
+    const char *dash;
     char *endptr;
 
     if (text == NULL || *text == '\0')

@@ -467,6 +467,18 @@ fi
 
 mc_SUBSHELL
 mc_BACKGROUND
+
+dnl openpty() for mcterm terminal widget (also used by subshell when enabled)
+AC_CHECK_HEADERS([pty.h libutil.h util.h])
+AC_CHECK_FUNCS([openpty],,[
+    AC_CHECK_LIB([util],[openpty],[
+        AC_DEFINE([HAVE_OPENPTY],[1],[Define if openpty() is available])
+        LIBS="$LIBS -lutil"
+    ],[
+        AC_MSG_ERROR([openpty() is required to build mcterm but was not found.
+Install the appropriate development package (e.g. libutil-dev, libbsd-dev).])
+    ])
+])
 mc_EXT2FS_ATTR
 mc_VFS_CHECKS
 
@@ -743,6 +755,7 @@ src/editor/Makefile
 src/man2hlp/Makefile
 src/subshell/Makefile
 src/viewer/Makefile
+src/mcterm/Makefile
 src/diffviewer/Makefile
 src/filemanager/Makefile
 
