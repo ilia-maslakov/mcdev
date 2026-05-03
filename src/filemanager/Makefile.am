@@ -20,6 +20,7 @@ libmcfilemanager_la_SOURCES = \
 	info.c info.h \
 	ioblksize.h \
 	layout.c layout.h \
+	mcterm_overlay.c mcterm_overlay.h \
 	mountlist.c mountlist.h \
 	panelize.c panelize.h \
 	panel.c panel.h \

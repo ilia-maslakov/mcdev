@@ -76,6 +76,7 @@
 #include "panelize.h"
 #include "command.h"  // cmdline
 #include "dir.h"      // dir_list_clean()
+#include "mcterm_overlay.h"
 
 #ifdef USE_INTERNAL_EDIT
 #include "src/editor/edit.h"
@@ -1203,86 +1204,6 @@ mcterm_prompt_ready_cb (void *data)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-mcterm_redraw_visible_panels (void)
-{
-    Widget *pw;
-    WPanel *active_panel;
-
-    if (!mcterm_mode || mcterm_panel == NULL)
-        return;
-
-    /* Show the selection cursor only in current_panel when it is visible.
-       If current_panel is hidden (e.g. was just toggled off), no cursor is drawn. */
-    active_panel = (current_panel != NULL && widget_get_state (WIDGET (current_panel), WST_VISIBLE))
-        ? current_panel
-        : NULL;
-
-    pw = get_panel_widget (0);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
-    {
-        WPanel *p = PANEL (pw);
-        gboolean saved = p->active;
-        p->active = (p == active_panel);
-        widget_draw (pw);
-        p->active = saved;
-    }
-    pw = get_panel_widget (1);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
-    {
-        WPanel *p = PANEL (pw);
-        gboolean saved = p->active;
-        p->active = (p == active_panel);
-        widget_draw (pw);
-        p->active = saved;
-    }
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-/* Redraw panels and any overlapping dialogs after mcterm redraws itself. */
-static void
-mcterm_after_redraw_cb (void *data)
-{
-    GList *l;
-
-    (void) data;
-
-    mcterm_redraw_visible_panels ();
-
-    if (the_menubar != NULL && the_menubar->is_dropped)
-        widget_draw (WIDGET (the_menubar));
-
-    for (l = top_dlg; l != NULL; l = g_list_next (l))
-        if (WIDGET (l->data) == WIDGET (filemanager))
-            break;
-    if (l == NULL)
-        return;
-    for (l = g_list_previous (l); l != NULL; l = g_list_previous (l))
-        widget_draw (WIDGET (l->data));
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-/* Route mouse events to visible panels first; pass the rest to mcterm. */
-static int
-mcterm_raw_mouse_handler (Widget *w, Gpm_Event *event)
-{
-    Widget *pw;
-
-    pw = get_panel_widget (0);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE) && mouse_global_in_widget (event, pw))
-        return MOU_UNHANDLED;
-
-    pw = get_panel_widget (1);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE) && mouse_global_in_widget (event, pw))
-        return MOU_UNHANDLED;
-
-    return mouse_handle_event (w, event);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static void
 toggle_mcterm (void)
 {
     WGroup *g = GROUP (filemanager);
@@ -1311,16 +1232,14 @@ toggle_mcterm (void)
             if (mcterm_panel == NULL)
                 return;
             mcterm_set_prompt_callback (mcterm_panel, mcterm_prompt_ready_cb, NULL);
-            mcterm_set_after_redraw_callback (mcterm_panel, mcterm_after_redraw_cb, NULL);
-            mcterm_widget (mcterm_panel)->mouse_handler = mcterm_raw_mouse_handler;
+            mcterm_overlay_install (mcterm_panel);
             group_add_widget (g, mcterm_widget (mcterm_panel));
         }
         else
         {
             widget_set_size_rect (mcterm_widget (mcterm_panel), &r);
             widget_show (mcterm_widget (mcterm_panel));
-            mcterm_set_after_redraw_callback (mcterm_panel, mcterm_after_redraw_cb, NULL);
-            mcterm_widget (mcterm_panel)->mouse_handler = mcterm_raw_mouse_handler;
+            mcterm_overlay_install (mcterm_panel);
         }
 
         widget_hide (get_panel_widget (0));
@@ -1495,54 +1414,16 @@ midnight_execute_cmd (Widget *sender, long command)
                                      CONST_WIDGET (filemanager)->rect.x, 1,
                                      CONST_WIDGET (filemanager)->rect.cols);
                     widget_draw (mcterm_widget (mcterm_panel));
-                    mcterm_redraw_visible_panels ();
+                    mcterm_overlay_redraw_visible_panels (mcterm_panel);
                     send_message (mcterm_widget (mcterm_panel), NULL, MSG_CURSOR, 0, NULL);
                     tty_refresh ();
                 }
             }
             else
             {
-                /* Cycle: mcterm -> left panel -> right panel -> mcterm -> ... */
-                WGroup *g_fm = GROUP (filemanager);
-                Widget *focused = g_fm->current != NULL ? WIDGET (g_fm->current->data) : NULL;
-                Widget *pw0 = get_panel_widget (0);
-                Widget *pw1 = get_panel_widget (1);
-                gboolean p0_vis = pw0 != NULL && widget_get_state (pw0, WST_VISIBLE);
-                gboolean p1_vis = pw1 != NULL && widget_get_state (pw1, WST_VISIBLE);
-                Widget *next;
-
-                if (focused == pw0)
-                    next = p1_vis ? pw1
-                                  : mcterm_widget (mcterm_panel); /* single-panel: go to terminal */
-                else if (focused == pw1)
-                    next = p0_vis
-                        ? pw0
-                        : mcterm_widget (
-                              mcterm_panel); /* both visible: go to pw0; single: terminal */
-                else
-                {
-                    /* mcterm (or other non-panel widget) is focused.
-                       Advance from current_panel so the first TAB after a
-                       hide+show cycle produces a visible cursor move.
-                       When both panels are visible the cycle stays within
-                       panels (pw0 <-> pw1); mcterm is only included when
-                       exactly one panel is visible, to allow panel<->terminal
-                       cycling in that single-panel layout. */
-                    Widget *cur = current_panel != NULL ? WIDGET (current_panel) : NULL;
-                    if (cur == pw0)
-                        next = p1_vis ? pw1 : (p0_vis ? pw0 : mcterm_widget (mcterm_panel));
-                    else if (cur == pw1)
-                        next = p0_vis ? pw0 : (p1_vis ? pw1 : mcterm_widget (mcterm_panel));
-                    else
-                        next = p0_vis ? pw0 : (p1_vis ? pw1 : NULL);
-                }
-
-                if (next != NULL)
-                {
-                    widget_select (next);
-                    mcterm_redraw_visible_panels ();
-                    tty_refresh ();
-                }
+                mcterm_overlay_cycle_focus (mcterm_panel);
+                mcterm_overlay_redraw_visible_panels (mcterm_panel);
+                tty_refresh ();
             }
         }
         else
@@ -1745,10 +1626,11 @@ midnight_execute_cmd (Widget *sender, long command)
         if (mcterm_mode && mcterm_panel != NULL)
         {
             Widget *pw = get_panel_widget (MENU_PANEL_IDX);
+
             if (pw != NULL && !widget_get_state (pw, WST_VISIBLE))
             {
                 widget_show (pw);
-                mcterm_redraw_visible_panels ();
+                mcterm_overlay_redraw_visible_panels (mcterm_panel);
                 tty_refresh ();
                 break;
             }
@@ -1827,49 +1709,19 @@ midnight_execute_cmd (Widget *sender, long command)
             toggle_mcterm ();
             if (mcterm_mode && mcterm_panel != NULL)
             {
-                int other_idx = (command == CK_PanelToggleRight) ? 0 : 1;
-                Widget *pw = get_panel_widget (other_idx);
-                if (pw != NULL)
-                {
-                    widget_show (pw);
-                    /* toggle_mcterm() may have changed current_panel via focus cycling
-                       during widget_hide(). If the result is not a visible panel, fix
-                       it so that the cursor appears in the panel we just showed. */
-                    if (current_panel == NULL
-                        || !widget_get_state (WIDGET (current_panel), WST_VISIBLE))
-                        current_panel = PANEL (pw);
-                }
-                mcterm_redraw_visible_panels ();
+                mcterm_overlay_show_other_panel_after_open (
+                    mcterm_panel, command == CK_PanelToggleRight);
+                mcterm_overlay_redraw_visible_panels (mcterm_panel);
                 tty_refresh ();
             }
         }
         else if (mcterm_panel != NULL)
         {
             int idx = (command == CK_PanelToggleRight) ? 1 : 0;
-            Widget *pw = get_panel_widget (idx);
-            if (pw != NULL)
-            {
-                if (widget_get_state (pw, WST_VISIBLE))
-                {
-                    widget_hide (pw);
-                    /* Move the visual cursor to the other visible panel when the
-                       active panel is hidden; only pin to the hidden panel (= no
-                       cursor) if there is no other visible panel to move to. */
-                    if (current_panel == PANEL (pw))
-                    {
-                        Widget *other = get_panel_widget (1 - idx);
-                        current_panel = (other != NULL && widget_get_state (other, WST_VISIBLE))
-                            ? PANEL (other)
-                            : PANEL (pw);
-                    }
-                    widget_select (mcterm_widget (mcterm_panel));
-                    widget_draw (mcterm_widget (mcterm_panel));
-                }
-                else
-                    widget_show (pw);
-                mcterm_redraw_visible_panels ();
-                tty_refresh ();
-            }
+
+            mcterm_overlay_toggle_panel (mcterm_panel, idx);
+            mcterm_overlay_redraw_visible_panels (mcterm_panel);
+            tty_refresh ();
         }
         break;
 #endif /* ENABLE_MCTERM */
@@ -2131,13 +1983,13 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
     case MSG_CHANGED_FOCUS:
         if (mcterm_mode && mcterm_panel != NULL)
-            mcterm_redraw_visible_panels ();
+            mcterm_overlay_redraw_visible_panels (mcterm_panel);
         return dlg_default_callback (w, sender, msg, parm, data);
 
     case MSG_DRAW:
         load_hint (TRUE);
         group_default_callback (w, NULL, MSG_DRAW, 0, NULL);
-        mcterm_redraw_visible_panels ();
+        mcterm_overlay_redraw_visible_panels (mcterm_panel);
         /* In terminal mode at prompt: overlay the colored shell prompt from
          * vterm onto the cmdline row (mcterm draws last in group order, so
          * this runs after mcterm; we then redraw cmdline on top). */
@@ -2197,36 +2049,21 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         {
             /* If a visible panel has focus, let it handle the key (panel navigation).
              * Enter with non-empty cmdline is routed to the shell instead. */
+            if (mcterm_overlay_panel_has_focus ())
             {
-                WGroup *g = GROUP (filemanager);
-                Widget *focused = g->current != NULL ? WIDGET (g->current->data) : NULL;
-                Widget *pw;
-                gboolean panel_focused = FALSE;
+                if (parm == '\n' && command_prompt && !input_is_empty (cmdline))
+                    return exec_cmdline_enter ();
+                /* In mcterm overlay mode intercept CK_ChangePanel so TAB
+                   cycles panels directly and does not fall through to the
+                   dialog's generic widget-tab order (which would land on
+                   cmdline and look like nothing happened). */
+                {
+                    long cmd = widget_lookup_key (w, parm);
 
-                pw = get_panel_widget (0);
-                if (pw != NULL && pw == focused && widget_get_state (pw, WST_VISIBLE))
-                    panel_focused = TRUE;
-                if (!panel_focused)
-                {
-                    pw = get_panel_widget (1);
-                    if (pw != NULL && pw == focused && widget_get_state (pw, WST_VISIBLE))
-                        panel_focused = TRUE;
+                    if (cmd == CK_ChangePanel)
+                        return midnight_execute_cmd (NULL, cmd);
                 }
-                if (panel_focused)
-                {
-                    if (parm == '\n' && command_prompt && !input_is_empty (cmdline))
-                        return exec_cmdline_enter ();
-                    /* In mcterm overlay mode intercept CK_ChangePanel so TAB
-                       cycles panels directly and does not fall through to the
-                       dialog's generic widget-tab order (which would land on
-                       cmdline and look like nothing happened). */
-                    {
-                        long cmd = widget_lookup_key (w, parm);
-                        if (cmd == CK_ChangePanel)
-                            return midnight_execute_cmd (NULL, cmd);
-                    }
-                    return MSG_NOT_HANDLED;
-                }
+                return MSG_NOT_HANDLED;
             }
 
             gboolean in_alt = mcterm_in_alt_screen (mcterm_panel);
