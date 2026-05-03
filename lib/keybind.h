@@ -187,6 +187,10 @@ enum
     CK_Unselect,
     CK_SelectExt,
     CK_SelectInvert,
+#ifdef ENABLE_MCTERM
+    CK_PanelToggleLeft,
+    CK_PanelToggleRight,
+#endif
 
     // panels
     CK_PanelOtherCd = 200L,

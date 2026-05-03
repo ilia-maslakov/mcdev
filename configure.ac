@@ -467,6 +467,8 @@ fi
 
 mc_SUBSHELL
 mc_BACKGROUND
+
+mc_MCTERM
 mc_EXT2FS_ATTR
 mc_VFS_CHECKS
 
@@ -743,6 +745,7 @@ src/editor/Makefile
 src/man2hlp/Makefile
 src/subshell/Makefile
 src/viewer/Makefile
+src/mcterm/Makefile
 src/diffviewer/Makefile
 src/filemanager/Makefile
 

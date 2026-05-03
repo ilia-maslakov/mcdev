@@ -145,6 +145,7 @@ static const global_keymap_ini_t default_filemanager_keymap[] = {
     { "ShowHidden", "alt-dot" },
     { "SplitVertHoriz", "alt-comma" },
     { "ExtendedKeyMap", "ctrl-x" },
+    { "Enter", "enter" },
     // Select/unselect group
     { "Select", "kpplus" },
     { "Unselect", "kpminus" },
@@ -154,6 +155,10 @@ static const global_keymap_ini_t default_filemanager_keymap[] = {
     // Drive change (like Far Manager Alt-F1/Alt-F2)
     { "PluginDriveLeft", "alt-f1" },
     { "PluginDriveRight", "alt-f2" },
+#ifdef ENABLE_MCTERM
+    { "PanelToggleLeft", "ctrl-f1" },
+    { "PanelToggleRight", "ctrl-f2" },
+#endif
     {
         NULL,
         NULL,

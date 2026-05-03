@@ -240,6 +240,42 @@ mcview_terminal_buffer_scroll_up (mcview_terminal_buffer_t *buf, int top, int bo
 /* --------------------------------------------------------------------------------------------- */
 
 void
+mcview_terminal_buffer_scroll_down (mcview_terminal_buffer_t *buf, int top, int bottom, int cols,
+                                    const mcview_ansi_state_t *ansi)
+{
+    int row;
+
+    if (top >= bottom || cols <= 0)
+        return;
+
+    for (row = bottom; row > top; row--)
+    {
+        gpointer key_dst = GINT_TO_POINTER (row);
+        gpointer key_src = GINT_TO_POINTER (row - 1);
+        GArray *src_arr;
+
+        g_hash_table_remove (buf->rows, key_dst);
+
+        src_arr = (GArray *) g_hash_table_lookup (buf->rows, key_src);
+        if (src_arr != NULL)
+        {
+            GArray *dst_arr = g_array_new (FALSE, TRUE, sizeof (mcview_vterm_cell_t));
+            if (src_arr->len > 0)
+                g_array_append_vals (dst_arr, src_arr->data, src_arr->len);
+            g_hash_table_insert (buf->rows, key_dst, dst_arr);
+        }
+    }
+
+    g_hash_table_remove (buf->rows, GINT_TO_POINTER (top));
+    mcview_terminal_buffer_fill_range (buf, top, 0, cols - 1, ' ', ansi);
+
+    if (buf->max_row < bottom)
+        buf->max_row = bottom;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 mcview_terminal_buffer_erase_eol (mcview_terminal_buffer_t *buf, int row, int col, int term_cols,
                                   const mcview_ansi_state_t *ansi)
 {
@@ -270,6 +306,31 @@ mcview_terminal_buffer_erase_line (mcview_terminal_buffer_t *buf, int row, int t
     if (term_cols <= 0)
         return;
     mcview_terminal_buffer_fill_range (buf, row, 0, term_cols - 1, ' ', ansi);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_terminal_buffer_delete_chars (mcview_terminal_buffer_t *buf, int row, int col, int count,
+                                     int term_cols, const mcview_ansi_state_t *ansi)
+{
+    GArray *arr;
+    int dst, src;
+
+    if (row < 0 || col < 0 || col >= term_cols || count <= 0 || term_cols <= 0)
+        return;
+
+    if (count > term_cols - col)
+        count = term_cols - col;
+
+    arr = get_or_create_row (buf, row);
+    ensure_col (arr, term_cols - 1);
+
+    for (dst = col, src = col + count; src < term_cols; dst++, src++)
+        g_array_index (arr, mcview_vterm_cell_t, dst) =
+            g_array_index (arr, mcview_vterm_cell_t, src);
+
+    mcview_terminal_buffer_fill_range (buf, row, term_cols - count, term_cols - 1, ' ', ansi);
 }
 
 /* --------------------------------------------------------------------------------------------- */

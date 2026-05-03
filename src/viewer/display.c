@@ -265,7 +265,55 @@ mcview_update (WView *view)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/** Replay datasource into virtual screen, then render the viewport. */
+void
+mcview_render_terminal_canvas (const mcview_terminal_buffer_t *buf, int top_row, int screen_y,
+                               int screen_x, int rows, int cols)
+{
+    int row, col;
+
+    tty_setcolor (VIEWER_NORMAL_COLOR);
+
+    for (row = 0; row < rows; row++)
+    {
+        int canvas_row = top_row + row;
+
+        for (col = 0; col < cols; col++)
+        {
+            const mcview_vterm_cell_t *cell;
+
+            /* Position explicitly per column so that ambiguous-width characters
+             * printed as 2-wide by tty_print_anychar() do not shift subsequent
+             * cells to the right on screen. */
+            tty_gotoyx (screen_y + row, screen_x + col);
+
+            cell = mcview_terminal_buffer_get (buf, canvas_row, col);
+
+            if (cell != NULL && cell->ch != 0)
+            {
+                const mcview_cell_attr_t *a = &cell->attr;
+                mcview_ansi_state_t tmp;
+
+                mcview_ansi_state_init (&tmp);
+                tmp.fg = a->fg;
+                tmp.bg = a->bg;
+                tmp.bold = a->bold;
+                tmp.italic = a->italic;
+                tmp.underline = a->underline;
+                tmp.blink = a->blink;
+                tmp.reverse = a->reverse;
+                tty_setcolor (mcview_ansi_get_color (&tmp));
+                tty_print_anychar (cell->ch);
+            }
+            else
+            {
+                tty_setcolor (VIEWER_NORMAL_COLOR);
+                tty_print_char (' ');
+            }
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 static void
 mcview_display_terminal (WView *view)
 {
@@ -273,7 +321,7 @@ mcview_display_terminal (WView *view)
     mcview_terminal_buffer_t *buf;
     const WRect *r = &view->data_area;
     off_t filesize, pos;
-    int top_row, row, col;
+    int top_row;
 
     if (vt == NULL)
         return;
@@ -301,51 +349,11 @@ mcview_display_terminal (WView *view)
     mcview_vterm_set_replay_offset (vt, pos);
     view->dpy_end = filesize;
 
-    /* Re-fetch buf: VTERM_ALT_SCREEN_EXIT may have swapped it for the snapshot. */
     buf = mcview_vterm_buf (vt);
 
-    /* Render virtual screen into data area. */
     top_row = mcview_vterm_resolve_top_row (vt, r->lines);
-    tty_setcolor (VIEWER_NORMAL_COLOR);
-
-    for (row = 0; row < r->lines; row++)
-    {
-        int canvas_row = top_row + row;
-
-        for (col = 0; col < r->cols; col++)
-        {
-            const mcview_vterm_cell_t *cell;
-
-            /* Position explicitly per column so that ambiguous-width characters
-             * printed as 2-wide by tty_print_anychar() do not shift subsequent
-             * cells to the right on screen. */
-            widget_gotoyx (view, r->y + row, r->x + col);
-
-            cell = mcview_terminal_buffer_get (buf, canvas_row, col);
-
-            if (cell != NULL && cell->ch != 0)
-            {
-                const mcview_cell_attr_t *a = &cell->attr;
-                mcview_ansi_state_t tmp;
-
-                mcview_ansi_state_init (&tmp);
-                tmp.fg = a->fg;
-                tmp.bg = a->bg;
-                tmp.bold = a->bold;
-                tmp.italic = a->italic;
-                tmp.underline = a->underline;
-                tmp.blink = a->blink;
-                tmp.reverse = a->reverse;
-                tty_setcolor (mcview_ansi_get_color (&tmp));
-                tty_print_anychar (cell->ch);
-            }
-            else
-            {
-                tty_setcolor (VIEWER_NORMAL_COLOR);
-                tty_print_char (' ');
-            }
-        }
-    }
+    mcview_render_terminal_canvas (buf, top_row, WIDGET (view)->rect.y + r->y,
+                                   WIDGET (view)->rect.x + r->x, r->lines, r->cols);
 }
 
 /* --------------------------------------------------------------------------------------------- */

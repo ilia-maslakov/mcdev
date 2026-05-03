@@ -174,7 +174,8 @@ static const struct test_vfs_split_ds
 START_PARAMETRIZED_TEST (test_vfs_split, test_vfs_split_ds)
 {
     // given
-    const char *local = NULL, *op = NULL;
+    const char *local = NULL;
+    char *op = NULL;
     struct vfs_class *actual_result;
     char *path;
 

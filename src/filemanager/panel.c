@@ -3345,7 +3345,8 @@ do_enter_on_file_entry (WPanel *panel, const file_entry_t *fe)
         cmd = g_strconcat ("." PATH_SEP_STR, fname_quoted, (char *) NULL);
         g_free (fname_quoted);
 
-        shell_execute (cmd, 0);
+        if (!filemanager_panel_exec (cmd))
+            shell_execute (cmd, 0);
         g_free (cmd);
     }
 
@@ -3494,7 +3495,7 @@ chdir_other_panel (WPanel *panel)
 {
     const file_entry_t *entry;
     vfs_path_t *new_dir_vpath;
-    char *curr_entry = NULL;
+    const char *curr_entry = NULL;
     WPanel *p;
 
     entry = panel_current_entry (panel);

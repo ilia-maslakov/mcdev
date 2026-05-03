@@ -149,7 +149,7 @@ mc_deserialize_str (const char prefix, const char *data, GError **error)
 
     {
         char buffer[BUF_TINY];
-        char *semi_ptr;
+        const char *semi_ptr;
         size_t semi_offset;
 
         semi_ptr = strchr (data + 1, SRLZ_DELIM_C);
