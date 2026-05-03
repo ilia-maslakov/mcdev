@@ -25,6 +25,7 @@ gboolean mcterm_send_internal_line (WMcTerm *t, const char *line);
 gboolean mcterm_shell_at_prompt (const WMcTerm *t);
 const char *mcterm_osc7_raw (const WMcTerm *t);
 void mcterm_set_prompt_callback (WMcTerm *t, void (*cb) (void *), void *data);
+void mcterm_set_after_redraw_callback (WMcTerm *t, void (*cb) (void *), void *data);
 gboolean mcterm_osc7_capable (const WMcTerm *t);
 int mcterm_cursor_col (const WMcTerm *t);
 void mcterm_draw_prompt_row (const WMcTerm *t, int screen_y);

@@ -356,7 +356,6 @@ mcview_display_terminal (WView *view)
     mcview_vterm_set_replay_offset (vt, pos);
     view->dpy_end = filesize;
 
-    /* Re-fetch buf: VTERM_ALT_SCREEN_EXIT may have swapped it for the snapshot. */
     buf = mcview_vterm_buf (vt);
 
     top_row = mcview_vterm_resolve_top_row (vt, r->lines);

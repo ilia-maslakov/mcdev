@@ -81,16 +81,13 @@ struct mcview_vterm_struct
     off_t replay_offset;
 
     mcview_terminal_buffer_t *buf;
-    mcview_terminal_buffer_t *snapshot_buf; /* main-screen content saved on ALT_SCREEN_ENTER */
+    mcview_terminal_buffer_t *snapshot_buf;
     int snapshot_cursor_row;
     int snapshot_cursor_col;
-    mcview_terminal_buffer_t *alt_frame_buf; /* last complete frame inside alt-screen */
+    mcview_terminal_buffer_t *alt_frame_buf;
 
-    /* Cursor-home with no new chars since last snapshot is exit cleanup. */
     gboolean new_chars_since_snapshot;
 
-    /* TRUE while inside ESC[?1049h / ESC[?1049l alt-screen bracket.
-     * Snapshot is taken on entry and must not be overwritten by TUI redraws. */
     gboolean in_alt_screen;
 
     /* TRUE when ESC[?1h (DECCKM) has been received: cursor keys should be
@@ -146,7 +143,6 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
 {
     int p0, p1;
 
-    /* DEC private sequences (prefixed with ?): handle known ones, consume the rest. */
     if (vt->csi_private)
     {
         if (vt->param_count > 0)
@@ -308,7 +304,6 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/** Determine the expected length of a UTF-8 sequence from its lead byte. */
 static int
 utf8_seq_len (unsigned char b)
 {
@@ -328,12 +323,10 @@ utf8_seq_len (unsigned char b)
 static vterm_event_t
 vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
 {
-    /* Continuation byte while accumulating a multi-byte sequence. */
     if (vt->utf8_expected > 0)
     {
         if ((byte & 0xC0) != 0x80)
         {
-            /* Invalid continuation -- abandon sequence, treat byte as lead. */
             vt->utf8_len = 0;
             vt->utf8_expected = 0;
         }
@@ -342,7 +335,6 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
             vt->utf8_buf[vt->utf8_len++] = byte;
             if (vt->utf8_len == vt->utf8_expected)
             {
-                /* Sequence complete: decode codepoint. */
                 gunichar ch;
                 vterm_event_t ev = vterm_make (vt, VTERM_CHAR);
 
@@ -370,18 +362,15 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
                 ev.ch = ch;
                 return ev;
             }
-            /* Sequence not yet complete. */
             return vterm_make (vt, VTERM_CONSUMED);
         }
     }
 
-    /* Lead byte of a multi-byte sequence. */
     {
         int expected = utf8_seq_len (byte);
 
         if (expected == 1)
         {
-            /* ASCII or C1 control -- treat as single character. */
             vterm_event_t ev = vterm_make (vt, VTERM_CHAR);
             ev.ch = (gunichar) byte;
             return ev;
@@ -395,7 +384,6 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
             return vterm_make (vt, VTERM_CONSUMED);
         }
 
-        /* Invalid byte (e.g. 0x80-0xBF without prior lead): consume. */
         return vterm_make (vt, VTERM_CONSUMED);
     }
 }
@@ -465,6 +453,7 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     vt->has_current = FALSE;
     vt->utf8_len = 0;
     vt->utf8_expected = 0;
+    vt->app_cursor_keys = FALSE;
     vt->cursor_row = 0;
     vt->cursor_col = 0;
     vt->scroll_top = 0;
@@ -556,24 +545,18 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
     if (vt->in_esc_char)
     {
         vt->in_esc_char = FALSE;
-        /* Feed to ansi.c to keep its state consistent. */
         mcview_ansi_parse_char (&vt->ansi, (int) byte);
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Feed every non-OSC byte to ansi.c for SGR state maintenance. */
     mcview_ansi_parse_char (&vt->ansi, (int) byte);
 
-    /* ---- vterm's own CSI/ESC state machine ---- */
-
-    /* Byte after ESC determines the sequence type. */
     if (vt->saw_esc && byte != ESC_CHAR)
     {
         vt->saw_esc = FALSE;
 
         if (byte == '[')
         {
-            /* CSI: start accumulating. */
             vt->in_csi = TRUE;
             vt->csi_private = FALSE;
             vt->param_count = 0;
@@ -608,7 +591,6 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Inside CSI: accumulate parameters or dispatch on final byte. */
     if (vt->in_csi)
     {
         if (byte >= '0' && byte <= '9')
@@ -633,17 +615,14 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
 
         if (byte >= 0x40u && byte <= 0x7Eu)
         {
-            /* Final byte: finalize last param and dispatch. */
             vterm_finalize_param (vt);
             vt->in_csi = FALSE;
             return vterm_dispatch_csi (vt, byte);
         }
 
-        /* Intermediate bytes (0x20-0x3F, excluding '?' handled above): consume. */
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Regular character -- handle CR, LF, BS, and UTF-8. */
     if (byte == '\r')
         return vterm_make (vt, VTERM_CR);
     if (byte == '\n')
@@ -656,7 +635,6 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         ev.param1 = 8 - (vt->cursor_col % 8);
         return ev;
     }
-    /* Other C0 controls (0x01-0x07, 0x0B-0x0C, 0x0E-0x1F): silently consume. */
     if (byte < 0x20)
         return vterm_make (vt, VTERM_CONSUMED);
     return vterm_handle_utf8 (vt, byte);
@@ -703,14 +681,11 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         {
             if (vt->in_alt_screen)
             {
-                /* Inside alt-screen: save to alt_frame_buf so the last complete
-                 * TUI frame is available for viewer display on exit. */
                 mcview_terminal_buffer_free (vt->alt_frame_buf);
                 vt->alt_frame_buf = mcview_terminal_buffer_copy (vt->buf);
             }
             else
             {
-                /* Outside alt-screen: update main-screen snapshot. */
                 mcview_terminal_buffer_free (vt->snapshot_buf);
                 vt->snapshot_buf = mcview_terminal_buffer_copy (vt->buf);
                 vt->snapshot_cursor_row = vt->cursor_row;

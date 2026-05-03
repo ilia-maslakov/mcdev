@@ -86,6 +86,8 @@ struct WMcTerm
     /* Optional callback: fired when shell_at_prompt transitions FALSE -> TRUE. */
     void (*on_prompt_ready) (void *data);
     void *on_prompt_ready_data;
+    void (*on_after_redraw) (void *data);
+    void *on_after_redraw_data;
     /* Internal cwd-sync snapshot: hide the injected cd from the display. */
     gboolean pending_internal_sync;
     mcview_terminal_buffer_t *sync_snapshot_buf; /* owned, freed in mcterm_free */
@@ -113,6 +115,8 @@ mcterm_pty_ready_cb (int fd, void *info)
 
     (void) fd;
 
+    /* Single non-retrying read: EINTR just loses one wakeup; the next
+       select() re-triggers, so no data is lost and no retry is needed. */
     n = read (t->pty_master, buf, sizeof (buf));
 
     if (n > 0)
@@ -145,6 +149,8 @@ mcterm_pty_ready_cb (int fd, void *info)
                 t->on_prompt_ready (t->on_prompt_ready_data);
             else
                 send_message (WIDGET (t), NULL, MSG_CURSOR, 0, NULL);
+            if (t->on_after_redraw != NULL)
+                t->on_after_redraw (t->on_after_redraw_data);
             tty_refresh ();
         }
     }
@@ -161,6 +167,8 @@ mcterm_pty_ready_cb (int fd, void *info)
         if (widget_get_state (WIDGET (t), WST_VISIBLE))
         {
             widget_draw (WIDGET (t));
+            if (t->on_after_redraw != NULL)
+                t->on_after_redraw (t->on_after_redraw_data);
             tty_refresh ();
         }
     }
@@ -811,6 +819,17 @@ mcterm_set_prompt_callback (WMcTerm *t, void (*cb) (void *), void *data)
         return;
     t->on_prompt_ready = cb;
     t->on_prompt_ready_data = data;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcterm_set_after_redraw_callback (WMcTerm *t, void (*cb) (void *), void *data)
+{
+    if (t == NULL)
+        return;
+    t->on_after_redraw = cb;
+    t->on_after_redraw_data = data;
 }
 
 /* --------------------------------------------------------------------------------------------- */

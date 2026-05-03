@@ -120,8 +120,6 @@ feed_with_sync_restore (mcview_vterm_t *vt, const char *data, mcview_terminal_bu
 /* Tests *****************************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-/* LF at scroll_bottom scrolls region up; cursor stays */
-
 START_TEST (test_scroll_region_lf_at_bottom_scrolls_up)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -151,8 +149,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* LF above scroll_top advances cursor without scrolling */
-
 START_TEST (test_scroll_region_lf_above_region_advances_cursor)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -175,8 +171,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* VPA (CSI d) changes row, leaves col unchanged */
-
 START_TEST (test_vpa_moves_row_only)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -195,8 +189,6 @@ START_TEST (test_vpa_moves_row_only)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* ECH (CSI X) erases with current attrs; cursor does not move */
 
 START_TEST (test_ech_erases_with_attrs_cursor_stays)
 {
@@ -224,8 +216,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* erase_eol fills to term_cols-1 with space and current attrs */
-
 START_TEST (test_erase_eol_fills_full_width_with_attrs)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -247,8 +237,6 @@ START_TEST (test_erase_eol_fills_full_width_with_attrs)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* DECSTBM out-of-range bottom is clamped to term_rows-1 */
 
 START_TEST (test_decstbm_out_of_range_bottom_is_clamped)
 {
@@ -272,8 +260,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_FWD clamps cursor_col to term_cols-1 */
-
 START_TEST (test_cursor_fwd_clamps_to_term_cols)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -290,8 +276,6 @@ START_TEST (test_cursor_fwd_clamps_to_term_cols)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* CURSOR_ABS col is clamped to term_cols-1 */
 
 START_TEST (test_cursor_abs_col_clamps_to_term_cols)
 {
@@ -311,8 +295,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_ABS row is clamped to term_rows-1 */
-
 START_TEST (test_cursor_abs_row_clamps_to_term_rows)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -330,8 +312,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_DOWN clamps cursor_row to term_rows-1 */
-
 START_TEST (test_cursor_down_clamps_to_term_rows)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -348,8 +328,6 @@ START_TEST (test_cursor_down_clamps_to_term_rows)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* erase_bol with clamped cursor_col does not expand row past term_cols */
 
 START_TEST (test_erase_bol_does_not_expand_past_term_cols)
 {
@@ -377,6 +355,7 @@ END_TEST
 /* --------------------------------------------------------------------------------------------- */
 
 /* Internal cwd sync restores the old canvas on OSC 7, then lets the new PS1 render. */
+
 
 START_TEST (test_sync_snapshot_split_osc7_and_prompt)
 {
@@ -414,6 +393,7 @@ END_TEST
 
 /* OSC 7 and PS1 may arrive in the same PTY read.  Restore must happen at the
  * OSC 7 byte boundary, before the remaining PS1 bytes are applied. */
+
 
 START_TEST (test_sync_snapshot_batched_osc7_and_prompt)
 {

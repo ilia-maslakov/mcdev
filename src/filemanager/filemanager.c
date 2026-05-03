@@ -196,11 +196,17 @@ listmode_cmd (void)
 /* --------------------------------------------------------------------------------------------- */
 
 static GList *
-create_panel_menu (void)
+create_panel_menu (gboolean is_right)
 {
     GList *entries = NULL;
+#ifdef ENABLE_MCTERM
+    long ck_listing = is_right ? CK_PanelToggleRight : CK_PanelToggleLeft;
+#else
+    long ck_listing = CK_PanelListing;
+    (void) is_right;
+#endif
 
-    entries = g_list_prepend (entries, menu_entry_new (_ ("File listin&g"), CK_PanelListing));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("File listin&g"), ck_listing));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Quick view"), CK_PanelQuickView));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Info"), CK_PanelInfo));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Tree"), CK_PanelTree));
@@ -270,7 +276,11 @@ create_command_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Directory tree"), CK_Tree));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Find file"), CK_Find));
     entries = g_list_prepend (entries, menu_entry_new (_ ("S&wap panels"), CK_Swap));
+#ifdef ENABLE_MCTERM
     entries = g_list_prepend (entries, menu_entry_new (_ ("Toggle &terminal"), CK_Shell));
+#else
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Switch to &subshell"), CK_Shell));
+#endif
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Compare directories"), CK_CompareDirs));
 #ifdef USE_DIFF_VIEW
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&ompare files"), CK_CompareFiles));
@@ -367,14 +377,14 @@ create_options_menu (void)
 static void
 init_menu (void)
 {
-    left_menu = menu_new ("", create_panel_menu (), "[Left and Right Menus]");
+    left_menu = menu_new ("", create_panel_menu (FALSE), "[Left and Right Menus]");
     menubar_add_menu (the_menubar, left_menu);
     menubar_add_menu (the_menubar, menu_new (_ ("&File"), create_file_menu (), "[File Menu]"));
     menubar_add_menu (the_menubar,
                       menu_new (_ ("&Command"), create_command_menu (), "[Command Menu]"));
     menubar_add_menu (the_menubar,
                       menu_new (_ ("&Options"), create_options_menu (), "[Options Menu]"));
-    right_menu = menu_new ("", create_panel_menu (), "[Left and Right Menus]");
+    right_menu = menu_new ("", create_panel_menu (TRUE), "[Left and Right Menus]");
     menubar_add_menu (the_menubar, right_menu);
     update_menu ();
 }
@@ -1193,6 +1203,65 @@ mcterm_prompt_ready_cb (void *data)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+mcterm_redraw_visible_panels (void)
+{
+    Widget *pw;
+
+    if (!mcterm_mode || mcterm_panel == NULL)
+        return;
+
+    pw = get_panel_widget (0);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
+        widget_draw (pw);
+    pw = get_panel_widget (1);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
+        widget_draw (pw);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Redraw panels and any overlapping dialogs after mcterm redraws itself. */
+static void
+mcterm_after_redraw_cb (void *data)
+{
+    GList *l;
+
+    (void) data;
+
+    mcterm_redraw_visible_panels ();
+
+    if (the_menubar != NULL && the_menubar->is_dropped)
+        widget_draw (WIDGET (the_menubar));
+
+    for (l = top_dlg; l != NULL; l = g_list_next (l))
+        if (WIDGET (l->data) == WIDGET (filemanager))
+            break;
+    if (l == NULL)
+        return;
+    for (l = g_list_previous (l); l != NULL; l = g_list_previous (l))
+        widget_draw (WIDGET (l->data));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Route mouse events to visible panels first; pass the rest to mcterm. */
+static int
+mcterm_raw_mouse_handler (Widget *w, Gpm_Event *event)
+{
+    Widget *pw;
+
+    pw = get_panel_widget (0);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE) && mouse_global_in_widget (event, pw))
+        return MOU_UNHANDLED;
+    pw = get_panel_widget (1);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE) && mouse_global_in_widget (event, pw))
+        return MOU_UNHANDLED;
+    return mouse_handle_event (w, event);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 toggle_mcterm (void)
 {
     WGroup *g = GROUP (filemanager);
@@ -1221,12 +1290,16 @@ toggle_mcterm (void)
             if (mcterm_panel == NULL)
                 return;
             mcterm_set_prompt_callback (mcterm_panel, mcterm_prompt_ready_cb, NULL);
+            mcterm_set_after_redraw_callback (mcterm_panel, mcterm_after_redraw_cb, NULL);
+            mcterm_widget (mcterm_panel)->mouse_handler = mcterm_raw_mouse_handler;
             group_add_widget (g, mcterm_widget (mcterm_panel));
         }
         else
         {
             widget_set_size_rect (mcterm_widget (mcterm_panel), &r);
             widget_show (mcterm_widget (mcterm_panel));
+            mcterm_set_after_redraw_callback (mcterm_panel, mcterm_after_redraw_cb, NULL);
+            mcterm_widget (mcterm_panel)->mouse_handler = mcterm_raw_mouse_handler;
         }
 
         widget_hide (get_panel_widget (0));
@@ -1292,6 +1365,8 @@ toggle_mcterm (void)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t exec_cmdline_enter (void);
 
 static cb_ret_t
 midnight_execute_cmd (Widget *sender, long command)
@@ -1386,7 +1461,36 @@ midnight_execute_cmd (Widget *sender, long command)
         about_box ();
         break;
     case CK_ChangePanel:
-        (void) change_panel ();
+        if (mcterm_mode && mcterm_panel != NULL && mcterm_shell_at_prompt (mcterm_panel)
+            && mcterm_osc7_capable (mcterm_panel))
+        {
+            const char *text = input_get_ctext (cmdline);
+            if (text != NULL && *text != '\0')
+            {
+                if (mcterm_send_tab_complete (mcterm_panel, text))
+                {
+                    input_assign_text (cmdline, "");
+                    widget_set_size (WIDGET (cmdline), WIDGET (cmdline)->rect.y,
+                                     CONST_WIDGET (filemanager)->rect.x, 1,
+                                     CONST_WIDGET (filemanager)->rect.cols);
+                    widget_draw (mcterm_widget (mcterm_panel));
+                    mcterm_redraw_visible_panels ();
+                    send_message (mcterm_widget (mcterm_panel), NULL, MSG_CURSOR, 0, NULL);
+                    tty_refresh ();
+                }
+            }
+            else
+            {
+                Widget *pw;
+                pw = get_panel_widget (0);
+                if (pw == NULL || !widget_get_state (pw, WST_VISIBLE))
+                    pw = get_panel_widget (1);
+                if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
+                    widget_select (pw);
+            }
+        }
+        else
+            (void) change_panel ();
         break;
     case CK_HotListAdd:
         add2hotlist_cmd (current_panel);
@@ -1520,6 +1624,11 @@ midnight_execute_cmd (Widget *sender, long command)
         if (panel_plugin_drive_change (right_panel) && current_panel != right_panel)
             change_panel ();
         break;
+    case CK_Enter:
+        if (mcterm_mode && mcterm_panel != NULL && mcterm_shell_at_prompt (mcterm_panel)
+            && mcterm_osc7_capable (mcterm_panel) && input_is_empty (cmdline))
+            return send_message (mcterm_widget (mcterm_panel), NULL, MSG_KEY, '\n', NULL);
+        return exec_cmdline_enter ();
     case CK_Help:
         if (current_panel != NULL && current_panel->is_plugin_panel && current_panel->plugin != NULL
             && current_panel->plugin_data != NULL && current_panel->plugin->get_help_info != NULL)
@@ -1577,6 +1686,17 @@ midnight_execute_cmd (Widget *sender, long command)
         link_cmd (LINK_HARDLINK);
         break;
     case CK_PanelListing:
+        if (mcterm_mode && mcterm_panel != NULL)
+        {
+            Widget *pw = get_panel_widget (MENU_PANEL_IDX);
+            if (pw != NULL && !widget_get_state (pw, WST_VISIBLE))
+            {
+                widget_show (pw);
+                mcterm_redraw_visible_panels ();
+                tty_refresh ();
+                break;
+            }
+        }
         listing_cmd ();
         break;
 #ifdef LISTMODE_EDITOR
@@ -1643,6 +1763,41 @@ midnight_execute_cmd (Widget *sender, long command)
     case CK_Shell:
         toggle_mcterm ();
         break;
+#ifdef ENABLE_MCTERM
+    case CK_PanelToggleLeft:
+    case CK_PanelToggleRight:
+        if (!mcterm_mode)
+        {
+            toggle_mcterm ();
+            if (mcterm_mode && mcterm_panel != NULL)
+            {
+                int other_idx = (command == CK_PanelToggleRight) ? 0 : 1;
+                Widget *pw = get_panel_widget (other_idx);
+                if (pw != NULL)
+                    widget_show (pw);
+                mcterm_redraw_visible_panels ();
+                tty_refresh ();
+            }
+        }
+        else if (mcterm_panel != NULL)
+        {
+            int idx = (command == CK_PanelToggleRight) ? 1 : 0;
+            Widget *pw = get_panel_widget (idx);
+            if (pw != NULL)
+            {
+                if (widget_get_state (pw, WST_VISIBLE))
+                {
+                    widget_hide (pw);
+                    widget_draw (mcterm_widget (mcterm_panel));
+                }
+                else
+                    widget_show (pw);
+                mcterm_redraw_visible_panels ();
+                tty_refresh ();
+            }
+        }
+        break;
+#endif /* ENABLE_MCTERM */
     case CK_DirSize:
         smart_dirsize_cmd (current_panel);
         break;
@@ -1781,6 +1936,112 @@ is_cmdline_mute (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/** Execute a shell command in the mcterm panel, hiding panels if visible.
+ * Returns FALSE if mcterm is not active or not ready. */
+gboolean
+filemanager_panel_exec (const char *cmd)
+{
+    Widget *pw;
+    gboolean panels_hidden = FALSE;
+
+    if (!mcterm_mode)
+        return FALSE;
+
+    /* OSC 7 is required to avoid injecting into a foreground process. */
+    if (mcterm_panel == NULL || !mcterm_is_alive (mcterm_panel)
+        || !mcterm_osc7_capable (mcterm_panel))
+        return FALSE;
+
+    if (!mcterm_shell_at_prompt (mcterm_panel))
+    {
+        message (D_ERROR, MSG_ERROR, "%s", _ ("The terminal is already running a command"));
+        return TRUE;
+    }
+
+    pw = get_panel_widget (0);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
+    {
+        widget_hide (pw);
+        panels_hidden = TRUE;
+    }
+    pw = get_panel_widget (1);
+    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
+    {
+        widget_hide (pw);
+        panels_hidden = TRUE;
+    }
+    if (panels_hidden)
+    {
+        widget_draw (mcterm_widget (mcterm_panel));
+        tty_refresh ();
+    }
+
+    return mcterm_send_line (mcterm_panel, cmd);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/** Handle Enter pressed on the cmdline: route to mcterm shell or execute as MC command. */
+static cb_ret_t
+exec_cmdline_enter (void)
+{
+    const char *s;
+
+    if (is_cmdline_mute ())
+        return MSG_NOT_HANDLED;
+
+    for (s = input_get_ctext (cmdline); *s != '\0' && whitespace (*s); s++)
+        ;
+
+    if (*s != '\0')
+    {
+        gboolean is_cd, is_exit;
+
+        is_cd = strncmp (s, "cd", 2) == 0 && (s[2] == '\0' || whitespace (s[2]));
+        is_exit = strcmp (s, "exit") == 0;
+
+        if ((is_cd && !mcterm_mode) || is_exit || mcterm_panel == NULL
+            || !mcterm_is_alive (mcterm_panel) || !mcterm_shell_at_prompt (mcterm_panel)
+            || !mcterm_osc7_capable (mcterm_panel))
+        {
+            /* exit and cd (in non-terminal mode) stay on the old panel path.
+             * Also used as fallback when no live mcterm session exists or
+             * when a foreground process is running (shell not at prompt). */
+            send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
+        }
+        else
+        {
+            /* Route to the persistent mcterm shell; create and switch to
+             * terminal mode lazily so the user sees the output. */
+            const char *cmd;
+
+            if (!mcterm_mode)
+                toggle_mcterm ();
+
+            /* toggle_mcterm() may fail to create the PTY (openpty/fork error).
+             * Fall back to the normal panel path so the command is not lost. */
+            if (mcterm_panel == NULL || !mcterm_is_alive (mcterm_panel))
+            {
+                send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
+                return MSG_HANDLED;
+            }
+
+            for (cmd = input_get_ctext (cmdline); *cmd != '\0' && whitespace (*cmd); cmd++)
+                ;
+            if (mcterm_send_line (mcterm_panel, cmd))
+                input_clean (cmdline);
+        }
+
+        return MSG_HANDLED;
+    }
+
+    input_insert (cmdline, "", FALSE);
+    cmdline->point = 0;
+    return MSG_NOT_HANDLED;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static cb_ret_t
 midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
 {
@@ -1796,6 +2057,7 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
     case MSG_DRAW:
         load_hint (TRUE);
         group_default_callback (w, NULL, MSG_DRAW, 0, NULL);
+        mcterm_redraw_visible_panels ();
         /* In terminal mode at prompt: overlay the colored shell prompt from
          * vterm onto the cmdline row (mcterm draws last in group order, so
          * this runs after mcterm; we then redraw cmdline on top). */
@@ -1853,6 +2115,31 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
     case MSG_KEY:
         if (mcterm_mode && mcterm_panel != NULL)
         {
+            /* If a visible panel has focus, let it handle the key (panel navigation).
+             * Enter with non-empty cmdline is routed to the shell instead. */
+            {
+                WGroup *g = GROUP (filemanager);
+                Widget *focused = g->current != NULL ? WIDGET (g->current->data) : NULL;
+                Widget *pw;
+                gboolean panel_focused = FALSE;
+
+                pw = get_panel_widget (0);
+                if (pw == focused && widget_get_state (pw, WST_VISIBLE))
+                    panel_focused = TRUE;
+                if (!panel_focused)
+                {
+                    pw = get_panel_widget (1);
+                    if (pw == focused && widget_get_state (pw, WST_VISIBLE))
+                        panel_focused = TRUE;
+                }
+                if (panel_focused)
+                {
+                    if (parm == '\n' && command_prompt && !input_is_empty (cmdline))
+                        return exec_cmdline_enter ();
+                    return MSG_NOT_HANDLED;
+                }
+            }
+
             gboolean in_alt = mcterm_in_alt_screen (mcterm_panel);
             /* Without OSC 7 we cannot tell idle prompt from a running process,
              * so route all keys to the PTY. */
@@ -1943,56 +2230,8 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
         if (parm == '\n' && !is_cmdline_mute ())
         {
-            const char *s;
-
-            for (s = input_get_ctext (cmdline); *s != '\0' && whitespace (*s); s++)
-                ;
-
-            if (*s != '\0')
-            {
-                gboolean is_cd, is_exit;
-
-                is_cd = strncmp (s, "cd", 2) == 0 && (s[2] == '\0' || whitespace (s[2]));
-                is_exit = strcmp (s, "exit") == 0;
-
-                if ((is_cd && !mcterm_mode) || is_exit || mcterm_panel == NULL
-                    || !mcterm_is_alive (mcterm_panel) || !mcterm_shell_at_prompt (mcterm_panel)
-                    || !mcterm_osc7_capable (mcterm_panel))
-                {
-                    /* exit and cd (in non-terminal mode) stay on the old panel path.
-                     * Also used as fallback when no live mcterm session exists or
-                     * when a foreground process is running (shell not at prompt). */
-                    send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
-                }
-                else
-                {
-                    /* Route to the persistent mcterm shell; create and switch to
-                     * terminal mode lazily so the user sees the output. */
-                    const char *cmd;
-
-                    if (!mcterm_mode)
-                        toggle_mcterm ();
-
-                    /* toggle_mcterm() may fail to create the PTY (openpty/fork error).
-                     * Fall back to the normal panel path so the command is not lost. */
-                    if (mcterm_panel == NULL || !mcterm_is_alive (mcterm_panel))
-                    {
-                        send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
-                        return MSG_HANDLED;
-                    }
-
-                    for (cmd = input_get_ctext (cmdline); *cmd != '\0' && whitespace (*cmd); cmd++)
-                        ;
-                    if (mcterm_send_line (mcterm_panel, cmd))
-                        input_clean (cmdline);
-                }
-
+            if (exec_cmdline_enter () == MSG_HANDLED)
                 return MSG_HANDLED;
-            }
-
-            input_insert (cmdline, "", FALSE);
-            cmdline->point = 0;
-            return MSG_NOT_HANDLED;
         }
 
         if ((!mc_global.tty.alternate_plus_minus

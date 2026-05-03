@@ -43,20 +43,16 @@ START_TEST (test_define_and_lookup_basic)
     char *seq;
     int matched;
 
-    /* ESC [ 1 ; 3 P  -- xterm Alt-F1 */
     raw = convert_controls ("\\e[1;3P");
     ck_assert_ptr_ne (raw, NULL);
     ck_assert_int_eq ((int) strlen (raw), 6);
     ck_assert_int_eq ((unsigned char) raw[0], 0x1b);
 
-    /* add to trie */
     ck_assert (define_sequence (code, raw, MCKEY_NOACTION));
 
-    /* forward match: raw bytes -> keycode */
     matched = tty_match_seq_to_keycode (raw, (int) strlen (raw));
     ck_assert_int_eq (matched, code);
 
-    /* reverse lookup: keycode -> escape notation */
     seq = tty_key_lookup_sequence (code);
     ck_assert_ptr_ne (seq, NULL);
     mctest_assert_str_eq (seq, "\\e[1;3P");
@@ -76,23 +72,18 @@ START_TEST (test_system_then_user_override)
     char *seq;
     int matched;
 
-    /* Step 1: system default -- \e[17~ for Alt-F1 (linux console) */
     raw_system = convert_controls ("\\e[17~");
     ck_assert (define_sequence (code_altf1, raw_system, MCKEY_NOACTION));
 
-    /* verify forward match works */
     matched = tty_match_seq_to_keycode (raw_system, (int) strlen (raw_system));
     ck_assert_int_eq (matched, code_altf1);
 
-    /* Step 2: user term file -- \e[1;3P for Alt-F1 (xterm) */
     raw_user = convert_controls ("\\e[1;3P");
     ck_assert (define_sequence (code_altf1, raw_user, MCKEY_NOACTION));
 
-    /* verify user sequence matches */
     matched = tty_match_seq_to_keycode (raw_user, (int) strlen (raw_user));
     ck_assert_int_eq (matched, code_altf1);
 
-    /* verify system sequence still matches the same code */
     matched = tty_match_seq_to_keycode (raw_system, (int) strlen (raw_system));
     ck_assert_int_eq (matched, code_altf1);
 
@@ -130,8 +121,8 @@ END_TEST
 
 START_TEST (test_prefix_extension_short_still_works)
 {
-    int code_short = KEY_F (6);             /* \e[17~ */
-    int code_long = KEY_M_CTRL | KEY_F (6); /* \e[17;5~ */
+    int code_short = KEY_F (6);
+    int code_long = KEY_M_CTRL | KEY_F (6);
     char *raw_short;
     char *raw_long;
     char *seq;
@@ -140,17 +131,13 @@ START_TEST (test_prefix_extension_short_still_works)
     raw_short = convert_controls ("\\e[17~");
     raw_long = convert_controls ("\\e[17;5~");
 
-    /* add short first */
     ck_assert (define_sequence (code_short, raw_short, MCKEY_NOACTION));
 
-    /* verify it works */
     matched = tty_match_seq_to_keycode (raw_short, (int) strlen (raw_short));
     ck_assert_int_eq (matched, code_short);
 
-    /* add longer extension */
     ck_assert (define_sequence (code_long, raw_long, MCKEY_NOACTION));
 
-    /* longer must work */
     matched = tty_match_seq_to_keycode (raw_long, (int) strlen (raw_long));
     ck_assert_int_eq (matched, code_long);
 
@@ -158,13 +145,11 @@ START_TEST (test_prefix_extension_short_still_works)
     matched = tty_match_seq_to_keycode (raw_short, (int) strlen (raw_short));
     ck_assert_int_eq (matched, code_short);
 
-    /* reverse lookup for short */
     seq = tty_key_lookup_sequence (code_short);
     ck_assert_ptr_ne (seq, NULL);
     mctest_assert_str_eq (seq, "\\e[17~");
     g_free (seq);
 
-    /* reverse lookup for long */
     seq = tty_key_lookup_sequence (code_long);
     ck_assert_ptr_ne (seq, NULL);
     mctest_assert_str_eq (seq, "\\e[17;5~");

@@ -47,6 +47,7 @@ WPanel *change_panel (void);
 void save_cwds_stat (void);
 gboolean quiet_quit_cmd (gboolean suppress_last_pwd);
 gboolean do_nc (void);
+gboolean filemanager_panel_exec (const char *cmd);
 
 /*** inline functions ****************************************************************************/
 

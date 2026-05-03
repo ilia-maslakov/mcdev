@@ -101,9 +101,7 @@ char *learn_key (void);
 int tty_normalize_keycode (int code);
 /* Look up the latest learned escape sequence for a keycode */
 char *tty_key_lookup_sequence (int code);
-/* Match raw escape sequence to keycode (0 = not found) */
 int tty_match_seq_to_keycode (const char *seq, int len);
-/* Build key name string: "ctrl-alt-shift-<base>" (caller frees) */
 char *tty_build_key_name (const char *base, int modifiers);
 
 /* Returns a key code (interpreted) */

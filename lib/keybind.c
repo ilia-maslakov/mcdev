@@ -212,6 +212,10 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (PutCurrentFullSelected, N_ ("Put selected full path to cmdline")),
     ADD_KEYMAP_NAME_DESC (PutCurrentTagged, N_ ("Put tagged names to cmdline")),
     ADD_KEYMAP_NAME_DESC (PutOtherTagged, N_ ("Put other tagged to cmdline")),
+#ifdef ENABLE_MCTERM
+    ADD_KEYMAP_NAME_DESC (PanelToggleLeft, N_ ("Toggle left panel in terminal mode")),
+    ADD_KEYMAP_NAME_DESC (PanelToggleRight, N_ ("Toggle right panel in terminal mode")),
+#endif
     ADD_KEYMAP_NAME_DESC (Select, N_ ("Select files by pattern")),
     ADD_KEYMAP_NAME_DESC (Unselect, N_ ("Unselect files by pattern")),
 

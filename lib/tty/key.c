@@ -1403,6 +1403,7 @@ normalize_defined_key_code (int code)
 
 /* --------------------------------------------------------------------------------------------- */
 
+
 int
 tty_normalize_keycode (int code)
 {
@@ -2364,10 +2365,6 @@ learn_key (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Look up the escape sequence registered for a given keycode.
- * Returns a newly allocated escaped string (e.g. "\\e[1;5P") or NULL.
- */
 char *
 tty_key_lookup_sequence (int code)
 {
@@ -2400,11 +2397,6 @@ tty_key_lookup_sequence (int code)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Match raw escape sequence bytes against the key trie.
- * Returns keycode if sequence is known, or 0 if not found.
- * Works with both built-in and learned (define_sequence) entries.
- */
 int
 tty_match_seq_to_keycode (const char *seq, int len)
 {

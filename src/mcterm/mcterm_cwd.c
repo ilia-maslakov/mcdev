@@ -38,27 +38,53 @@
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Parse "7;file://[host]/path" from an OSC 7 raw string.
- * Returns an owned g_strdup'd path, or NULL if the string is not valid OSC 7. */
-static char *
-osc7_uri_to_path (const char *osc7_raw)
+/* Return TRUE if host (not NUL-terminated, length len) is the local machine. */
+static gboolean
+osc7_host_is_local (const char *host, size_t len)
 {
+    const char *local;
+
+    if (len == 0)
+        return TRUE; /* empty host == localhost */
+    if (len == 9 && memcmp (host, "localhost", 9) == 0)
+        return TRUE;
+    local = g_get_host_name ();
+    return (local != NULL && strlen (local) == len && memcmp (host, local, len) == 0);
+}
+
+/* Decode a local path from OSC 7 payload "7;file://[host]/path".
+ * Returns NULL for non-local hostnames and for non-file:// URIs.
+ * Tolerates unencoded paths (most shells do not percent-encode $PWD). */
+char *
+mcterm_osc7_uri_to_path (const char *osc7_raw)
+{
+    const char *uri;
+    const char *host_start;
     const char *path;
 
-    if (osc7_raw == NULL || strncmp (osc7_raw, "7;file://", 9) != 0)
+    if (osc7_raw == NULL || strncmp (osc7_raw, "7;", 2) != 0)
         return NULL;
 
-    path = osc7_raw + 9; /* skip "7;file://" */
+    uri = osc7_raw + 2;
+    if (strncmp (uri, "file://", 7) != 0)
+        return NULL;
 
-    /* Skip optional hostname up to the path component. */
-    if (*path != '/')
+    host_start = uri + 7;
+    if (*host_start == '/')
     {
-        path = strchr (path, '/');
+        path = host_start; /* empty hostname: file:///path */
+    }
+    else
+    {
+        path = strchr (host_start, '/');
         if (path == NULL)
+            return NULL;
+        if (!osc7_host_is_local (host_start, (size_t) (path - host_start)))
             return NULL;
     }
 
-    return (*path != '\0') ? g_strdup (path) : NULL;
+    /* Decode percent-encoded sequences; leave unencoded chars as-is. */
+    return g_uri_unescape_string (path, "/");
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -68,7 +94,7 @@ osc7_uri_to_path (const char *osc7_raw)
 static char *
 mcterm_cwd_from_osc7 (WMcTerm *t)
 {
-    return osc7_uri_to_path (mcterm_osc7_raw (t));
+    return mcterm_osc7_uri_to_path (mcterm_osc7_raw (t));
 }
 
 /* --------------------------------------------------------------------------------------------- */
