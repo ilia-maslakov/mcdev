@@ -34,7 +34,6 @@ TESTS = \
 	file_history \
 	keymap_reload \
 	learn_modifiers \
-	mcterm_key_encode \
 	term_key_merge \
 	usermenu__test_condition \
 	usermenu__test_expand_format

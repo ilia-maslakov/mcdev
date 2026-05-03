@@ -1,4 +1,4 @@
-SUBDIRS = filemanager man2hlp vfs viewer mcterm panel-plugins
+SUBDIRS = filemanager man2hlp vfs viewer panel-plugins
 
 if ENABLE_MCTERM
 SUBDIRS += mcterm
@@ -56,7 +56,7 @@ libinternal_la_LIBADD = \
 	filemanager/libmcfilemanager.la \
 	vfs/libmc-vfs.la \
 	viewer/libmcviewer.la \
-	mcterm/libmcterm.la \
+	$(MCTERMLIB) \
 	$(DIFFLIB) $(EDITLIB) $(SUBSHELLLIB)
 
 if HAVE_GMODULE

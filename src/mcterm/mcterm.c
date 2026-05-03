@@ -70,7 +70,6 @@ struct WMcTerm
     Widget base;
     mcview_vterm_t *vterm;
     int pty_master;
-    int pty_slave;
     pid_t child_pid;
     gboolean child_dead;
     int child_exit_status;
@@ -280,6 +279,15 @@ mcterm_exec_shell (int pty_slave)
 
     if (pty_slave > STDERR_FILENO)
         close (pty_slave);
+
+    /* Close all fds inherited from MC so they don't leak into the shell. */
+    {
+        int fd_max = (int) sysconf (_SC_OPEN_MAX);
+        if (fd_max < 0)
+            fd_max = 1024;
+        for (int fd = STDERR_FILENO + 1; fd < fd_max; fd++)
+            close (fd);
+    }
 
     shell = g_getenv ("SHELL");
     if (shell == NULL || *shell == '\0')
@@ -563,11 +571,6 @@ mcterm_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *da
             close (t->pty_master);
             t->pty_master = -1;
         }
-        if (t->pty_slave >= 0)
-        {
-            close (t->pty_slave);
-            t->pty_slave = -1;
-        }
         if (t->child_pid > 0)
         {
             /* Bounded shutdown: SIGTERM, wait up to 500ms, then SIGKILL. */
@@ -655,7 +658,6 @@ mcterm_new (const WRect *r)
     w->options |= WOP_SELECTABLE | WOP_WANT_CURSOR | WOP_WANT_HOTKEY;
 
     t->pty_master = master;
-    t->pty_slave = slave;
     t->child_pid = pid;
     t->child_dead = FALSE;
     t->shell_at_prompt = TRUE;

@@ -479,6 +479,8 @@ AC_CHECK_FUNCS([openpty],,[
 Install the appropriate development package (e.g. libutil-dev, libbsd-dev).])
     ])
 ])
+AC_DEFINE([ENABLE_MCTERM],[1],[Define to enable the mcterm embedded terminal widget])
+AM_CONDITIONAL([ENABLE_MCTERM],[true])
 mc_EXT2FS_ATTR
 mc_VFS_CHECKS
 
