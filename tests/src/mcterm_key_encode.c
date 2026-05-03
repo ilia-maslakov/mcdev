@@ -84,7 +84,8 @@ START_TEST (test_function_keys_use_encoding_map)
 {
     init_mcterm_key_table ();
 
-    assert_encoded (KEY_F (13), FALSE, "\\e[1;2R");
+    /* The encoder picks the first value from a multi-value list. */
+    assert_encoded (KEY_F (13), FALSE, "\\e[25~");
     assert_encoded (KEY_F (15), FALSE, "\\e[15;2~");
 }
 END_TEST
@@ -212,6 +213,72 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* A section that copies itself must not loop. */
+START_TEST (test_copy_self_does_not_loop)
+{
+    mc_config_t *cfg;
+    const gchar *f13[] = { "\\e[1;2R" };
+
+    cfg = mc_config_init (NULL, FALSE);
+    ck_assert_ptr_ne (cfg, NULL);
+    mc_config_set_string_list (cfg, "terminal:loop", "f13", f13, G_N_ELEMENTS (f13));
+    mc_config_set_string (cfg, "terminal:loop", "copy", "loop");
+    mcterm_key_table_init (NULL, cfg);
+    mc_config_deinit (cfg);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* A <-> B mutual copy must not loop. */
+START_TEST (test_copy_cycle_does_not_loop)
+{
+    mc_config_t *cfg;
+    const gchar *f13[] = { "\\e[1;2R" };
+
+    cfg = mc_config_init (NULL, FALSE);
+    ck_assert_ptr_ne (cfg, NULL);
+    mc_config_set_string_list (cfg, "terminal:cycleA", "f13", f13, G_N_ELEMENTS (f13));
+    mc_config_set_string (cfg, "terminal:cycleA", "copy", "cycleB");
+    mc_config_set_string (cfg, "terminal:cycleB", "copy", "cycleA");
+    mcterm_key_table_init (NULL, cfg);
+    mc_config_deinit (cfg);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* A chain longer than the old depth-4 limit must still resolve fully. */
+START_TEST (test_copy_chain_beyond_old_depth_limit)
+{
+    mc_config_t *cfg;
+    const gchar *f13[] = { "\\e[1;2R" };
+    unsigned char buf[32];
+    size_t len;
+
+    /* Build: xterm -> a -> b -> c -> d -> e -> base, base defines f13. */
+    cfg = mc_config_init (NULL, FALSE);
+    ck_assert_ptr_ne (cfg, NULL);
+    mc_config_set_string (cfg, "terminal:xterm", "copy", "chain_a");
+    mc_config_set_string (cfg, "terminal:chain_a", "copy", "chain_b");
+    mc_config_set_string (cfg, "terminal:chain_b", "copy", "chain_c");
+    mc_config_set_string (cfg, "terminal:chain_c", "copy", "chain_d");
+    mc_config_set_string (cfg, "terminal:chain_d", "copy", "chain_e");
+    mc_config_set_string (cfg, "terminal:chain_e", "copy", "chain_base");
+    mc_config_set_string_list (cfg, "terminal:chain_base", "f13", f13, G_N_ELEMENTS (f13));
+    mc_config_set_string (cfg, "terminal:xterm-256color", "copy", "xterm");
+
+    mcterm_key_table_init (NULL, cfg);
+    mc_config_deinit (cfg);
+
+    memset (buf, 0, sizeof (buf));
+    len = mcterm_encode_key_xterm (KEY_F (13), buf, sizeof (buf), FALSE);
+    ck_assert_uint_gt (len, 0);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -229,6 +296,9 @@ main (void)
     tcase_add_test (tc_core, test_utf8_bytes_pass_through);
     tcase_add_test (tc_core, test_alt_ascii_uses_esc_prefix);
     tcase_add_test (tc_core, test_small_buffer_returns_zero);
+    tcase_add_test (tc_core, test_copy_self_does_not_loop);
+    tcase_add_test (tc_core, test_copy_cycle_does_not_loop);
+    tcase_add_test (tc_core, test_copy_chain_beyond_old_depth_limit);
 
     return mctest_run_all (tc_core);
 }

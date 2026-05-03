@@ -1552,7 +1552,10 @@ delete_select_channel (int fd)
 
     p = g_slist_find_custom (select_list, GINT_TO_POINTER (fd), select_cmp_by_fd);
     if (p != NULL)
+    {
+        g_free (p->data);
         select_list = g_slist_delete_link (select_list, p);
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */

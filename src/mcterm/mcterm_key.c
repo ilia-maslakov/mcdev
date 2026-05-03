@@ -79,13 +79,15 @@ mcterm_copy_seq (unsigned char *buf, size_t bufsz, const char *seq)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-mcterm_load_section (const char *terminal, mc_config_t *cfg)
+mcterm_load_section_rec (const char *terminal, mc_config_t *cfg, GHashTable *visited)
 {
     char *section_name;
     gchar **profile_keys, **keys;
 
-    if (terminal == NULL || cfg == NULL)
+    if (terminal == NULL || cfg == NULL || g_hash_table_contains (visited, terminal))
         return;
+
+    g_hash_table_add (visited, g_strdup (terminal));
 
     section_name = g_strconcat ("terminal:", terminal, (char *) NULL);
     keys = mc_config_get_keys (cfg, section_name, NULL);
@@ -95,7 +97,7 @@ mcterm_load_section (const char *terminal, mc_config_t *cfg)
         if (g_ascii_strcasecmp (*profile_keys, "copy") == 0)
         {
             char *valcopy = mc_config_get_string (cfg, section_name, *profile_keys, "");
-            mcterm_load_section (valcopy, cfg);
+            mcterm_load_section_rec (valcopy, cfg, visited);
             g_free (valcopy);
             continue;
         }
@@ -109,14 +111,11 @@ mcterm_load_section (const char *terminal, mc_config_t *cfg)
 
                 if (values != NULL)
                 {
-                    gchar **v;
+                    /* A list means decoder aliases; the encoder sends one
+                       sequence -- use the first value as the canonical one. */
+                    char *raw = convert_controls (values[0]);
 
-                    for (v = values; *v != NULL; v++)
-                    {
-                        char *raw = convert_controls (*v);
-
-                        mcterm_remember_sequence (key_code, raw);
-                    }
+                    mcterm_remember_sequence (key_code, raw);
                     g_strfreev (values);
                 }
                 else
@@ -140,8 +139,14 @@ mcterm_load_section (const char *terminal, mc_config_t *cfg)
 static void
 mcterm_load_terminal (mc_config_t *cfg)
 {
-    mcterm_load_section ("xterm", cfg);
-    mcterm_load_section ("xterm-256color", cfg);
+    GHashTable *visited;
+
+    /* Load both base and 256-colour variant under one visited set so that
+       if xterm-256color has copy=xterm, the xterm section is not walked twice. */
+    visited = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    mcterm_load_section_rec ("xterm", cfg, visited);
+    mcterm_load_section_rec ("xterm-256color", cfg, visited);
+    g_hash_table_destroy (visited);
 }
 
 /* --------------------------------------------------------------------------------------------- */
