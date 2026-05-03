@@ -4632,7 +4632,15 @@ panel_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         }
 
         if (!is_active)
-            (void) change_panel ();
+        {
+            /* Directly select the clicked panel instead of cycling via
+               change_panel(). change_panel() uses group_select_next_widget
+               which starts from the current focused widget and may land on
+               a non-panel widget (e.g. mcterm) when the panel Z-order has
+               been shuffled by prior WOP_TOP_SELECT reorders. */
+            input_complete_free (cmdline);
+            widget_select (w);
+        }
         MC_FALLTHROUGH;
 
     case MSG_MOUSE_DRAG:
