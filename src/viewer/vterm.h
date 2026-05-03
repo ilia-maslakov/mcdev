@@ -84,11 +84,6 @@ gboolean mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols);
 void mcview_vterm_restore_sync_snapshot (mcview_vterm_t *vt, mcview_terminal_buffer_t *snap_buf,
                                          int snap_cursor_row);
 
-/* Render a terminal buffer region to the TUI screen. */
-void mcview_render_terminal_canvas (const mcview_terminal_buffer_t *buf, int top_row, int screen_y,
-                                    int screen_x, int rows, int cols);
-
-
 /*** inline functions ****************************************************************************/
 
 #endif /* MC__VIEWER_VTERM_H */
