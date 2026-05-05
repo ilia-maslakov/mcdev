@@ -17,7 +17,7 @@ typedef struct WMcTerm WMcTerm;
 
 #ifdef ENABLE_MCTERM
 
-WMcTerm *mcterm_new (const WRect *r);
+WMcTerm *mcterm_new (const WRect *r, const char *start_dir);
 void mcterm_free (WMcTerm *t);
 gboolean mcterm_is_alive (const WMcTerm *t);
 gboolean mcterm_in_alt_screen (const WMcTerm *t);
@@ -36,9 +36,10 @@ gboolean mcterm_send_tab_complete (WMcTerm *t, const char *text);
 #else /* !ENABLE_MCTERM */
 
 static inline WMcTerm *
-mcterm_new (const WRect *r)
+mcterm_new (const WRect *r, const char *start_dir)
 {
     (void) r;
+    (void) start_dir;
     return NULL;
 }
 static inline void

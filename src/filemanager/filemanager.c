@@ -1295,7 +1295,11 @@ toggle_mcterm (void)
 
         if (mcterm_panel == NULL)
         {
-            mcterm_panel = mcterm_new (&r);
+            const char *start_dir =
+                (current_panel != NULL && vfs_file_is_local (current_panel->cwd_vpath))
+                    ? vfs_path_as_str (current_panel->cwd_vpath)
+                    : NULL;
+            mcterm_panel = mcterm_new (&r, start_dir);
             if (mcterm_panel == NULL)
             {
                 toggle_subshell ();

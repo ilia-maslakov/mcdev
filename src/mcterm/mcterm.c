@@ -231,7 +231,7 @@ mcterm_resolve_top_row_for_buf (const WMcTerm *t, const mcview_terminal_buffer_t
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-mcterm_exec_shell (int pty_slave)
+mcterm_exec_shell (int pty_slave, const char *start_dir)
 {
     const char *shell;
 
@@ -268,6 +268,10 @@ mcterm_exec_shell (int pty_slave)
         shell = "/bin/sh";
 
     g_setenv ("TERM", "xterm-256color", TRUE);
+
+    if (start_dir != NULL && chdir (start_dir) != 0)
+    { /* fallback: shell starts in mc's cwd */
+    }
 
     execl (shell, shell, NULL);
     _exit (127);
@@ -567,7 +571,7 @@ mcterm_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *da
 /*** public functions ****************************************************************************/
 
 WMcTerm *
-mcterm_new (const WRect *r)
+mcterm_new (const WRect *r, const char *start_dir)
 {
     WMcTerm *t;
     Widget *w;
@@ -598,7 +602,8 @@ mcterm_new (const WRect *r)
     if (pid == 0)
     {
         close (master);
-        mcterm_exec_shell (slave);
+        mcterm_exec_shell (slave, start_dir);
+        /* not reached */
     }
 
     close (slave);
