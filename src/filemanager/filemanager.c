@@ -92,6 +92,7 @@
 
 #include "filemanager.h"
 
+
 /*** global variables ****************************************************************************/
 
 /* When the modes are active, left_panel, right_panel and tree_panel */
@@ -1316,6 +1317,27 @@ toggle_mcterm (void)
             widget_show (mcterm_widget (mcterm_panel));
             mcterm_set_after_redraw_callback (mcterm_panel, mcterm_after_redraw_cb, NULL);
             mcterm_widget (mcterm_panel)->mouse_handler = mcterm_raw_mouse_handler;
+
+            /* Sync shell to panel cwd: if the panel navigated while the terminal
+             * was hidden, cd the shell to catch up. */
+            if (current_panel != NULL && vfs_file_is_local (current_panel->cwd_vpath)
+                && mcterm_shell_at_prompt (mcterm_panel) && mcterm_osc7_capable (mcterm_panel))
+            {
+                const char *panel_cwd = vfs_path_as_str (current_panel->cwd_vpath);
+                char *shell_cwd = mcterm_cwd_on_exit (mcterm_panel, panel_cwd);
+
+                if (shell_cwd != NULL)
+                {
+                    /* dirs differ: cd shell to panel */
+                    char *quoted = g_shell_quote (panel_cwd);
+                    char *cmd = g_strdup_printf ("cd %s", quoted);
+
+                    mcterm_send_internal_line (mcterm_panel, cmd);
+                    g_free (cmd);
+                    g_free (quoted);
+                    g_free (shell_cwd);
+                }
+            }
         }
 
         widget_hide (get_panel_widget (0));
