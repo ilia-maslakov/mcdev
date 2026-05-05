@@ -1878,7 +1878,12 @@ midnight_execute_cmd (Widget *sender, long command)
                     widget_draw (mcterm_widget (mcterm_panel));
                 }
                 else
+                {
                     widget_show (pw);
+                    if (current_panel != NULL
+                        && !widget_get_state (WIDGET (current_panel), WST_VISIBLE))
+                        current_panel = PANEL (pw);
+                }
                 mcterm_redraw_visible_panels ();
                 tty_refresh ();
             }
