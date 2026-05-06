@@ -3345,7 +3345,8 @@ do_enter_on_file_entry (WPanel *panel, const file_entry_t *fe)
         cmd = g_strconcat ("." PATH_SEP_STR, fname_quoted, (char *) NULL);
         g_free (fname_quoted);
 
-        shell_execute (cmd, 0);
+        if (!filemanager_panel_exec (cmd))
+            shell_execute (cmd, 0);
         g_free (cmd);
     }
 
@@ -3494,7 +3495,7 @@ chdir_other_panel (WPanel *panel)
 {
     const file_entry_t *entry;
     vfs_path_t *new_dir_vpath;
-    char *curr_entry = NULL;
+    const char *curr_entry = NULL;
     WPanel *p;
 
     entry = panel_current_entry (panel);
@@ -4631,7 +4632,15 @@ panel_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         }
 
         if (!is_active)
-            (void) change_panel ();
+        {
+            /* Directly select the clicked panel instead of cycling via
+               change_panel(). change_panel() uses group_select_next_widget
+               which starts from the current focused widget and may land on
+               a non-panel widget (e.g. mcterm) when the panel Z-order has
+               been shuffled by prior WOP_TOP_SELECT reorders. */
+            input_complete_free (cmdline);
+            widget_select (w);
+        }
         MC_FALLTHROUGH;
 
     case MSG_MOUSE_DRAG:

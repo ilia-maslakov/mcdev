@@ -24,6 +24,8 @@ Swap = ctrl-u
 History = alt-h
 # PanelListing =
 # SetupListingFormat =
+PanelToggleLeft = ctrl-f1
+PanelToggleRight = ctrl-f2
 ShowHidden = alt-dot
 SplitVertHoriz =
 SplitEqual = alt-equal
@@ -56,6 +58,7 @@ PluginDriveLeft = alt-f1
 PluginDriveRight = alt-f2
 EditorViewerHistory = alt-shift-e
 ExtendedKeyMap = ctrl-x
+Enter = enter
 
 [filemanager:xmap]
 ChangeMode = c

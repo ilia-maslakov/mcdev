@@ -526,6 +526,8 @@ static key_define_t qansi_key_defines[] = {
 
 /* This holds all the key definitions */
 static key_def *keys = NULL;
+/* Last learned sequence per normalized keycode. */
+static GHashTable *key_sequences = NULL;
 
 static int input_fd;
 static int disabled_channels = 0;  // Disable channels checking
@@ -1182,6 +1184,30 @@ correct_key_code (int code)
     if (c == KEY_BACKSPACE && (mod & KEY_M_SHIFT) != 0)
         mod &= ~KEY_M_SHIFT;
 
+#ifdef HAVE_NCURSES
+    /* ncurses reports modified function keys as KEY_F offsets. */
+    if (c >= (unsigned) KEY_F (13) && c <= (unsigned) KEY_F (24))
+    {
+        c -= 12; /* kf(n+12) -> KEY_F(n) */
+        mod |= KEY_M_SHIFT;
+    }
+    else if (c >= (unsigned) KEY_F (25) && c <= (unsigned) KEY_F (36))
+    {
+        c -= 24; /* kf(n+24) -> KEY_F(n) */
+        mod |= KEY_M_CTRL;
+    }
+    else if (c >= (unsigned) KEY_F (37) && c <= (unsigned) KEY_F (48))
+    {
+        c -= 36; /* kf(n+36) -> KEY_F(n) */
+        mod |= KEY_M_SHIFT | KEY_M_CTRL;
+    }
+    else if (c >= (unsigned) KEY_F (49) && c <= (unsigned) KEY_F (60))
+    {
+        c -= 48; /* kf(n+48) -> KEY_F(n) */
+        mod |= KEY_M_ALT;
+    }
+#endif
+
     // Convert Shift+Fn to F(n+10)
     if (c >= KEY_F (1) && c <= KEY_F (10) && (mod & KEY_M_SHIFT) != 0)
         c += 10;
@@ -1366,6 +1392,67 @@ lookup_keycode (const int code, int *idx)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+int
+tty_normalize_keycode (int code)
+{
+    unsigned int c = code & ~KEY_M_MASK;   // code without modifier
+    unsigned int mod = code & KEY_M_MASK;  // modifier
+
+    if (c == KEY_F (0))
+        c = KEY_F (10);
+
+    if (c >= KEY_F (1) && c <= KEY_F (10) && (mod & KEY_M_SHIFT) != 0)
+        c += 10;
+
+    if (c >= KEY_F (1) && c <= KEY_F (20))
+        mod &= ~KEY_M_SHIFT;
+
+    return (int) (mod | c);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+remember_key_sequence (int code, const char *seq)
+{
+    int normalized_code;
+
+    if (code <= 0 || seq == NULL)
+        return;
+
+    normalized_code = tty_normalize_keycode (code);
+    if (key_sequences == NULL)
+        key_sequences = g_hash_table_new_full (g_direct_hash, g_direct_equal, NULL, g_free);
+
+    g_hash_table_replace (key_sequences, GINT_TO_POINTER (normalized_code), g_strdup (seq));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static char *
+key_sequence_to_printable (const char *seq, size_t len)
+{
+    GString *out;
+    size_t i;
+
+    out = g_string_sized_new (len * 2);
+    for (i = 0; i < len; i++)
+    {
+        unsigned char c = (unsigned char) seq[i];
+
+        if (c == 27)
+            g_string_append (out, "\\e");
+        else if (c < 32)
+            g_string_append_printf (out, "^%c", c + 64);
+        else
+            g_string_append_c (out, (char) c);
+    }
+
+    return g_string_free (out, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 /* This has to be called before init_slang or whatever routine
@@ -1421,6 +1508,7 @@ void
 done_key (void)
 {
     k_dispose (keys);
+    g_clear_pointer (&key_sequences, g_hash_table_destroy);
     g_slist_free_full (select_list, g_free);
 
 #ifdef HAVE_TEXTMODE_X11_SUPPORT
@@ -1453,7 +1541,10 @@ delete_select_channel (int fd)
 
     p = g_slist_find_custom (select_list, GINT_TO_POINTER (fd), select_cmp_by_fd);
     if (p != NULL)
+    {
+        g_free (p->data);
         select_list = g_slist_delete_link (select_list, p);
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1673,6 +1764,7 @@ gboolean
 define_sequence (int code, const char *seq, int action)
 {
     key_def *base;
+    const char *original_seq = seq;
 
     if (strlen (seq) > SEQ_BUFFER_LEN - 1)
         return FALSE;
@@ -1690,6 +1782,7 @@ define_sequence (int code, const char *seq, int action)
                     base->code = code;
                     base->action = action;
                 }
+                remember_key_sequence (code, original_seq);
                 return TRUE;
             }
 
@@ -1703,6 +1796,7 @@ define_sequence (int code, const char *seq, int action)
             else
             {
                 base->next = create_sequence (seq, code, action);
+                remember_key_sequence (code, original_seq);
                 return TRUE;
             }
         }
@@ -1714,6 +1808,7 @@ define_sequence (int code, const char *seq, int action)
     }
 
     keys = create_sequence (seq, code, action);
+    remember_key_sequence (code, original_seq);
     return TRUE;
 }
 
@@ -2262,39 +2357,28 @@ learn_key (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Look up the escape sequence registered for a given keycode.
- * Returns a newly allocated escaped string (e.g. "\\e[1;5P") or NULL.
- */
 char *
 tty_key_lookup_sequence (int code)
 {
     GString *buf;
+    const char *seq;
 
     if (keys == NULL || code <= 0)
         return NULL;
+
+    seq = key_sequences != NULL
+        ? g_hash_table_lookup (key_sequences, GINT_TO_POINTER (tty_normalize_keycode (code)))
+        : NULL;
+    if (seq != NULL)
+        return key_sequence_to_printable (seq, strlen (seq));
 
     buf = g_string_sized_new (16);
     if (lookup_sequence_recursive (keys, code, buf))
     {
         /* convert raw bytes to printable escape notation */
         char *result;
-        GString *out;
-        gsize i;
 
-        out = g_string_sized_new (buf->len * 2);
-        for (i = 0; i < buf->len; i++)
-        {
-            unsigned char c = (unsigned char) buf->str[i];
-
-            if (c == 27)
-                g_string_append (out, "\\e");
-            else if (c < 32)
-                g_string_append_printf (out, "^%c", c + 64);
-            else
-                g_string_append_c (out, (char) c);
-        }
-        result = g_string_free (out, FALSE);
+        result = key_sequence_to_printable (buf->str, buf->len);
         g_string_free (buf, TRUE);
         return result;
     }
@@ -2305,11 +2389,6 @@ tty_key_lookup_sequence (int code)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Match raw escape sequence bytes against the key trie.
- * Returns keycode if sequence is known, or 0 if not found.
- * Works with both built-in and learned (define_sequence) entries.
- */
 int
 tty_match_seq_to_keycode (const char *seq, int len)
 {

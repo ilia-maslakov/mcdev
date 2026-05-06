@@ -38,6 +38,12 @@ TESTS = \
 	usermenu__test_condition \
 	usermenu__test_expand_format
 
+if ENABLE_MCTERM
+TESTS += \
+	mcterm_key_encode \
+	mcterm_osc7_parse
+endif
+
 check_PROGRAMS = $(TESTS)
 
 execute__execute_with_vfs_arg_SOURCES = \
@@ -59,6 +65,12 @@ keymap_reload_SOURCES = \
 
 learn_modifiers_SOURCES = \
 	learn_modifiers.c
+
+mcterm_key_encode_SOURCES = \
+	mcterm_key_encode.c
+
+mcterm_osc7_parse_SOURCES = \
+	mcterm_osc7_parse.c
 
 term_key_merge_SOURCES = \
 	term_key_merge.c

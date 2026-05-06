@@ -10,6 +10,7 @@
    Norbert Warmuth, 1997
    Andrew Borodin <aborodin@vmail.ru>, 2009-2022
    Slava Zanko <slavazanko@gmail.com>, 2013
+   Ilia Maslakov <il.smind@gmail.com>, 2026.
 
    This file is part of the Midnight Commander.
 
@@ -89,6 +90,7 @@
 #include "src/file_history.h"         // show_file_history()
 
 #include "filemanager.h"
+#include "mcterm_overlay.h"
 
 /*** global variables ****************************************************************************/
 
@@ -191,11 +193,17 @@ listmode_cmd (void)
 /* --------------------------------------------------------------------------------------------- */
 
 static GList *
-create_panel_menu (void)
+create_panel_menu (gboolean is_right)
 {
     GList *entries = NULL;
+#ifdef ENABLE_MCTERM
+    long ck_listing = is_right ? CK_PanelToggleRight : CK_PanelToggleLeft;
+#else
+    long ck_listing = CK_PanelListing;
+    (void) is_right;
+#endif
 
-    entries = g_list_prepend (entries, menu_entry_new (_ ("File listin&g"), CK_PanelListing));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("File listin&g"), ck_listing));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Quick view"), CK_PanelQuickView));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Info"), CK_PanelInfo));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Tree"), CK_PanelTree));
@@ -265,7 +273,11 @@ create_command_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Directory tree"), CK_Tree));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Find file"), CK_Find));
     entries = g_list_prepend (entries, menu_entry_new (_ ("S&wap panels"), CK_Swap));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Switch &panels on/off"), CK_Shell));
+#ifdef ENABLE_MCTERM
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Toggle &terminal"), CK_Shell));
+#else
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Switch to &subshell"), CK_Shell));
+#endif
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Compare directories"), CK_CompareDirs));
 #ifdef USE_DIFF_VIEW
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&ompare files"), CK_CompareFiles));
@@ -362,14 +374,14 @@ create_options_menu (void)
 static void
 init_menu (void)
 {
-    left_menu = menu_new ("", create_panel_menu (), "[Left and Right Menus]");
+    left_menu = menu_new ("", create_panel_menu (FALSE), "[Left and Right Menus]");
     menubar_add_menu (the_menubar, left_menu);
     menubar_add_menu (the_menubar, menu_new (_ ("&File"), create_file_menu (), "[File Menu]"));
     menubar_add_menu (the_menubar,
                       menu_new (_ ("&Command"), create_command_menu (), "[Command Menu]"));
     menubar_add_menu (the_menubar,
                       menu_new (_ ("&Options"), create_options_menu (), "[Options Menu]"));
-    right_menu = menu_new ("", create_panel_menu (), "[Left and Right Menus]");
+    right_menu = menu_new ("", create_panel_menu (TRUE), "[Left and Right Menus]");
     menubar_add_menu (the_menubar, right_menu);
     update_menu ();
 }
@@ -1118,6 +1130,8 @@ toggle_show_hidden (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static cb_ret_t exec_cmdline_enter (void);
+
 static cb_ret_t
 midnight_execute_cmd (Widget *sender, long command)
 {
@@ -1211,7 +1225,8 @@ midnight_execute_cmd (Widget *sender, long command)
         about_box ();
         break;
     case CK_ChangePanel:
-        (void) change_panel ();
+        if (!mcterm_overlay_complete_or_cycle_focus ())
+            (void) change_panel ();
         break;
     case CK_HotListAdd:
         add2hotlist_cmd (current_panel);
@@ -1345,6 +1360,14 @@ midnight_execute_cmd (Widget *sender, long command)
         if (panel_plugin_drive_change (right_panel) && current_panel != right_panel)
             change_panel ();
         break;
+    case CK_Enter:
+    {
+        cb_ret_t enter_res = mcterm_overlay_send_enter_if_cmdline_empty ();
+
+        if (enter_res != MSG_NOT_HANDLED)
+            return enter_res;
+        return exec_cmdline_enter ();
+    }
     case CK_Help:
         if (current_panel != NULL && current_panel->is_plugin_panel && current_panel->plugin != NULL
             && current_panel->plugin_data != NULL && current_panel->plugin->get_help_info != NULL)
@@ -1402,7 +1425,8 @@ midnight_execute_cmd (Widget *sender, long command)
         link_cmd (LINK_HARDLINK);
         break;
     case CK_PanelListing:
-        listing_cmd ();
+        if (!mcterm_overlay_show_panel_if_hidden (MENU_PANEL_IDX))
+            listing_cmd ();
         break;
 #ifdef LISTMODE_EDITOR
     case CK_ListMode:
@@ -1466,8 +1490,14 @@ midnight_execute_cmd (Widget *sender, long command)
         res = send_message (current_panel, filemanager, MSG_ACTION, command, NULL);
         break;
     case CK_Shell:
-        toggle_subshell ();
+        mcterm_overlay_toggle ();
         break;
+#ifdef ENABLE_MCTERM
+    case CK_PanelToggleLeft:
+    case CK_PanelToggleRight:
+        mcterm_overlay_toggle_panel_command (command == CK_PanelToggleRight);
+        break;
+#endif /* ENABLE_MCTERM */
     case CK_DirSize:
         smart_dirsize_cmd (current_panel);
         break;
@@ -1585,6 +1615,26 @@ midnight_execute_cmd (Widget *sender, long command)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static cb_ret_t
+midnight_execute_overlay_cmd (long command, void *data)
+{
+    (void) data;
+
+    return midnight_execute_cmd (NULL, command);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t
+midnight_execute_overlay_cmdline_enter (void *data)
+{
+    (void) data;
+
+    return exec_cmdline_enter ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /**
  * Whether the command-line should not respond to key events.
  *
@@ -1606,29 +1656,50 @@ is_cmdline_mute (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Handles the Enter key on the command-line.
- *
- * Returns TRUE if non-whitespace was indeed processed.
- */
-static gboolean
-handle_cmdline_enter (void)
+gboolean
+filemanager_panel_exec (const char *cmd)
+{
+    return mcterm_overlay_panel_exec (cmd);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t
+exec_cmdline_enter (void)
 {
     const char *s;
+
+    if (is_cmdline_mute ())
+        return MSG_NOT_HANDLED;
 
     for (s = input_get_ctext (cmdline); *s != '\0' && whitespace (*s); s++)
         ;
 
     if (*s != '\0')
     {
-        send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
-        return TRUE;
+        gboolean is_cd, is_exit;
+        mcterm_overlay_cmdline_result_t mcterm_result;
+
+        is_cd = strncmp (s, "cd", 2) == 0 && (s[2] == '\0' || whitespace (s[2]));
+        is_exit = strcmp (s, "exit") == 0;
+
+        mcterm_result = mcterm_overlay_run_cmdline (s, is_cd, is_exit);
+        if (mcterm_result == MCTERM_OVERLAY_CMDLINE_NOT_APPLICABLE)
+        {
+            send_message (cmdline, NULL, MSG_KEY, '\n', NULL);
+        }
+        else
+        {
+            if (mcterm_result == MCTERM_OVERLAY_CMDLINE_SENT)
+                input_clean (cmdline);
+        }
+
+        return MSG_HANDLED;
     }
 
     input_insert (cmdline, "", FALSE);
     cmdline->point = 0;
-
-    return FALSE;
+    return MSG_NOT_HANDLED;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1645,11 +1716,16 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         setup_panels ();
         return MSG_HANDLED;
 
+    case MSG_CHANGED_FOCUS:
+        mcterm_overlay_draw_visible_panels ();
+        return dlg_default_callback (w, sender, msg, parm, data);
+
     case MSG_DRAW:
         load_hint (TRUE);
         group_default_callback (w, NULL, MSG_DRAW, 0, NULL);
+        mcterm_overlay_after_filemanager_draw ();
         // We handle the special case of the output lines
-        if (mc_global.tty.console_flag != '\0' && output_lines != 0)
+        if (!mcterm_overlay_active () && mc_global.tty.console_flag != '\0' && output_lines != 0)
         {
             unsigned char end_line;
 
@@ -1660,6 +1736,7 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
     case MSG_RESIZE:
         widget_adjust_position (w->pos_flags, &w->rect);
+        mcterm_overlay_resize (&w->rect);
         setup_panels ();
         menubar_arrange (the_menubar);
         return MSG_HANDLED;
@@ -1678,6 +1755,14 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         return MSG_HANDLED;
 
     case MSG_KEY:
+    {
+        cb_ret_t mcterm_res = mcterm_overlay_handle_key (
+            w, parm, midnight_execute_overlay_cmd, midnight_execute_overlay_cmdline_enter, NULL);
+
+        if (mcterm_res != MSG_NOT_HANDLED)
+            return mcterm_res;
+    }
+
         if (w->ext_mode)
         {
             command = widget_lookup_key (w, parm);
@@ -1691,9 +1776,8 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
 
         if (parm == '\n' && !is_cmdline_mute ())
         {
-            if (handle_cmdline_enter ())
+            if (exec_cmdline_enter () == MSG_HANDLED)
                 return MSG_HANDLED;
-            // Else: the panel will handle it.
         }
 
         if ((!mc_global.tty.alternate_plus_minus
@@ -1790,6 +1874,7 @@ midnight_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *
         return midnight_execute_cmd (sender, parm);
 
     case MSG_DESTROY:
+        mcterm_overlay_destroy ();
         mc_panel_plugins_shutdown ();
         panel_deinit ();
         return MSG_HANDLED;

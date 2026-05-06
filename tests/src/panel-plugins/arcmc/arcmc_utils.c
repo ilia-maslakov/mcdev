@@ -84,7 +84,7 @@ static const size_t ext_archivers_count = G_N_ELEMENTS (ext_archivers);
 static char *
 get_parent_dir (const char *current_dir)
 {
-    char *slash;
+    const char *slash;
 
     if (current_dir == NULL || current_dir[0] == '\0')
         return g_strdup ("");

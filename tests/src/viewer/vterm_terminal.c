@@ -95,10 +95,30 @@ canvas_to_text (mcview_vterm_t *vt, int rows, int cols)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static void
+feed_with_sync_restore (mcview_vterm_t *vt, const char *data, mcview_terminal_buffer_t **snap_buf,
+                        int snap_cursor_row, guint *last_osc7_gen)
+{
+    size_t i;
+
+    for (i = 0; data[i] != '\0'; i++)
+    {
+        vterm_event_t ev = mcview_vterm_feed (vt, (unsigned char) data[i]);
+
+        mcview_vterm_apply_event (vt, &ev);
+        if (*snap_buf != NULL && mcview_vterm_osc7_generation (vt) != *last_osc7_gen)
+        {
+            *last_osc7_gen = mcview_vterm_osc7_generation (vt);
+            mcview_vterm_restore_sync_snapshot (vt, *snap_buf, snap_cursor_row);
+            *snap_buf = NULL;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /* Tests *****************************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
-
-/* LF at scroll_bottom scrolls region up; cursor stays */
 
 START_TEST (test_scroll_region_lf_at_bottom_scrolls_up)
 {
@@ -129,8 +149,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* LF above scroll_top advances cursor without scrolling */
-
 START_TEST (test_scroll_region_lf_above_region_advances_cursor)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -153,8 +171,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* VPA (CSI d) changes row, leaves col unchanged */
-
 START_TEST (test_vpa_moves_row_only)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -173,8 +189,6 @@ START_TEST (test_vpa_moves_row_only)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* ECH (CSI X) erases with current attrs; cursor does not move */
 
 START_TEST (test_ech_erases_with_attrs_cursor_stays)
 {
@@ -202,8 +216,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* erase_eol fills to term_cols-1 with space and current attrs */
-
 START_TEST (test_erase_eol_fills_full_width_with_attrs)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -225,8 +237,6 @@ START_TEST (test_erase_eol_fills_full_width_with_attrs)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* DECSTBM out-of-range bottom is clamped to term_rows-1 */
 
 START_TEST (test_decstbm_out_of_range_bottom_is_clamped)
 {
@@ -250,8 +260,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_FWD clamps cursor_col to term_cols-1 */
-
 START_TEST (test_cursor_fwd_clamps_to_term_cols)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -268,8 +276,6 @@ START_TEST (test_cursor_fwd_clamps_to_term_cols)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* CURSOR_ABS col is clamped to term_cols-1 */
 
 START_TEST (test_cursor_abs_col_clamps_to_term_cols)
 {
@@ -289,8 +295,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_ABS row is clamped to term_rows-1 */
-
 START_TEST (test_cursor_abs_row_clamps_to_term_rows)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -308,8 +312,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* CURSOR_DOWN clamps cursor_row to term_rows-1 */
-
 START_TEST (test_cursor_down_clamps_to_term_rows)
 {
     mcview_vterm_t *vt = mcview_vterm_new ();
@@ -326,8 +328,6 @@ START_TEST (test_cursor_down_clamps_to_term_rows)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-
-/* erase_bol with clamped cursor_col does not expand row past term_cols */
 
 START_TEST (test_erase_bol_does_not_expand_past_term_cols)
 {
@@ -347,6 +347,73 @@ START_TEST (test_erase_bol_does_not_expand_past_term_cols)
     ck_assert_uint_eq (cell_ch (vt, 0, 0), ' ');
     ck_assert_uint_eq (cell_ch (vt, 0, 9), ' ');
     ck_assert_int_eq (mcview_terminal_buffer_max_row (mcview_vterm_buf (vt)), 0);
+
+    mcview_vterm_free (vt);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_sync_snapshot_split_osc7_and_prompt)
+{
+    mcview_vterm_t *vt = mcview_vterm_new ();
+    mcview_terminal_buffer_t *snap_buf;
+    int snap_cursor_row;
+    guint last_osc7_gen;
+    char *got;
+
+    mcview_vterm_set_size (vt, 6, 40);
+    mcview_vterm_reset (vt);
+
+    FEED (vt, "old output\r\nold:/a$ ");
+    snap_buf = mcview_terminal_buffer_copy (mcview_vterm_buf (vt));
+    snap_cursor_row = mcview_vterm_cursor_row (vt);
+    last_osc7_gen = mcview_vterm_osc7_generation (vt);
+
+    FEED (vt, "cd /b\r\n");
+    feed_with_sync_restore (vt, "\033]7;file:///b\007", &snap_buf, snap_cursor_row, &last_osc7_gen);
+    FEED (vt, "new:/b$ ");
+
+    got = canvas_to_text (vt, 3, 16);
+    ck_assert_str_eq (got,
+                      "old output      \n"
+                      "new:/b$         \n"
+                      "                \n");
+    g_free (got);
+    ck_assert_ptr_null (snap_buf);
+
+    mcview_vterm_free (vt);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_sync_snapshot_batched_osc7_and_prompt)
+{
+    mcview_vterm_t *vt = mcview_vterm_new ();
+    mcview_terminal_buffer_t *snap_buf;
+    int snap_cursor_row;
+    guint last_osc7_gen;
+    char *got;
+
+    mcview_vterm_set_size (vt, 6, 40);
+    mcview_vterm_reset (vt);
+
+    FEED (vt, "old output\r\nold:/a$ ");
+    snap_buf = mcview_terminal_buffer_copy (mcview_vterm_buf (vt));
+    snap_cursor_row = mcview_vterm_cursor_row (vt);
+    last_osc7_gen = mcview_vterm_osc7_generation (vt);
+
+    feed_with_sync_restore (vt, "cd /b\r\n\033]7;file:///b\007new:/b$ ", &snap_buf, snap_cursor_row,
+                            &last_osc7_gen);
+
+    got = canvas_to_text (vt, 3, 16);
+    ck_assert_str_eq (got,
+                      "old output      \n"
+                      "new:/b$         \n"
+                      "                \n");
+    g_free (got);
+    ck_assert_ptr_null (snap_buf);
 
     mcview_vterm_free (vt);
 }
@@ -495,6 +562,8 @@ main (void)
     tcase_add_test (tc_core, test_cursor_abs_row_clamps_to_term_rows);
     tcase_add_test (tc_core, test_cursor_down_clamps_to_term_rows);
     tcase_add_test (tc_core, test_erase_bol_does_not_expand_past_term_cols);
+    tcase_add_test (tc_core, test_sync_snapshot_split_osc7_and_prompt);
+    tcase_add_test (tc_core, test_sync_snapshot_batched_osc7_and_prompt);
     tcase_add_test (tc_core, test_set_size_returns_true_on_change);
     tcase_add_test (tc_core, test_set_size_returns_false_on_same_size);
     tcase_add_test (tc_core, test_golden_draw_move_erase);

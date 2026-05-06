@@ -84,8 +84,7 @@ path_magic (const char *path)
  */
 
 static struct vfs_class *
-_vfs_split_with_semi_skip_count (char *path, const char **inpath, const char **op,
-                                 size_t skip_count)
+_vfs_split_with_semi_skip_count (char *path, const char **inpath, char **op, size_t skip_count)
 {
     char *semi;
     char *slash;
@@ -340,7 +339,8 @@ vfs_path_from_str_deprecated_parser (char *path)
     vfs_path_t *vpath;
     vfs_path_element_t *element;
     struct vfs_class *class;
-    const char *local, *op;
+    const char *local;
+    char *op;
 
     vpath = vfs_path_new (FALSE);
 
@@ -357,7 +357,7 @@ vfs_path_from_str_deprecated_parser (char *path)
         element->dir.converter =
             (element->encoding != NULL) ? str_crt_conv_from (element->encoding) : INVALID_CONV;
 
-        url_params = strchr (op, ':');  // skip VFS prefix
+        url_params = strchr (op, ':');
         if (url_params != NULL)
         {
             *url_params = '\0';

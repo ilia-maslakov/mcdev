@@ -65,6 +65,11 @@ struct mcview_vterm_struct
     int utf8_len;
     int utf8_expected;
 
+    char osc_buf[2048];
+    int osc_len;
+    char *osc7_raw;
+    guint osc7_generation;
+
     int cursor_row;
     int cursor_col;
 
@@ -76,17 +81,16 @@ struct mcview_vterm_struct
     off_t replay_offset;
 
     mcview_terminal_buffer_t *buf;
-    mcview_terminal_buffer_t *snapshot_buf; /* main-screen content saved on ALT_SCREEN_ENTER */
+    mcview_terminal_buffer_t *snapshot_buf;
     int snapshot_cursor_row;
     int snapshot_cursor_col;
-    mcview_terminal_buffer_t *alt_frame_buf; /* last complete frame inside alt-screen */
+    mcview_terminal_buffer_t *alt_frame_buf;
 
-    /* Cursor-home with no new chars since last snapshot is exit cleanup. */
     gboolean new_chars_since_snapshot;
 
-    /* TRUE while inside ESC[?1049h / ESC[?1049l alt-screen bracket.
-     * Snapshot is taken on entry and must not be overwritten by TUI redraws. */
     gboolean in_alt_screen;
+
+    gboolean app_cursor_keys;
 
     int dpy_top_row;
 };
@@ -99,6 +103,7 @@ static vterm_event_t vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final
 static vterm_event_t vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte);
 static void vterm_finalize_param (mcview_vterm_t *vt);
 static vterm_event_t vterm_make (mcview_vterm_t *vt, vterm_result_t type);
+static void vterm_handle_osc (mcview_vterm_t *vt);
 
 /*** file scope functions ************************************************************************/
 
@@ -136,16 +141,24 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
 {
     int p0, p1;
 
-    /* DEC private sequences (prefixed with ?): handle known ones, consume the rest. */
     if (vt->csi_private)
     {
-        if (vt->param_count > 0 && vt->params[0] == 1049)
+        if (vt->param_count > 0)
         {
-            /* ESC[?1049h = enter alt-screen, ESC[?1049l = exit alt-screen */
-            if (final_byte == 'h')
-                return vterm_make (vt, VTERM_ALT_SCREEN_ENTER);
-            if (final_byte == 'l')
-                return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+            switch (vt->params[0])
+            {
+            case 1:
+                vt->app_cursor_keys = (final_byte == 'h');
+                break;
+            case 1049:
+                if (final_byte == 'h')
+                    return vterm_make (vt, VTERM_ALT_SCREEN_ENTER);
+                if (final_byte == 'l')
+                    return vterm_make (vt, VTERM_ALT_SCREEN_EXIT);
+                break;
+            default:
+                break;
+            }
         }
         return vterm_make (vt, VTERM_CONSUMED);
     }
@@ -273,6 +286,13 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
         return ev;
     }
 
+    case 'P': /* DCH -- delete characters, shift left */
+    {
+        vterm_event_t ev = vterm_make (vt, VTERM_DCH);
+        ev.param1 = (p0 > 0) ? p0 : 1;
+        return ev;
+    }
+
     default:
         return vterm_make (vt, VTERM_CONSUMED);
     }
@@ -280,7 +300,6 @@ vterm_dispatch_csi (mcview_vterm_t *vt, unsigned char final_byte)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/** Determine the expected length of a UTF-8 sequence from its lead byte. */
 static int
 utf8_seq_len (unsigned char b)
 {
@@ -300,12 +319,10 @@ utf8_seq_len (unsigned char b)
 static vterm_event_t
 vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
 {
-    /* Continuation byte while accumulating a multi-byte sequence. */
     if (vt->utf8_expected > 0)
     {
         if ((byte & 0xC0) != 0x80)
         {
-            /* Invalid continuation -- abandon sequence, treat byte as lead. */
             vt->utf8_len = 0;
             vt->utf8_expected = 0;
         }
@@ -314,7 +331,6 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
             vt->utf8_buf[vt->utf8_len++] = byte;
             if (vt->utf8_len == vt->utf8_expected)
             {
-                /* Sequence complete: decode codepoint. */
                 gunichar ch;
                 vterm_event_t ev = vterm_make (vt, VTERM_CHAR);
 
@@ -342,18 +358,15 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
                 ev.ch = ch;
                 return ev;
             }
-            /* Sequence not yet complete. */
             return vterm_make (vt, VTERM_CONSUMED);
         }
     }
 
-    /* Lead byte of a multi-byte sequence. */
     {
         int expected = utf8_seq_len (byte);
 
         if (expected == 1)
         {
-            /* ASCII or C1 control -- treat as single character. */
             vterm_event_t ev = vterm_make (vt, VTERM_CHAR);
             ev.ch = (gunichar) byte;
             return ev;
@@ -367,8 +380,20 @@ vterm_handle_utf8 (mcview_vterm_t *vt, unsigned char byte)
             return vterm_make (vt, VTERM_CONSUMED);
         }
 
-        /* Invalid byte (e.g. 0x80-0xBF without prior lead): consume. */
         return vterm_make (vt, VTERM_CONSUMED);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+vterm_handle_osc (mcview_vterm_t *vt)
+{
+    if (strncmp (vt->osc_buf, "7;", 2) == 0)
+    {
+        g_free (vt->osc7_raw);
+        vt->osc7_raw = g_strdup (vt->osc_buf);
+        vt->osc7_generation++;
     }
 }
 
@@ -402,6 +427,7 @@ mcview_vterm_free (mcview_vterm_t *vt)
     mcview_terminal_buffer_free (vt->buf);
     mcview_terminal_buffer_free (vt->snapshot_buf);
     mcview_terminal_buffer_free (vt->alt_frame_buf);
+    g_free (vt->osc7_raw);
     g_free (vt);
 }
 
@@ -422,6 +448,7 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     vt->has_current = FALSE;
     vt->utf8_len = 0;
     vt->utf8_expected = 0;
+    vt->app_cursor_keys = FALSE;
     vt->cursor_row = 0;
     vt->cursor_col = 0;
     vt->scroll_top = 0;
@@ -434,6 +461,9 @@ mcview_vterm_reset (mcview_vterm_t *vt)
     vt->alt_frame_buf = NULL;
     vt->new_chars_since_snapshot = FALSE;
     vt->in_alt_screen = FALSE;
+    g_free (vt->osc7_raw);
+    vt->osc7_raw = NULL;
+    vt->osc_len = 0;
     mcview_terminal_buffer_clear (vt->buf);
 }
 
@@ -450,11 +480,13 @@ mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols)
     if (rows == vt->term_rows && cols == vt->term_cols)
         return FALSE;
 
+    if (vt->scroll_bottom == vt->term_rows - 1)
+        vt->scroll_bottom = rows - 1;
+    else if (vt->scroll_bottom >= rows)
+        vt->scroll_bottom = rows - 1;
+
     vt->term_rows = rows;
     vt->term_cols = cols;
-
-    if (vt->scroll_bottom >= vt->term_rows)
-        vt->scroll_bottom = vt->term_rows - 1;
     if (vt->scroll_top >= vt->scroll_bottom)
         vt->scroll_top = 0;
     if (vt->cursor_row >= vt->term_rows)
@@ -470,25 +502,32 @@ mcview_vterm_set_size (mcview_vterm_t *vt, int rows, int cols)
 vterm_event_t
 mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
 {
-    /* OSC: consume bytes until BEL or ST (ESC \). */
     if (vt->in_osc)
     {
         if (vt->in_osc_esc)
         {
             vt->in_osc_esc = FALSE;
             if (byte == '\\')
+            {
                 vt->in_osc = FALSE;
-            /* Any other char after ESC in OSC: stay in OSC. */
+                vt->osc_buf[vt->osc_len] = '\0';
+                vterm_handle_osc (vt);
+            }
         }
         else if (byte == 0x07u)
         {
-            vt->in_osc = FALSE; /* BEL terminates OSC */
+            vt->in_osc = FALSE;
+            vt->osc_buf[vt->osc_len] = '\0';
+            vterm_handle_osc (vt);
         }
         else if (byte == ESC_CHAR)
         {
             vt->in_osc_esc = TRUE;
         }
-        /* Do not feed OSC content to ansi.c -- it would misinterpret it. */
+        else if (vt->osc_len < (int) sizeof (vt->osc_buf) - 1)
+        {
+            vt->osc_buf[vt->osc_len++] = (char) byte;
+        }
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
@@ -496,24 +535,18 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
     if (vt->in_esc_char)
     {
         vt->in_esc_char = FALSE;
-        /* Feed to ansi.c to keep its state consistent. */
         mcview_ansi_parse_char (&vt->ansi, (int) byte);
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Feed every non-OSC byte to ansi.c for SGR state maintenance. */
     mcview_ansi_parse_char (&vt->ansi, (int) byte);
 
-    /* ---- vterm's own CSI/ESC state machine ---- */
-
-    /* Byte after ESC determines the sequence type. */
     if (vt->saw_esc && byte != ESC_CHAR)
     {
         vt->saw_esc = FALSE;
 
         if (byte == '[')
         {
-            /* CSI: start accumulating. */
             vt->in_csi = TRUE;
             vt->csi_private = FALSE;
             vt->param_count = 0;
@@ -524,12 +557,17 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         {
             vt->in_osc = TRUE;
             vt->in_osc_esc = FALSE;
+            vt->osc_len = 0;
         }
         else if (byte == '(' || byte == ')' || byte == '*' || byte == '+')
         {
             vt->in_esc_char = TRUE; /* charset designations: consume next byte */
         }
-        /* ESC = / ESC > / ESC M / ESC c / etc.: just consumed. */
+        else if (byte == 'M')
+        {
+            /* RI -- Reverse Index: scroll region down, move cursor up */
+            return vterm_make (vt, VTERM_RI);
+        }
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
@@ -542,7 +580,6 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Inside CSI: accumulate parameters or dispatch on final byte. */
     if (vt->in_csi)
     {
         if (byte >= '0' && byte <= '9')
@@ -567,17 +604,14 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
 
         if (byte >= 0x40u && byte <= 0x7Eu)
         {
-            /* Final byte: finalize last param and dispatch. */
             vterm_finalize_param (vt);
             vt->in_csi = FALSE;
             return vterm_dispatch_csi (vt, byte);
         }
 
-        /* Intermediate bytes (0x20-0x3F, excluding '?' handled above): consume. */
         return vterm_make (vt, VTERM_CONSUMED);
     }
 
-    /* Regular character -- handle CR, LF, BS, and UTF-8. */
     if (byte == '\r')
         return vterm_make (vt, VTERM_CR);
     if (byte == '\n')
@@ -590,7 +624,6 @@ mcview_vterm_feed (mcview_vterm_t *vt, unsigned char byte)
         ev.param1 = 8 - (vt->cursor_col % 8);
         return ev;
     }
-    /* Other C0 controls (0x01-0x07, 0x0B-0x0C, 0x0E-0x1F): silently consume. */
     if (byte < 0x20)
         return vterm_make (vt, VTERM_CONSUMED);
     return vterm_handle_utf8 (vt, byte);
@@ -637,14 +670,11 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
         {
             if (vt->in_alt_screen)
             {
-                /* Inside alt-screen: save to alt_frame_buf so the last complete
-                 * TUI frame is available for viewer display on exit. */
                 mcview_terminal_buffer_free (vt->alt_frame_buf);
                 vt->alt_frame_buf = mcview_terminal_buffer_copy (vt->buf);
             }
             else
             {
-                /* Outside alt-screen: update main-screen snapshot. */
                 mcview_terminal_buffer_free (vt->snapshot_buf);
                 vt->snapshot_buf = mcview_terminal_buffer_copy (vt->buf);
                 vt->snapshot_cursor_row = vt->cursor_row;
@@ -763,7 +793,7 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
     case VTERM_ALT_SCREEN_EXIT:
         if (vt->snapshot_buf != NULL)
         {
-            if (mcview_terminal_buffer_max_row (vt->snapshot_buf) > 0)
+            if (mcview_terminal_buffer_max_row (vt->snapshot_buf) >= 0)
             {
                 /* Main screen had content spanning multiple rows: restore it
                  * (shell->app->shell flow).  Single-row noise (debug output,
@@ -841,6 +871,19 @@ mcview_vterm_apply_event (mcview_vterm_t *vt, const vterm_event_t *ev)
     }
     break;
 
+    case VTERM_DCH:
+        mcview_terminal_buffer_delete_chars (vt->buf, vt->cursor_row, vt->cursor_col, ev->param1,
+                                             vt->term_cols, &ev->ansi);
+        break;
+
+    case VTERM_RI:
+        if (vt->cursor_row > vt->scroll_top)
+            vt->cursor_row--;
+        else
+            mcview_terminal_buffer_scroll_down (vt->buf, vt->scroll_top, vt->scroll_bottom,
+                                                vt->term_cols, &ev->ansi);
+        break;
+
     case VTERM_SGR:
     case VTERM_CONSUMED:
     default:
@@ -870,6 +913,14 @@ gboolean
 mcview_vterm_in_alt_screen (const mcview_vterm_t *vt)
 {
     return vt->in_alt_screen;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcview_vterm_app_cursor_keys (const mcview_vterm_t *vt)
+{
+    return vt->app_cursor_keys;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -930,6 +981,39 @@ mcview_vterm_resolve_top_row (const mcview_vterm_t *vt, int data_lines)
         return 0;
     top = max - data_lines + 1;
     return (top > 0) ? top : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+const char *
+mcview_vterm_osc7_raw (const mcview_vterm_t *vt)
+{
+    return (vt != NULL) ? vt->osc7_raw : NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+guint
+mcview_vterm_osc7_generation (const mcview_vterm_t *vt)
+{
+    return (vt != NULL) ? vt->osc7_generation : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_vterm_restore_sync_snapshot (mcview_vterm_t *vt, mcview_terminal_buffer_t *snap_buf,
+                                    int snap_cursor_row)
+{
+    mcview_ansi_state_t blank_ansi;
+
+    memset (&blank_ansi, 0, sizeof (blank_ansi));
+    mcview_terminal_buffer_erase_line (snap_buf, snap_cursor_row, vt->term_cols, &blank_ansi);
+
+    mcview_terminal_buffer_free (vt->buf);
+    vt->buf = snap_buf; /* takes ownership */
+    vt->cursor_row = snap_cursor_row;
+    vt->cursor_col = 0;
 }
 
 /* --------------------------------------------------------------------------------------------- */
