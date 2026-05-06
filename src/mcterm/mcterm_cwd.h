@@ -9,6 +9,7 @@
 
 char *mcterm_osc7_uri_to_path (const char *osc7_raw);
 char *mcterm_cwd_on_exit (WMcTerm *t, const char *panel_cwd);
+gboolean mcterm_cwd_differs (WMcTerm *t, const char *panel_cwd);
 
 #else /* !ENABLE_MCTERM */
 
@@ -18,6 +19,14 @@ mcterm_cwd_on_exit (WMcTerm *t, const char *panel_cwd)
     (void) t;
     (void) panel_cwd;
     return NULL;
+}
+
+static inline gboolean
+mcterm_cwd_differs (WMcTerm *t, const char *panel_cwd)
+{
+    (void) t;
+    (void) panel_cwd;
+    return FALSE;
 }
 
 #endif /* ENABLE_MCTERM */

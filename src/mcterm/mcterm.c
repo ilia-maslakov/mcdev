@@ -141,6 +141,8 @@ mcterm_pty_ready_cb (int fd, void *info)
     {
         t->child_dead = TRUE;
         delete_select_channel (t->pty_master);
+        close (t->pty_master);
+        t->pty_master = -1;
         if (t->child_pid > 0)
         {
             if (waitpid (t->child_pid, &t->child_exit_status, WNOHANG) > 0)

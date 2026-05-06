@@ -118,3 +118,17 @@ mcterm_cwd_on_exit (WMcTerm *t, const char *panel_cwd)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mcterm_cwd_differs (WMcTerm *t, const char *panel_cwd)
+{
+    char *path;
+
+    path = mcterm_cwd_on_exit (t, panel_cwd);
+    if (path == NULL)
+        return FALSE;
+    g_free (path);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */

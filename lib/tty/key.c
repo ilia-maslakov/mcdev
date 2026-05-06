@@ -1196,6 +1196,11 @@ correct_key_code (int code)
         c -= 24; /* kf(n+24) -> KEY_F(n) */
         mod |= KEY_M_CTRL;
     }
+    else if (c >= (unsigned) KEY_F (37) && c <= (unsigned) KEY_F (48))
+    {
+        c -= 36; /* kf(n+36) -> KEY_F(n) */
+        mod |= KEY_M_SHIFT | KEY_M_CTRL;
+    }
     else if (c >= (unsigned) KEY_F (49) && c <= (unsigned) KEY_F (60))
     {
         c -= 48; /* kf(n+48) -> KEY_F(n) */

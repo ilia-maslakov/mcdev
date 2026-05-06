@@ -148,16 +148,14 @@ static void
 mcterm_overlay_sync_shell_to_panel (void)
 {
     const char *panel_cwd;
-    char *shell_cwd;
 
     if (current_panel == NULL || !vfs_file_is_local (current_panel->cwd_vpath)
         || !mcterm_overlay_ready ())
         return;
 
     panel_cwd = vfs_path_as_str (current_panel->cwd_vpath);
-    shell_cwd = mcterm_cwd_on_exit (mcterm_panel, panel_cwd);
 
-    if (shell_cwd != NULL)
+    if (mcterm_cwd_differs (mcterm_panel, panel_cwd))
     {
         char *quoted = g_shell_quote (panel_cwd);
         char *cmd = g_strdup_printf ("cd %s", quoted);
@@ -165,7 +163,6 @@ mcterm_overlay_sync_shell_to_panel (void)
         mcterm_send_internal_line (mcterm_panel, cmd);
         g_free (cmd);
         g_free (quoted);
-        g_free (shell_cwd);
     }
 }
 
