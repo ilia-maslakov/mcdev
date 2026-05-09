@@ -2633,15 +2633,28 @@ edit_push_undo_action (WEdit *edit, long c)
         return;
     }
 
-    if (edit_undo_action_changes_content (c))
-        edit->undo_content_seq++;
-
-    if (edit->redo_stack_reset)
     {
-        if (edit->redo_stack_pointer != edit->redo_stack_bottom && edit->redo_has_content)
-            edit->undo_content_gen++;
-        edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
-        edit->redo_has_content = FALSE;
+        long prev_seq = edit->undo_content_seq;
+
+        if (edit_undo_action_changes_content (c))
+            edit->undo_content_seq++;
+
+        if (edit->redo_stack_reset)
+        {
+            if (edit->redo_stack_pointer != edit->redo_stack_bottom && edit->redo_has_content)
+            {
+                /* Check BEFORE the gen bump whether we are at the save point.
+                 * Use prev_seq (pre-increment) so a different branch that happens
+                 * to reach the same seq value does not falsely sync saved_gen. */
+                gboolean was_at_save = (prev_seq == edit->undo_content_saved
+                                        && edit->undo_content_gen == edit->undo_content_saved_gen);
+                edit->undo_content_gen++;
+                if (was_at_save)
+                    edit->undo_content_saved_gen = edit->undo_content_gen;
+            }
+            edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
+            edit->redo_has_content = FALSE;
+        }
     }
 
     if (edit->undo_stack_bottom != sp && spm1 != edit->undo_stack_bottom
@@ -2703,6 +2716,7 @@ check_bottom:
 void
 edit_push_redo_action (WEdit *edit, long c)
 {
+    gboolean changes_content = edit_undo_action_changes_content (c);
     unsigned long sp = edit->redo_stack_pointer;
     unsigned long spm1;
     // first enlarge the stack if necessary
@@ -2737,6 +2751,8 @@ edit_push_redo_action (WEdit *edit, long c)
             {
                 if (c < KEY_PRESS)  // --> no need to push multiple do-nothings
                     edit->redo_stack[spm1]--;
+                if (changes_content)
+                    edit->redo_has_content = TRUE;
                 return;
             }
         }
@@ -2785,7 +2801,7 @@ redo_check_bottom:
             edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
     }
 
-    if (edit_undo_action_changes_content (c))
+    if (changes_content)
         edit->redo_has_content = TRUE;
 }
 
