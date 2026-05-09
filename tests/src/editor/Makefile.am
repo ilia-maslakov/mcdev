@@ -22,6 +22,8 @@ TESTS = \
 	edit_fold \
 	edit_insert_column_of_text \
 	edit_plugin_etags \
+	edit_undo_history \
+	edit_undo_modified \
 	edit_save_sudo \
 	edit_replace_cmd
 
@@ -38,6 +40,12 @@ edit_insert_column_of_text_SOURCES = \
 
 edit_plugin_etags_SOURCES = \
 	edit_plugin_etags.c
+
+edit_undo_history_SOURCES = \
+	edit_undo_history.c
+
+edit_undo_modified_SOURCES = \
+	edit_undo_modified.c
 
 edit_save_sudo_SOURCES = \
 	edit_save_sudo.c

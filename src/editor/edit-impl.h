@@ -251,6 +251,8 @@ gboolean edit_line_is_blank (WEdit *edit, long line);
 gboolean is_break_char (char c);
 void edit_options_dialog (WDialog *h);
 void edit_mail_dialog (WEdit *edit);
+void edit_undo_history_cmd (WEdit *edit);
+void edit_undo_one_group (WEdit *edit);
 void format_paragraph (WEdit *edit, gboolean force);
 
 /* either command or char_for_insertion must be passed as -1 */

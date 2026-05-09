@@ -100,6 +100,7 @@ create_edit_menu (void)
 
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Undo"), CK_Undo));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Redo"), CK_Redo));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Undo &History..."), CK_UndoHistory));
     entries = g_list_prepend (entries, menu_separator_new ());
     entries =
         g_list_prepend (entries, menu_entry_new (_ ("&Toggle ins/overw"), CK_InsertOverwrite));

@@ -64,6 +64,7 @@
 
 #include "edit-impl.h"
 #include "editwidget.h"
+#include "editcmd_private.h"
 #include "editsearch.h"
 #include "src/editor-plugins/builtin-plugins.h"
 
@@ -292,6 +293,8 @@ edit_save_handle_sudo_result (WEdit *edit, int sudo_res)
     {
         edit->delete_file = 0;
         edit->modified = 0;
+        edit->undo_content_saved = edit->undo_content_seq;
+        edit->undo_content_saved_gen = edit->undo_content_gen;
         edit->force |= REDRAW_COMPLETELY;
         return 1;
     }
@@ -651,6 +654,8 @@ edit_save_cmd (WEdit *edit)
     {
         edit->delete_file = 0;
         edit->modified = 0;
+        edit->undo_content_saved = edit->undo_content_seq;
+        edit->undo_content_saved_gen = edit->undo_content_gen;
     }
 
     edit->force |= REDRAW_COMPLETELY;
@@ -1224,6 +1229,8 @@ edit_save_as_cmd (WEdit *edit)
             if (edit->lb != LB_ASIS)
                 edit_reload (edit, exp_vpath);
             edit->modified = 0;
+            edit->undo_content_saved = edit->undo_content_seq;
+            edit->undo_content_saved_gen = edit->undo_content_gen;
             edit->delete_file = 0;
             if (different_filename)
                 edit_load_syntax (edit, NULL, edit->syntax_type);
@@ -2301,6 +2308,648 @@ editcmd_dialog_raw_key_query (const char *heading, const char *query, gboolean c
     widget_destroy (WIDGET (raw_dlg));
 
     return (cancel && (w == ESC_CHAR || w == B_CANCEL)) ? 0 : w;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+#define UNDO_HIST_MAX 500
+
+typedef struct
+{
+    int n_inserted;  /* insert-type operations (bytes) */
+    int n_deleted;   /* delete-type operations (bytes) */
+    int n_chars;     /* character count for label (0 = unknown, fall back to byte count) */
+    guint steps;     /* coalesced raw stack steps */
+    gboolean has_br; /* group contains space/newline/tab (BACKSPACE_BR) */
+    char preview[32];
+    off_t curs_before;
+} undo_hist_entry_t;
+
+static void
+preview_truncate_utf8 (char *s)
+{
+    int len = (int) strlen (s);
+    int i;
+    unsigned char c;
+    int char_len;
+
+    if (len == 0)
+        return;
+
+    i = len - 1;
+    while (i > 0 && ((unsigned char) s[i] & 0xC0) == 0x80)
+        i--;
+
+    c = (unsigned char) s[i];
+    if (c < 0x80)
+        char_len = 1;
+    else if ((c & 0xE0) == 0xC0)
+        char_len = 2;
+    else if ((c & 0xF0) == 0xE0)
+        char_len = 3;
+    else if ((c & 0xF8) == 0xF0)
+        char_len = 4;
+    else
+        char_len = 1;
+
+    if (i + char_len > len)
+        s[i] = '\0';
+}
+
+/* Render up to count bytes from buf into a compact preview. */
+static void
+preview_fill_from_buf (char *preview, const edit_buffer_t *buf, off_t pos, int count,
+                       gboolean is_utf8)
+{
+    int plen = 0;
+    int remaining = count;
+
+    while (remaining > 0 && plen < 30)
+    {
+        int ch, char_length;
+
+        if (is_utf8)
+        {
+            ch = edit_buffer_get_utf (buf, pos, &char_length);
+            if (char_length < 1)
+            {
+                pos++;
+                remaining--;
+                continue;
+            }
+        }
+        else
+        {
+            ch = (unsigned char) edit_buffer_get_byte (buf, pos);
+            char_length = 1;
+        }
+
+        if (ch == '\n')
+        {
+            if (plen + 2 > 30)
+                break;
+            preview[plen++] = '^';
+            preview[plen++] = 'M';
+            break;
+        }
+        else if (ch < 32 || ch == 127)
+        {
+            if (plen + 2 > 30)
+                break;
+            preview[plen++] = '^';
+            preview[plen++] = (ch == 127) ? '?' : (char) ('@' + ch);
+        }
+        else
+        {
+            int i;
+
+            if (plen + char_length > 30)
+                break;
+            for (i = 0; i < char_length; i++)
+                preview[plen++] = (char) edit_buffer_get_byte (buf, pos + i);
+        }
+
+        pos += char_length;
+        remaining -= char_length;
+    }
+    preview[plen] = '\0';
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+count_utf8_chars_in_buf (const edit_buffer_t *buf, off_t pos, int byte_count)
+{
+    int chars = 0;
+    int remaining = byte_count;
+
+    while (remaining > 0)
+    {
+        unsigned char ch = (unsigned char) edit_buffer_get_byte (buf, pos);
+
+        if ((ch & 0xC0) != 0x80)
+            chars++;
+        pos++;
+        remaining--;
+    }
+    return chars;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+undo_hist_collect (const long *stack, unsigned long sp, unsigned long bottom, unsigned long mask,
+                   gboolean is_redo, GArray *groups, off_t start_curs)
+{
+    unsigned long cursor;
+    undo_hist_entry_t cur;
+    off_t tracked_curs = start_curs;
+    long cur_curs_delta = 0;
+
+    memset (&cur, 0, sizeof (cur));
+    cursor = sp;
+
+    while (cursor != bottom)
+    {
+        long entry, ac;
+        int repeat;
+
+        entry = stack[(cursor - 1) & mask];
+
+        if (entry >= 0)
+        {
+            ac = entry;
+            repeat = 1;
+            cursor = (cursor - 1) & mask;
+        }
+        else
+        {
+            if (((cursor - bottom) & mask) < 2)
+                break;
+            ac = stack[(cursor - 2) & mask];
+            repeat = (int) (-entry);
+            cursor = (cursor - 2) & mask;
+        }
+
+        if (ac >= KEY_PRESS)
+        {
+            cur.steps = 1;
+            cur.curs_before = tracked_curs - (off_t) cur_curs_delta;
+
+            if (cur.n_deleted > 0)
+                preview_truncate_utf8 (cur.preview);
+
+            tracked_curs -= (off_t) cur_curs_delta;
+            cur_curs_delta = 0;
+
+            g_array_append_val (groups, cur);
+            memset (&cur, 0, sizeof (cur));
+        }
+        else if (!is_redo)
+        {
+            if (ac == BACKSPACE)
+            {
+                cur.n_inserted += repeat;
+                cur_curs_delta += repeat;
+            }
+            else if (ac == BACKSPACE_BR)
+            {
+                cur.n_inserted += repeat;
+                cur.has_br = TRUE;
+                cur_curs_delta += repeat;
+            }
+            else if (ac == DELCHAR)
+                cur.n_inserted += repeat;
+            else if (ac == DELCHAR_BR)
+            {
+                cur.n_inserted += repeat;
+                cur.has_br = TRUE;
+            }
+            else if (ac >= 0 && ac < 256)
+            {
+                int ch = (int) ac;
+                int plen = (int) strlen (cur.preview);
+                int r;
+
+                cur.n_deleted += repeat;
+                if ((ch & 0xC0) != 0x80)
+                    cur.n_chars += repeat;
+                cur_curs_delta -= repeat;
+
+                for (r = 0; r < repeat; r++)
+                {
+                    if (plen >= 30)
+                        break;
+                    if (ch < 32)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        cur.preview[plen++] = '^';
+                        cur.preview[plen++] = ch == '\n' ? 'M' : (char) ('@' + ch);
+                        if (ch == '\n')
+                            break;
+                    }
+                    else if (ch == 127)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        cur.preview[plen++] = '^';
+                        cur.preview[plen++] = '?';
+                    }
+                    else
+                        cur.preview[plen++] = (char) ch;
+                }
+                cur.preview[plen] = '\0';
+            }
+            else if (ac >= 256 && ac < 512)
+            {
+                int ch = (int) (ac - 256);
+                int plen = (int) strlen (cur.preview);
+                int r;
+
+                cur.n_deleted += repeat;
+                if ((ch & 0xC0) != 0x80)
+                    cur.n_chars += repeat;
+
+                for (r = 0; r < repeat; r++)
+                {
+                    if (plen >= 30)
+                        break;
+                    if (ch < 32)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        memmove (cur.preview + 2, cur.preview, (size_t) (plen + 1));
+                        cur.preview[0] = '^';
+                        cur.preview[1] = ch == '\n' ? 'M' : (char) ('@' + ch);
+                        plen += 2;
+                        if (ch == '\n')
+                            break;
+                    }
+                    else if (ch == 127)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        memmove (cur.preview + 2, cur.preview, (size_t) (plen + 1));
+                        cur.preview[0] = '^';
+                        cur.preview[1] = '?';
+                        plen += 2;
+                    }
+                    else
+                    {
+                        memmove (cur.preview + 1, cur.preview, (size_t) (plen + 1));
+                        cur.preview[0] = (char) ch;
+                        plen++;
+                    }
+                }
+            }
+            else if (ac == CURS_LEFT)
+                cur_curs_delta += repeat;
+            else if (ac == CURS_RIGHT)
+                cur_curs_delta -= repeat;
+        }
+        else
+        {
+            if (ac >= 0 && ac < 256)
+            {
+                int ch = (int) ac;
+                int plen = (int) strlen (cur.preview);
+                int r;
+
+                if (ch <= 32)
+                    cur.has_br = TRUE;
+                cur.n_inserted += repeat;
+                if ((ch & 0xC0) != 0x80)
+                    cur.n_chars += repeat;
+
+                for (r = 0; r < repeat; r++)
+                {
+                    if (plen >= 30)
+                        break;
+                    if (ch < 32)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        cur.preview[plen++] = '^';
+                        cur.preview[plen++] = ch == '\n' ? 'M' : (char) ('@' + ch);
+                        if (ch == '\n')
+                            break;
+                    }
+                    else if (ch == 127)
+                    {
+                        if (plen + 2 > 30)
+                            break;
+                        cur.preview[plen++] = '^';
+                        cur.preview[plen++] = '?';
+                    }
+                    else
+                        cur.preview[plen++] = (char) ch;
+                }
+                cur.preview[plen] = '\0';
+            }
+            else if (ac >= 256 && ac < 512)
+            {
+                int ch = (int) (ac - 256);
+
+                cur.n_inserted += repeat;
+                if ((ch & 0xC0) != 0x80)
+                    cur.n_chars += repeat;
+            }
+            else if (ac == BACKSPACE || ac == BACKSPACE_BR || ac == DELCHAR || ac == DELCHAR_BR)
+                cur.n_deleted += repeat;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+undo_hist_can_coalesce (const undo_hist_entry_t *a, const undo_hist_entry_t *b, gboolean is_redo)
+{
+    if (!is_redo && (a->has_br || b->has_br))
+        return FALSE;
+    if (a->n_inserted > 0 && a->n_deleted == 0 && b->n_inserted > 0 && b->n_deleted == 0)
+        return TRUE;
+    if (a->n_deleted > 0 && a->n_inserted == 0 && b->n_deleted > 0 && b->n_inserted == 0)
+        return TRUE;
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static GArray *
+undo_hist_coalesce (GArray *raw, gboolean is_redo)
+{
+    GArray *out;
+    undo_hist_entry_t cur;
+    gboolean has_cur = FALSE;
+    guint i;
+
+    out = g_array_new (FALSE, FALSE, sizeof (undo_hist_entry_t));
+
+    for (i = 0; i < raw->len; i++)
+    {
+        const undo_hist_entry_t *e = &g_array_index (raw, undo_hist_entry_t, i);
+
+        if (has_cur && undo_hist_can_coalesce (&cur, e, is_redo))
+        {
+            cur.n_inserted += e->n_inserted;
+            cur.n_deleted += e->n_deleted;
+            cur.n_chars += e->n_chars;
+            cur.steps += e->steps;
+            cur.curs_before = e->curs_before;
+            if (e->preview[0] != '\0')
+            {
+                int cur_plen = (int) strlen (cur.preview);
+                int e_plen = (int) strlen (e->preview);
+                if (cur_plen + e_plen < (int) sizeof (cur.preview) - 1)
+                    memcpy (cur.preview + cur_plen, e->preview, (size_t) (e_plen + 1));
+            }
+        }
+        else
+        {
+            if (has_cur)
+            {
+                preview_truncate_utf8 (cur.preview);
+                g_array_append_val (out, cur);
+            }
+            cur = *e;
+            has_cur = TRUE;
+        }
+    }
+
+    if (has_cur)
+    {
+        preview_truncate_utf8 (cur.preview);
+        g_array_append_val (out, cur);
+    }
+
+    g_array_free (raw, TRUE);
+    return out;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static GArray *
+undo_hist_drop_cursor (GArray *arr)
+{
+    GArray *out;
+    guint i, pending = 0;
+
+    out = g_array_new (FALSE, FALSE, sizeof (undo_hist_entry_t));
+
+    for (i = 0; i < arr->len; i++)
+    {
+        const undo_hist_entry_t *e = &g_array_index (arr, undo_hist_entry_t, i);
+
+        if (e->n_inserted == 0 && e->n_deleted == 0)
+        {
+            if (out->len > 0)
+                g_array_index (out, undo_hist_entry_t, out->len - 1).steps += e->steps;
+            else
+                pending += e->steps;
+        }
+        else
+        {
+            undo_hist_entry_t copy = *e;
+
+            copy.steps += pending;
+            pending = 0;
+            g_array_append_val (out, copy);
+        }
+    }
+
+    g_array_free (arr, TRUE);
+    return out;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+undo_hist_entry_label (const undo_hist_entry_t *e, gboolean is_redo, char *buf, size_t len)
+{
+    int written;
+
+    written = g_snprintf (buf, len, "%s ", is_redo ? "[+]" : "[-]");
+    if (written <= 0 || (size_t) written >= len)
+        return;
+    buf += written;
+    len -= (size_t) written;
+
+    if (e->n_inserted > 0 && e->n_deleted == 0)
+    {
+        int cnt = e->n_chars > 0 ? e->n_chars : e->n_inserted;
+
+        written = g_snprintf (buf, len, _ ("insert %d"), cnt);
+    }
+    else if (e->n_deleted > 0 && e->n_inserted == 0)
+    {
+        int cnt = e->n_chars > 0 ? e->n_chars : e->n_deleted;
+
+        written = g_snprintf (buf, len, _ ("delete %d"), cnt);
+    }
+    else
+        written = g_snprintf (buf, len, "%s", _ ("replace"));
+
+    if (e->preview[0] != '\0' && written > 0 && (size_t) written < len - 1)
+    {
+        const char *p;
+        int pchars = 0;
+        gboolean truncated;
+
+        for (p = e->preview; *p != '\0'; p++)
+            if (((unsigned char) *p & 0xC0) != 0x80)
+                pchars++;
+
+        truncated = (e->n_chars > 0 && pchars < e->n_chars);
+        g_snprintf (buf + written, len - (size_t) written, "  %s%s", e->preview,
+                    truncated ? "~" : "");
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Collect, coalesce and fill previews for undo and redo groups.
+ * Both output arrays are owned by the caller (g_array_free with TRUE). */
+static void
+undo_history_build (WEdit *edit, GArray **undo_out, GArray **redo_out)
+{
+    GArray *raw;
+    guint i;
+
+    raw = g_array_new (FALSE, FALSE, sizeof (undo_hist_entry_t));
+    undo_hist_collect (edit->undo_stack, edit->undo_stack_pointer, edit->undo_stack_bottom,
+                       edit->undo_stack_size_mask, FALSE, raw, edit->buffer.curs1);
+    *undo_out = undo_hist_coalesce (undo_hist_drop_cursor (raw), FALSE);
+
+    raw = g_array_new (FALSE, FALSE, sizeof (undo_hist_entry_t));
+    undo_hist_collect (edit->redo_stack, edit->redo_stack_pointer, edit->redo_stack_bottom,
+                       edit->redo_stack_size_mask, TRUE, raw, 0);
+    *redo_out = undo_hist_coalesce (undo_hist_drop_cursor (raw), TRUE);
+
+    /* Avoid unbounded memory/time when the undo ring wrapped after a huge paste. */
+    if ((*undo_out)->len > UNDO_HIST_MAX)
+        g_array_set_size (*undo_out, UNDO_HIST_MAX);
+    if ((*redo_out)->len > UNDO_HIST_MAX)
+        g_array_set_size (*redo_out, UNDO_HIST_MAX);
+
+    for (i = 0; i < (*undo_out)->len; i++)
+    {
+        undo_hist_entry_t *e = &g_array_index (*undo_out, undo_hist_entry_t, i);
+
+        if (e->n_inserted > 0 && e->n_deleted == 0 && e->curs_before >= 0)
+        {
+            preview_fill_from_buf (e->preview, &edit->buffer, e->curs_before, e->n_inserted,
+                                   edit->utf8);
+            e->n_chars = edit->utf8
+                ? count_utf8_chars_in_buf (&edit->buffer, e->curs_before, e->n_inserted)
+                : e->n_inserted;
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_undo_history_get_label (WEdit *edit, gboolean is_redo, guint n, char *buf, size_t buflen)
+{
+    GArray *undo_groups, *redo_groups;
+    GArray *groups;
+    gboolean result = FALSE;
+
+    undo_history_build (edit, &undo_groups, &redo_groups);
+    groups = is_redo ? redo_groups : undo_groups;
+
+    if (n < groups->len)
+    {
+        const undo_hist_entry_t *e = &g_array_index (groups, undo_hist_entry_t, n);
+
+        undo_hist_entry_label (e, is_redo, buf, buflen);
+        result = TRUE;
+    }
+
+    g_array_free (undo_groups, TRUE);
+    g_array_free (redo_groups, TRUE);
+    return result;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+edit_undo_history_cmd (WEdit *edit)
+{
+    GArray *undo_groups;
+    GArray *redo_groups;
+    Listbox *lb;
+    int sel;
+    guint redo_count;
+    guint i;
+    char label[96];
+
+    undo_history_build (edit, &undo_groups, &redo_groups);
+
+    if (undo_groups->len == 0 && redo_groups->len == 0)
+    {
+        const char *msg = edit->modified ? _ ("Undo history is not available.\n"
+                                              "The change log was overwritten after a large edit.")
+                                         : _ ("Nothing to undo.");
+        g_array_free (redo_groups, TRUE);
+        g_array_free (undo_groups, TRUE);
+        message (D_NORMAL, _ ("Undo History"), "%s", msg);
+        return;
+    }
+
+    redo_count = redo_groups->len;
+
+    lb = listbox_window_new (20, 55, _ ("Undo History"), NULL);
+
+    for (i = undo_groups->len; i > 0; i--)
+    {
+        const undo_hist_entry_t *e = &g_array_index (undo_groups, undo_hist_entry_t, i - 1);
+
+        undo_hist_entry_label (e, FALSE, label, sizeof (label));
+        LISTBOX_APPEND_TEXT (lb, 0, label, NULL, FALSE);
+    }
+
+    for (i = 0; i < redo_count; i++)
+    {
+        const undo_hist_entry_t *e = &g_array_index (redo_groups, undo_hist_entry_t, i);
+
+        undo_hist_entry_label (e, TRUE, label, sizeof (label));
+        LISTBOX_APPEND_TEXT (lb, 0, label, NULL, FALSE);
+    }
+
+    {
+        guint cur = undo_groups->len > 0 ? undo_groups->len - 1 : 0;
+        listbox_set_current (lb->list, (int) cur);
+    }
+
+    sel = listbox_run (lb);
+
+    if (sel >= 0)
+    {
+        guint undo_count = undo_groups->len;
+        guint selected = (guint) sel;
+        guint steps = 0;
+        gboolean do_redo = (selected >= undo_count);
+
+        if (!do_redo)
+        {
+            guint idx = undo_count - 1 - selected;
+
+            for (i = 0; i <= idx; i++)
+                steps += g_array_index (undo_groups, undo_hist_entry_t, i).steps;
+        }
+        else
+        {
+            guint idx = selected - undo_count;
+
+            for (i = 0; i <= idx; i++)
+                steps += g_array_index (redo_groups, undo_hist_entry_t, i).steps;
+        }
+
+        g_array_free (redo_groups, TRUE);
+        g_array_free (undo_groups, TRUE);
+
+        edit->redo_stack_reset = 0;
+
+        for (i = 0; i < steps; i++)
+        {
+            if (do_redo)
+            {
+                edit_push_key_press (edit);
+                edit_execute_cmd (edit, CK_Redo, -1);
+            }
+            else
+                edit_undo_one_group (edit);
+        }
+
+        edit->force |= REDRAW_COMPLETELY;
+        return;
+    }
+
+    g_array_free (redo_groups, TRUE);
+    g_array_free (undo_groups, TRUE);
 }
 
 /* --------------------------------------------------------------------------------------------- */

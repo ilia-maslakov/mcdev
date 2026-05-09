@@ -464,6 +464,7 @@ static const global_keymap_ini_t default_editor_keymap[] = {
     { "DeleteToEnd", "ctrl-k" },
     { "Undo", "ctrl-u; ctrl-backspace" },
     { "Redo", "alt-r" },
+    { "UndoHistory", "alt-shift-u" },
     { "SelectCodepage", "alt-e" },
     { "Goto", "alt-l; alt-shift-l" },
     { "Refresh", "ctrl-l" },

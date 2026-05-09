@@ -282,6 +282,7 @@ End = end
 Tab = tab; shift-tab; ctrl-tab; ctrl-shift-tab
 Undo = ctrl-u
 Redo = alt-r
+UndoHistory = alt-shift-u
 Top = ctrl-home; alt-lt
 Bottom = ctrl-end; alt-gt
 ScrollUp = ctrl-up
