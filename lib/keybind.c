@@ -294,6 +294,7 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (Date, N_ ("Insert date/time")),
     ADD_KEYMAP_NAME_DESC (DeleteLine, N_ ("Delete line")),
     ADD_KEYMAP_NAME_DESC (EditMail, N_ ("Mail file")),
+    ADD_KEYMAP_NAME_DESC (UndoHistory, N_ ("Undo history")),
     ADD_KEYMAP_NAME_DESC (ParagraphFormat, N_ ("Format paragraph")),
     ADD_KEYMAP_NAME_DESC (MatchBracket, N_ ("Match bracket")),
     ADD_KEYMAP_NAME_DESC (ExternalCommand, N_ ("Run external command")),

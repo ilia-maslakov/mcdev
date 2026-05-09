@@ -139,6 +139,10 @@ struct WEdit
     unsigned long undo_stack_size;
     unsigned long undo_stack_size_mask;
     unsigned long undo_stack_bottom;
+    long undo_content_seq;       /* counts content-changing ops pushed minus popped */
+    long undo_content_saved;     /* undo_content_seq value at last load or save */
+    long undo_content_gen;       /* increments each time edit history branches after undo */
+    long undo_content_saved_gen; /* undo_content_gen value at last load or save */
     unsigned int undo_stack_disable : 1;  // If not 0, don't save events in the undo stack
 
     unsigned long redo_stack_pointer;
@@ -146,7 +150,8 @@ struct WEdit
     unsigned long redo_stack_size;
     unsigned long redo_stack_size_mask;
     unsigned long redo_stack_bottom;
-    unsigned int redo_stack_reset : 1;  // If 1, need clear redo stack
+    gboolean redo_has_content;           /* redo stack has at least one content-changing op */
+    unsigned int redo_stack_reset : 1;   /* If 1, need clear redo stack */
 
     struct stat stat1;    // Result of mc_fstat() on the file
     unsigned long attrs;  // Result of mc_fgetflags() on the file

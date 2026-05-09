@@ -524,11 +524,6 @@ edit_purge_widget (WEdit *edit)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/*
-   TODO: if the user undos until the stack bottom, and the stack has not wrapped,
-   then the file should be as it was when he loaded up. Then set edit->modified to 0.
- */
-
 static long
 edit_pop_undo_action (WEdit *edit)
 {
@@ -1357,6 +1352,29 @@ edit_left_delete_word (WEdit *edit)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+edit_undo_action_changes_content (long c)
+{
+    return (c >= 0 && c < 512) || c == BACKSPACE || c == BACKSPACE_BR || c == DELCHAR
+        || c == DELCHAR_BR;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_check_and_clear_modified (WEdit *edit)
+{
+    if (edit->undo_content_seq == edit->undo_content_saved
+        && edit->undo_content_gen == edit->undo_content_saved_gen)
+    {
+        edit->modified = 0;
+        if (edit->locked != 0)
+            edit->locked = unlock_file (edit->filename_vpath);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /**
    the start column position is not recorded, and hence does not
    undo as it happed. But who would notice.
@@ -1406,6 +1424,9 @@ edit_do_undo (WEdit *edit)
             edit_insert_ahead (edit, ac - 256);
         if (ac >= 0 && ac < 256)
             edit_insert (edit, ac);
+
+        if (edit_undo_action_changes_content (ac))
+            edit->undo_content_seq--;
 
         if (ac >= MARK_1 - 2 && ac < MARK_2 - 2)
         {
@@ -1474,9 +1495,11 @@ edit_do_redo (WEdit *edit)
             edit_cursor_move (edit, -1);
             break;
         case BACKSPACE:
+        case BACKSPACE_BR:
             edit_backspace (edit, TRUE);
             break;
         case DELCHAR:
+        case DELCHAR_BR:
             edit_delete (edit, TRUE);
             break;
         case COLUMN_ON:
@@ -1547,6 +1570,17 @@ edit_group_undo (WEdit *edit)
         if (!edit_options.group_undo)
             ac = STACK_BOTTOM;
     }
+
+    edit_check_and_clear_modified (edit);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+edit_undo_one_group (WEdit *edit)
+{
+    edit_do_undo (edit);
+    edit_check_and_clear_modified (edit);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2377,6 +2411,12 @@ edit_init (WEdit *edit, const WRect *r, const edit_arg_t *arg)
     edit->redo_stack_size_mask = START_STACK_SIZE - 1;
     edit->redo_stack = g_malloc0 ((edit->redo_stack_size + 10) * sizeof (long));
 
+    edit->undo_content_seq = 0;
+    edit->undo_content_saved = 0;
+    edit->undo_content_gen = 0;
+    edit->undo_content_saved_gen = 0;
+    edit->redo_has_content = FALSE;
+
     edit->utf8 = FALSE;
     edit->converter = str_cnv_from_term;
     edit_set_codeset (edit);
@@ -2593,8 +2633,16 @@ edit_push_undo_action (WEdit *edit, long c)
         return;
     }
 
+    if (edit_undo_action_changes_content (c))
+        edit->undo_content_seq++;
+
     if (edit->redo_stack_reset)
+    {
+        if (edit->redo_stack_pointer != edit->redo_stack_bottom && edit->redo_has_content)
+            edit->undo_content_gen++;
         edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
+        edit->redo_has_content = FALSE;
+    }
 
     if (edit->undo_stack_bottom != sp && spm1 != edit->undo_stack_bottom
         && ((sp - 2) & edit->undo_stack_size_mask) != edit->undo_stack_bottom)
@@ -2712,25 +2760,33 @@ redo_check_bottom:
     /* if the sp wraps round and catches the redo_stack_bottom then erase
      * the first set of actions on the stack to make space - by moving
      * redo_stack_bottom forward one "key press" */
-    c = (edit->redo_stack_pointer + 2) & edit->redo_stack_size_mask;
-    if ((unsigned long) c == edit->redo_stack_bottom
-        || (((unsigned long) c + 1) & edit->redo_stack_size_mask) == edit->redo_stack_bottom)
-        do
-        {
-            edit->redo_stack_bottom = (edit->redo_stack_bottom + 1) & edit->redo_stack_size_mask;
-        }
-        while (edit->redo_stack[edit->redo_stack_bottom] < KEY_PRESS
-               && edit->redo_stack_bottom != edit->redo_stack_pointer);
+    {
+        unsigned long idx;
 
-    /*
-     * If a single key produced enough pushes to wrap all the way round then
-     * we would notice that the [redo_stack_bottom] does not contain KEY_PRESS.
-     * The stack is then initialised:
-     */
+        idx = (edit->redo_stack_pointer + 2) & edit->redo_stack_size_mask;
+        if ((unsigned long) idx == edit->redo_stack_bottom
+            || (((unsigned long) idx + 1) & edit->redo_stack_size_mask) == edit->redo_stack_bottom)
+            do
+            {
+                edit->redo_stack_bottom =
+                    (edit->redo_stack_bottom + 1) & edit->redo_stack_size_mask;
+            }
+            while (edit->redo_stack[edit->redo_stack_bottom] < KEY_PRESS
+                   && edit->redo_stack_bottom != edit->redo_stack_pointer);
 
-    if (edit->redo_stack_pointer != edit->redo_stack_bottom
-        && edit->redo_stack[edit->redo_stack_bottom] < KEY_PRESS)
-        edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
+        /*
+         * If a single key produced enough pushes to wrap all the way round then
+         * we would notice that the [redo_stack_bottom] does not contain KEY_PRESS.
+         * The stack is then initialised:
+         */
+
+        if (edit->redo_stack_pointer != edit->redo_stack_bottom
+            && edit->redo_stack[edit->redo_stack_bottom] < KEY_PRESS)
+            edit->redo_stack_bottom = edit->redo_stack_pointer = 0;
+    }
+
+    if (edit_undo_action_changes_content (c))
+        edit->redo_has_content = TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -3601,7 +3657,7 @@ edit_execute_key_command (WEdit *edit, long command, int char_for_insertion)
         record_macro_buf[macro_index++].ch = char_for_insertion;
     }
     // record the beginning of a set of editing actions initiated by a key press
-    if (command != CK_Undo && command != CK_ExtendedKeyMap)
+    if (command != CK_Undo && command != CK_ExtendedKeyMap && command != CK_UndoHistory)
         edit_push_key_press (edit);
 
     edit_execute_cmd (edit, command, char_for_insertion);
@@ -3686,10 +3742,23 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
         edit->highlight = 0;
     }
 
+    if (command == CK_UndoHistory)
+    {
+        edit_undo_history_cmd (edit);
+        return;
+    }
+
     // first check for undo
     if (command == CK_Undo)
     {
         edit->redo_stack_reset = 0;
+        if (edit->undo_stack_pointer == edit->undo_stack_bottom && edit->modified)
+        {
+            message (D_NORMAL, _ ("Undo"),
+                     _ ("Undo history is not available.\n"
+                        "The change log was overwritten after a large edit."));
+            return;
+        }
         edit_group_undo (edit);
         edit->found_len = 0;
         edit->prev_col = edit_get_col (edit);
@@ -3701,6 +3770,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
     {
         edit->redo_stack_reset = 0;
         edit_do_redo (edit);
+        edit_check_and_clear_modified (edit);
         edit->found_len = 0;
         edit->prev_col = edit_get_col (edit);
         edit->search_start = edit->buffer.curs1;

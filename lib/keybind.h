@@ -327,6 +327,7 @@ enum
     CK_ExternalCommand,
     CK_Date,
     CK_EditMail,
+    CK_UndoHistory,
 
     // viewer
     CK_WrapMode = 600L,
