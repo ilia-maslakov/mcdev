@@ -2090,7 +2090,7 @@ edit_sort_cmd (WEdit *edit)
 int
 edit_ext_cmd (WEdit *edit)
 {
-    char *exp, *tmp, *tmp_edit_temp_file;
+    char *exp, *tmp, *tmp_edit_temp_file, *quoted_exp;
     int e;
 
     exp =
@@ -2104,7 +2104,10 @@ edit_ext_cmd (WEdit *edit)
         return 1;
 
     tmp_edit_temp_file = mc_config_get_full_path (EDIT_HOME_TEMP_FILE);
-    tmp = g_strconcat (exp, " > ", tmp_edit_temp_file, (char *) NULL);
+    quoted_exp = g_shell_quote (exp);
+    tmp = g_strconcat ("TERM=dumb sh -c ", quoted_exp, " > ", tmp_edit_temp_file,
+                       " < /dev/null 2>/dev/null", (char *) NULL);
+    g_free (quoted_exp);
     g_free (tmp_edit_temp_file);
     e = system (tmp);
     g_free (tmp);
