@@ -298,7 +298,7 @@ enum
     CK_MacroStartRecord,
     CK_MacroStopRecord,
     CK_MacroStartStopRecord,
-    CK_MacroDelete,
+    CK_MacroExplorer,
     CK_RepeatStartRecord,
     CK_RepeatStopRecord,
     CK_RepeatStartStopRecord,

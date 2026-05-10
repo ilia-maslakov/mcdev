@@ -3673,7 +3673,8 @@ edit_execute_key_command (WEdit *edit, long command, int char_for_insertion)
         record_macro_buf[macro_index++].ch = char_for_insertion;
     }
     // record the beginning of a set of editing actions initiated by a key press
-    if (command != CK_Undo && command != CK_ExtendedKeyMap && command != CK_UndoHistory)
+    if (command != CK_Undo && command != CK_ExtendedKeyMap && command != CK_UndoHistory
+        && command != CK_MacroExplorer)
         edit_push_key_press (edit);
 
     edit_execute_cmd (edit, command, char_for_insertion);
@@ -4377,8 +4378,8 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
         format_paragraph (edit, TRUE);
         edit->force |= REDRAW_PAGE;
         break;
-    case CK_MacroDelete:
-        edit_delete_macro_cmd (edit);
+    case CK_MacroExplorer:
+        edit_macro_explorer_cmd (edit);
         break;
     case CK_MatchBracket:
         edit_goto_matching_bracket (edit);
