@@ -171,7 +171,7 @@ create_command_menu (void)
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (
         entries, menu_entry_new (_ ("&Start/Stop record macro"), CK_MacroStartStopRecord));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Delete macr&o..."), CK_MacroDelete));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Macro e&xplorer..."), CK_MacroExplorer));
     entries = g_list_prepend (
         entries, menu_entry_new (_ ("Record/Repeat &actions"), CK_RepeatStartStopRecord));
 
