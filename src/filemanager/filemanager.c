@@ -168,30 +168,6 @@ treebox_cmd (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-#ifdef LISTMODE_EDITOR
-static void
-listmode_cmd (void)
-{
-    char *newmode;
-
-    if (get_current_type () != view_listing)
-        return;
-
-    newmode = listmode_edit (current_panel->user_format);
-    if (!newmode)
-        return;
-
-    g_free (current_panel->user_format);
-    current_panel->list_format = list_user;
-    current_panel->user_format = newmode;
-    set_panel_formats (current_panel);
-
-    do_refresh ();
-}
-#endif
-
-/* --------------------------------------------------------------------------------------------- */
-
 static GList *
 create_panel_menu (gboolean is_right)
 {
@@ -306,10 +282,6 @@ create_command_menu (void)
 #endif
     entries = g_list_prepend (entries, menu_entry_new (_ ("Screen lis&t"), CK_ScreenList));
     entries = g_list_prepend (entries, menu_separator_new ());
-#ifdef LISTMODE_EDITOR
-    entries = g_list_prepend (entries, menu_entry_new (_ ("&Listing format edit"), CK_ListMode));
-    entries = g_list_prepend (entries, menu_separator_new ());
-#endif
     entries = g_list_prepend (entries,
                               menu_entry_new (_ ("Edit &extension file"), CK_EditExtensionsFile));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Edit &menu file"), CK_EditUserMenu));
@@ -1454,11 +1426,6 @@ midnight_execute_cmd (Widget *sender, long command)
         if (!mcterm_overlay_show_panel_if_hidden (MENU_PANEL_IDX))
             listing_cmd ();
         break;
-#ifdef LISTMODE_EDITOR
-    case CK_ListMode:
-        listmode_cmd ();
-        break;
-#endif
     case CK_Menu:
         menu_cmd ();
         break;

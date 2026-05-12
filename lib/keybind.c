@@ -187,9 +187,6 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (Link, N_ ("Create hard link")),
     ADD_KEYMAP_NAME_DESC (SetupListingFormat, N_ ("Setup listing format")),
     ADD_KEYMAP_NAME_DESC (PanelListing, N_ ("Panel listing mode")),
-#ifdef LISTMODE_EDITOR
-    ADD_KEYMAP_NAME_DESC (ListMode, N_ ("Listing mode editor")),
-#endif
     ADD_KEYMAP_NAME_DESC (OptionsPanel, N_ ("Panel options")),
     ADD_KEYMAP_NAME_DESC (CdQuick, N_ ("Quick cd")),
     ADD_KEYMAP_NAME_DESC (PanelQuickView, N_ ("Quick view panel")),
