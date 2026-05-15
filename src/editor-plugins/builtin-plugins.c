@@ -12,6 +12,7 @@
 #include "src/editor/editwidget.h"
 #include "src/editor-plugins/etags/etags.h"
 #include "src/editor-plugins/spell/spell.h"
+#include "src/editor-plugins/ctags/ctags-plugin.h"
 
 typedef struct
 {
@@ -551,4 +552,5 @@ editor_plugins_register_all (void)
     (void) mc_editor_plugin_add (&edit_builtin_scripts_plugin);
     (void) mc_editor_plugin_add (&edit_builtin_etags_plugin);
     (void) mc_editor_plugin_add (&edit_builtin_spell_plugin);
+    (void) mc_editor_plugin_add (ctags_get_plugin ());
 }

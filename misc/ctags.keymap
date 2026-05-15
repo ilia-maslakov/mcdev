@@ -1,0 +1,17 @@
+CtagsMenu =
+CtagsGoto = ctrl-enter
+CtagsBack = alt-minus
+CtagsForward = alt-plus
+CtagsFindSymbol = ctrl-backslash
+CtagsGrepRefs = alt-g
+CtagsHistory = alt-h
+CtagsMembers = alt-equal
+CtagsSearchSymbol = alt-q
+CtagsSearchCurrent = alt-y
+CtagsComplete = shift-tab
+CtagsSearchFile =
+CtagsLoadTags =
+CtagsReindex =
+CtagsReindexFile =
+CtagsManageRepos =
+CtagsConfig =

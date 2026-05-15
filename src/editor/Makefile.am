@@ -24,6 +24,21 @@ libedit_la_SOURCES = \
 	../editor-plugins/etags/etags.h \
 	../editor-plugins/spell/spell.c \
 	../editor-plugins/spell/spell.h \
+	../editor-plugins/ctags/ctags-parser.c \
+	../editor-plugins/ctags/ctags-parser.h \
+	../editor-plugins/ctags/ctags-index.c \
+	../editor-plugins/ctags/ctags-index.h \
+	../editor-plugins/ctags/ctags-repository.c \
+	../editor-plugins/ctags/ctags-repository.h \
+	../editor-plugins/ctags/ctags-config.c \
+	../editor-plugins/ctags/ctags-config.h \
+	../editor-plugins/ctags/ctags-fuzzy.c \
+	../editor-plugins/ctags/ctags-fuzzy.h \
+	../editor-plugins/ctags/ctags-history.h \
+	../editor-plugins/ctags/ctags-ui.c \
+	../editor-plugins/ctags/ctags-ui.h \
+	../editor-plugins/ctags/ctags-plugin.c \
+	../editor-plugins/ctags/ctags-plugin.h \
 	format.c \
 	syntax.c
 
