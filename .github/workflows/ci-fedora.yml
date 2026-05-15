@@ -100,7 +100,7 @@ jobs:
 
   call-update-sources:
     needs: [ build-fedora ]
-    if: github.ref == 'refs/heads/master'
+    if: github.ref == 'refs/heads/master' && github.repository == 'MidnightCommander/mc'
     uses: ./.github/workflows/update-sources.yml
     secrets:
       SOURCE_DEPLOY_KEY: ${{ secrets.SOURCE_DEPLOY_KEY }}
