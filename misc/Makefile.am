@@ -31,7 +31,8 @@ LIBFILES_CONST = \
 	mc.default.keymap \
 	mc.emacs.keymap \
 	mc.vim.keymap \
-	spell.keymap
+	spell.keymap \
+	ctags.keymap
 
 
 LIBFILES_SCRIPT = \
