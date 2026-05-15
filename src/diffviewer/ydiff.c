@@ -3002,6 +3002,12 @@ dview_execute_cmd (WDiff *dview, long command)
 {
     cb_ret_t res = MSG_HANDLED;
 
+    /* The dialog callback dispatches MSG_ACTION here with dview == NULL.
+       Return NOT_HANDLED so dlg_execute_cmd can handle CK_Cancel itself
+       and actually close the dialog on Esc / F10. */
+    if (dview == NULL)
+        return MSG_NOT_HANDLED;
+
     switch (command)
     {
     case CK_Help:
