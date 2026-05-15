@@ -128,6 +128,7 @@ enum
     CK_LearnKeys,
     CK_KeyBindings,
     CK_KeySniffer,
+    CK_ManagePlugins,
     CK_Bookmark,
     CK_Quit,
     CK_QuitQuiet,

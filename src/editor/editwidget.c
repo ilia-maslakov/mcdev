@@ -48,6 +48,7 @@
 #include "lib/fileloc.h"  // EDIT_HOME_DIR
 #include "lib/strutil.h"  // str_term_trim()
 #include "lib/util.h"     // mc_build_filename()
+#include "lib/plugin-prefs.h"
 #include "lib/widget.h"
 #include "lib/mcconfig.h"
 #include "lib/event.h"  // mc_event_raise()
@@ -104,7 +105,7 @@ static unsigned int edit_dlg_init_refcounter = 0;
  */
 
 static void
-editor_host_refresh_impl (mc_editor_host_t *host)
+editor_host_redraw_impl (mc_editor_host_t *host)
 {
     if (host != NULL && host->host_data != NULL)
         widget_draw (WIDGET (host->host_data));
@@ -120,6 +121,194 @@ editor_host_message_impl (mc_editor_host_t *host, int flags, const char *title, 
 {
     (void) host;
     message (flags, title, "%s", text != NULL ? text : "");
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+word_has_identifier_char (const GString *w)
+{
+    gsize i;
+
+    for (i = 0; i < w->len; i++)
+        if (!is_break_char (w->str[i]))
+            return TRUE;
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Host callback: get word under cursor.
+ */
+
+static char *
+editor_host_get_cursor_word_impl (mc_editor_host_t *host, void *edit)
+{
+    WEdit *e = (WEdit *) edit;
+    GString *word;
+    off_t start = 0;
+    gsize cut = 0;
+
+    (void) host;
+
+    if (e == NULL)
+        return NULL;
+
+    word = edit_buffer_get_word_from_pos (&e->buffer, e->buffer.curs1, &start, &cut);
+
+    /* Cursor is on a break character (e.g. right after "foo(("): step back to
+     * the end of the adjacent identifier. */
+    if (word != NULL && !word_has_identifier_char (word) && start > 0)
+    {
+        g_string_free (word, TRUE);
+        word = edit_buffer_get_word_from_pos (&e->buffer, start - 1, &start, &cut);
+    }
+
+    /* Cursor is past end of an identifier (e.g. at '\n'): retry one byte left. */
+    if ((word == NULL || word->len == 0) && e->buffer.curs1 > 0)
+    {
+        if (word != NULL)
+            g_string_free (word, TRUE);
+        word = edit_buffer_get_word_from_pos (&e->buffer, e->buffer.curs1 - 1, &start, &cut);
+    }
+
+    if (word == NULL || word->len == 0 || !word_has_identifier_char (word))
+    {
+        if (word != NULL)
+            g_string_free (word, TRUE);
+        return NULL;
+    }
+
+    return g_string_free (word, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Host callback: get path of currently edited file.
+ */
+
+static char *
+editor_host_get_current_file_impl (mc_editor_host_t *host, void *edit)
+{
+    WEdit *e = (WEdit *) edit;
+
+    (void) host;
+
+    if (e == NULL || e->filename_vpath == NULL)
+        return NULL;
+
+    if (e->filename_vpath->relative && e->dir_vpath != NULL)
+    {
+        vfs_path_t *vpath;
+        char *result;
+
+        vpath = vfs_path_append_vpath_new (e->dir_vpath, e->filename_vpath, NULL);
+        result = g_strdup (vfs_path_as_str (vpath));
+        vfs_path_free (vpath, TRUE);
+        return result;
+    }
+
+    return g_strdup (vfs_path_as_str (e->filename_vpath));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Host callback: get current cursor line (1-based).
+ */
+
+static long
+editor_host_get_cursor_line_impl (mc_editor_host_t *host, void *edit)
+{
+    WEdit *e = (WEdit *) edit;
+
+    (void) host;
+
+    if (e == NULL)
+        return 0;
+
+    return e->start_line + e->curs_row + 1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Host callback: jump to file:line, saving current position in the navigation stack.
+ */
+
+static gboolean
+editor_host_jump_to_impl (mc_editor_host_t *host, void *edit, const char *file, long line)
+{
+    WEdit *e = (WEdit *) edit;
+    WDialog *dlg;
+    vfs_path_t *vpath;
+    gboolean ret;
+
+    (void) host;
+
+    if (e == NULL || file == NULL)
+        return FALSE;
+
+    dlg = DIALOG (WIDGET (e)->owner);
+
+    /* If the current file is modified, open target in a new window without
+     * touching the navigation stack -- we are not navigating away. */
+    if (e->modified != 0)
+    {
+        vpath = vfs_path_from_str (file);
+        edit_arg_t arg;
+        edit_arg_init (&arg, vpath, line);
+        ret = edit_load_file_from_filename (dlg, &arg);
+        vfs_path_free (vpath, TRUE);
+        return ret;
+    }
+
+    if (edit_stack_iterator + 1 >= MAX_HISTORY_MOVETO)
+        return FALSE;
+
+    /* Save current position */
+    if (e->filename_vpath != NULL)
+    {
+        vfs_path_t *cur_vpath;
+
+        if (e->filename_vpath->relative && e->dir_vpath != NULL)
+            cur_vpath = vfs_path_append_vpath_new (e->dir_vpath, e->filename_vpath, NULL);
+        else
+            cur_vpath = vfs_path_clone (e->filename_vpath);
+
+        edit_update_curs_col (e);
+        edit_arg_assign (&edit_history_moveto[edit_stack_iterator], cur_vpath,
+                         e->start_line + e->curs_row + 1);
+        edit_history_moveto[edit_stack_iterator].column = e->curs_col;
+        edit_history_moveto[edit_stack_iterator].start_line = e->start_line;
+    }
+
+    /* Push target and jump */
+    edit_stack_iterator++;
+    vpath = vfs_path_from_str (file);
+    edit_arg_assign (&edit_history_moveto[edit_stack_iterator], vpath, line);
+    return edit_reload_line (e, &edit_history_moveto[edit_stack_iterator]);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Host callback: insert text at cursor, removing remove_before bytes.
+ */
+
+static void
+editor_host_insert_text_impl (mc_editor_host_t *host, void *edit, const char *text,
+                              gsize remove_before)
+{
+    WEdit *e = (WEdit *) edit;
+
+    (void) host;
+
+    if (e == NULL || text == NULL)
+        return;
+
+    for (gsize i = 0; i < remove_before; i++)
+        edit_backspace (e, TRUE);
+
+    for (const char *p = text; *p != '\0'; p++)
+        edit_insert (e, (unsigned char) *p);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -154,15 +343,25 @@ editor_plugin_ctx_create (WDialog *edit_dlg)
 
     ctx = g_new0 (editor_plugin_ctx_t, 1);
     ctx->host = g_new0 (mc_editor_host_t, 1);
-    ctx->host->refresh = editor_host_refresh_impl;
+    ctx->host->redraw = editor_host_redraw_impl;
     ctx->host->message = editor_host_message_impl;
     ctx->host->host_data = edit_dlg;
+    ctx->host->get_cursor_word = editor_host_get_cursor_word_impl;
+    ctx->host->get_current_file = editor_host_get_current_file_impl;
+    ctx->host->get_cursor_line = editor_host_get_cursor_line_impl;
+    ctx->host->jump_to = editor_host_jump_to_impl;
+    ctx->host->insert_text = editor_host_insert_text_impl;
     ctx->instances = g_ptr_array_new_with_free_func (editor_plugin_instance_free);
 
     for (; plugins != NULL; plugins = g_slist_next (plugins))
     {
         const mc_editor_plugin_t *plugin = (const mc_editor_plugin_t *) plugins->data;
         editor_plugin_instance_t *inst;
+
+        /* Honour user disable from Manage Plugins for this editor session. */
+        if (plugin->name != NULL
+            && mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_EDITOR, plugin->name))
+            continue;
 
         inst = g_new0 (editor_plugin_instance_t, 1);
         inst->plugin = plugin;
@@ -228,6 +427,32 @@ edit_plugin_handle_action (WDialog *edit_dlg, long command, WEdit *edit)
     if (edit == NULL && GROUP (edit_dlg)->current != NULL
         && edit_widget_is_editor (CONST_WIDGET (GROUP (edit_dlg)->current->data)))
         edit = EDIT (GROUP (edit_dlg)->current->data);
+
+    /* Per-action command from a named menu (Navigate, Command, etc.) */
+    if (command >= MC_EDITOR_PLUGIN_ACTION_BASE)
+    {
+        long encoded = command - MC_EDITOR_PLUGIN_ACTION_BASE;
+        gsize p_idx = (gsize) (encoded / MC_EDITOR_PLUGIN_ACTIONS_MAX);
+        int a_idx = (int) (encoded % MC_EDITOR_PLUGIN_ACTIONS_MAX);
+        const mc_editor_plugin_t *aplugin = NULL;
+
+        plugins = mc_editor_plugin_list ();
+        for (; plugins != NULL && p_idx > 0; plugins = g_slist_next (plugins), p_idx--)
+            ;
+        aplugin = (plugins != NULL) ? (const mc_editor_plugin_t *) plugins->data : NULL;
+
+        if (aplugin == NULL || aplugin->actions == NULL || a_idx >= aplugin->action_count)
+            return FALSE;
+
+        for (i = 0; i < ctx->instances->len; i++)
+        {
+            editor_plugin_instance_t *inst =
+                (editor_plugin_instance_t *) g_ptr_array_index (ctx->instances, i);
+            if (inst->plugin == aplugin)
+                return (aplugin->actions[a_idx].callback (inst->plugin_data, edit) == MC_EPR_OK);
+        }
+        return FALSE;
+    }
 
     if (command >= MC_EDITOR_PLUGIN_CMD_BASE)
     {

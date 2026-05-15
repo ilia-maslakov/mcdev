@@ -93,6 +93,7 @@ libinternal_la_SOURCES = \
 	key_sniffer.c key_sniffer.h \
 	keymap.c keymap.h \
 	key_learn.c key_learn.h \
+	manage_plugins.c manage_plugins.h \
 	selcodepage.c selcodepage.h \
 	setup.c setup.h \
 	textconf.c textconf.h \

@@ -94,12 +94,14 @@ ks_update_display (const char *seq)
     /* match trie */
     keycode = tty_match_seq_to_keycode (raw, (int) strlen (raw));
 
-    /* single byte fallback */
+    /* single byte fallback: control char -> Ctrl-<letter> using the same encoding
+     * as the XCTRL macro in keymap parsing (KEY_M_CTRL | (c & 0x1F)), so the action
+     * lookup below finds the matching keymap entry. */
     if (keycode == 0 && strlen (raw) == 1)
     {
         unsigned char c = (unsigned char) raw[0];
 
-        keycode = (c < 32) ? (KEY_M_CTRL | (c + 'a' - 1)) : (int) c;
+        keycode = (c < 32) ? (KEY_M_CTRL | c) : (int) c;
     }
     /* ESC + single char: Alt */
     if (keycode == 0 && strlen (raw) == 2 && raw[0] == '\x1b')

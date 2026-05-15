@@ -61,6 +61,7 @@
 #include "src/key_learn.h"       // key_learn()
 #include "src/keybind_dialog.h"  // keybind_dialog()
 #include "src/key_sniffer.h"     // key_sniffer()
+#include "src/manage_plugins.h"  // manage_plugins_dialog()
 #include "src/keymap.h"
 #include "src/usermenu.h"  // user_file_menu_cmd()
 
@@ -358,6 +359,7 @@ create_options_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("Learn &keys..."), CK_LearnKeys));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Key &bindings..."), CK_KeyBindings));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Key &sniffer..."), CK_KeySniffer));
+    entries = g_list_prepend (entries, menu_entry_new (_ ("&Manage plugins..."), CK_ManagePlugins));
 #ifdef ENABLE_VFS
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Virtual FS..."), CK_OptionsVfs));
 #endif
@@ -1420,6 +1422,9 @@ midnight_execute_cmd (Widget *sender, long command)
         break;
     case CK_KeySniffer:
         key_sniffer ();
+        break;
+    case CK_ManagePlugins:
+        manage_plugins_dialog ();
         break;
     case CK_Link:
         link_cmd (LINK_HARDLINK);

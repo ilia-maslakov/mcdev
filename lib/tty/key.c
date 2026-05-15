@@ -1101,9 +1101,30 @@ correct_key_code (int code)
     if (c < 32 || c >= 256)
         mod |= get_modifier ();
 
-    // This is needed if the newline is reported as carriage return
-    if (c == '\r')
-        c = '\n';
+    /* CR / LF handling.  Terminals split two ways:
+        a) Enter delivered as '\r' (the common case: xterm, vte, screen,
+           tmux, conhost in cooked mode).  Once we've seen a '\r' in this
+           session we know the terminal is in this mode, so any subsequent
+           bare '\n' is Ctrl-Enter / Ctrl-J -- they are distinct on the
+           wire and the keymap can tell them apart.
+        b) Enter delivered as '\n' (icrnl off, some serial consoles,
+           some legacy emulators).  Then '\n' is plain Enter and we
+           must NOT pretend Ctrl is held.
+
+       Detect mode (a) at runtime by remembering whether '\r' has ever
+       arrived.  Until then, '\n' stays as a plain Enter.  After then,
+       '\n' carries KEY_M_CTRL. */
+    {
+        static gboolean cr_seen = FALSE;
+
+        if (c == '\r')
+        {
+            cr_seen = TRUE;
+            c = '\n';
+        }
+        else if (c == '\n' && cr_seen)
+            mod |= KEY_M_CTRL;
+    }
 
     // This is reported to be useful on AIX
     if (c == KEY_SCANCEL)

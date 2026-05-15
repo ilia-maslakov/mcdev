@@ -2443,8 +2443,14 @@ edit_init (WEdit *edit, const WRect *r, const edit_arg_t *arg)
         edit_load_position (edit, FALSE);
         if (line <= 0)
             line = 1;
-        edit_move_display (edit, line - 1);
+        edit_move_display (edit, arg != NULL && arg->start_line >= 0 ? arg->start_line : line - 1);
         edit_move_to_line (edit, line - 1);
+        if (arg != NULL && arg->column > 0)
+        {
+            off_t bol = edit_buffer_get_current_bol (&edit->buffer);
+            edit->prev_col = arg->column;
+            edit_move_to_prev_col (edit, bol);
+        }
     }
 
     edit_load_macro_cmd (edit);
@@ -4536,9 +4542,10 @@ edit_arg_vpath_new (vfs_path_t *file_vpath, long line_number)
 {
     edit_arg_t *arg;
 
-    arg = g_new (edit_arg_t, 1);
+    arg = g_new0 (edit_arg_t, 1);
     arg->file_vpath = file_vpath;
     arg->line_number = line_number;
+    arg->start_line = -1;
 
     return arg;
 }
@@ -4572,6 +4579,8 @@ edit_arg_init (edit_arg_t *arg, vfs_path_t *vpath, long line)
 {
     arg->file_vpath = (vfs_path_t *) vpath;
     arg->line_number = line;
+    arg->column = 0;
+    arg->start_line = -1;
 }
 
 /* --------------------------------------------------------------------------------------------- */

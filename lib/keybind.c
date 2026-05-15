@@ -148,6 +148,7 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (LearnKeys, N_ ("Learn terminal keys")),
     ADD_KEYMAP_NAME_DESC (KeyBindings, N_ ("Key bindings")),
     ADD_KEYMAP_NAME_DESC (KeySniffer, N_ ("Key sniffer")),
+    ADD_KEYMAP_NAME_DESC (ManagePlugins, N_ ("Manage plugins")),
     ADD_KEYMAP_NAME_DESC (Bookmark, N_ ("Set bookmark")),
     ADD_KEYMAP_NAME_DESC (Quit, N_ ("Quit program")),
     ADD_KEYMAP_NAME_DESC (QuitQuiet, N_ ("Quit without confirmation")),

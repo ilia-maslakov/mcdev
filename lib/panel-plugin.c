@@ -40,6 +40,7 @@
 #include "lib/global.h"
 #include "lib/editor-plugin.h"
 #include "lib/panel-plugin.h"
+#include "lib/plugin-prefs.h"
 
 #include "src/filemanager/dir.h"
 
@@ -184,12 +185,15 @@ mc_panel_plugin_add (const mc_panel_plugin_t *plugin)
         return FALSE;
     }
 
-    // check for duplicate name
-    if (mc_panel_plugin_find_by_name (plugin->name) != NULL)
-    {
-        fprintf (stderr, "Panel plugin \"%s\": already registered\n", plugin->name);
+    /* User opted to disable this plugin via Manage Plugins. */
+    if (mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_PANEL, plugin->name))
         return FALSE;
-    }
+
+    // Re-registration is silent: editor_plugins_register_all() is called
+    // again from Manage Plugins, so duplicates are a normal idempotent path
+    // and we must not bleed stderr through the curses screen.
+    if (mc_panel_plugin_find_by_name (plugin->name) != NULL)
+        return FALSE;
 
     panel_plugin_registry = g_slist_append (panel_plugin_registry, (gpointer) plugin);
     return TRUE;
@@ -277,11 +281,14 @@ mc_editor_plugin_add (const mc_editor_plugin_t *plugin)
         return FALSE;
     }
 
-    if (mc_editor_plugin_find_by_name (plugin->name) != NULL)
-    {
-        fprintf (stderr, "Editor plugin \"%s\": already registered\n", plugin->name);
+    /* User opted to disable this plugin via Manage Plugins. */
+    if (mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_EDITOR, plugin->name))
         return FALSE;
-    }
+
+    // See the panel-plugin counterpart: this is the idempotent path used
+    // by Manage Plugins, must not write to stderr.
+    if (mc_editor_plugin_find_by_name (plugin->name) != NULL)
+        return FALSE;
 
     editor_plugin_registry = g_slist_append (editor_plugin_registry, (gpointer) plugin);
     return TRUE;

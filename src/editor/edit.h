@@ -66,6 +66,8 @@ typedef struct
 {
     vfs_path_t *file_vpath;
     long line_number;
+    long column;     /* 0 = not saved */
+    long start_line; /* -1 = not saved; scroll offset (first visible line) */
 } edit_arg_t;
 
 /*** global variables defined in .c file *********************************************************/
