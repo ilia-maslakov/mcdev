@@ -249,6 +249,11 @@ ctags_parse_file (const char *path, GPtrArray *out)
     while (fgets (buf, sizeof (buf), f) != NULL)
     {
         ctags_entry_t *e;
+        size_t len;
+
+        len = strlen (buf);
+        while (len > 0 && (buf[len - 1] == '\n' || buf[len - 1] == '\r'))
+            buf[--len] = '\0';
 
         e = parse_ctags_line (buf);
         if (e != NULL)
