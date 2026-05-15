@@ -380,6 +380,12 @@ mcview_execute_cmd (WView *view, long command)
 {
     int res = MSG_HANDLED;
 
+    /* The dialog callback dispatches MSG_ACTION here with view == NULL.
+       Return NOT_HANDLED so dlg_execute_cmd can handle CK_Cancel itself
+       and actually close the dialog on Esc / F10. */
+    if (view == NULL)
+        return MSG_NOT_HANDLED;
+
     /* In filter empty-state (active but no matches yet) block all movement so
        the visible "(no matches)" screen stays consistent with dpy_start. */
     if (view->filter_active && (view->filter_offsets == NULL || view->filter_offsets->len == 0))
