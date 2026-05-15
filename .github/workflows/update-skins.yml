@@ -13,6 +13,7 @@ jobs:
   update-skins:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: github.repository == 'MidnightCommander/mc'
 
     steps:
       - uses: actions/github-script@v9
