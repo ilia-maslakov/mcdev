@@ -12,6 +12,7 @@ jobs:
   transifex-upload:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    if: github.repository == 'MidnightCommander/mc'
 
     permissions:
       contents: read
