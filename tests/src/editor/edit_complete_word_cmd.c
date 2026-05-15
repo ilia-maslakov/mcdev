@@ -166,8 +166,7 @@ my_setup (void)
     edit_options.filesize_threshold = (char *) "64M";
 
     rect_init (&r, 0, 0, 24, 80);
-    arg.file_vpath = vfs_path_from_str ("edit_complete_word_cmd_test_data.txt");
-    arg.line_number = 1;
+    edit_arg_init (&arg, vfs_path_from_str ("edit_complete_word_cmd_test_data.txt"), 1);
     test_edit = edit_init (NULL, &r, &arg);
     memset (&owner, 0, sizeof (owner));
     group_add_widget (&owner, WIDGET (test_edit));

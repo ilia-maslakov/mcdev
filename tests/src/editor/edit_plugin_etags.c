@@ -71,7 +71,7 @@ START_TEST (test_etags_plugin_handle_action)
     mctest_assert_not_null (plugin->close);
     mctest_assert_not_null (plugin->handle_action);
 
-    host.refresh = test_host_refresh;
+    host.redraw = test_host_refresh;
     host.message = NULL;
     host.host_data = NULL;
 

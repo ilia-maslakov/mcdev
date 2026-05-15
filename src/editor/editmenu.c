@@ -44,6 +44,7 @@
 #include "lib/global.h"
 
 #include "lib/editor-plugin.h"
+#include "lib/plugin-prefs.h"
 #include "lib/tty/key.h"  // ALT
 #include "lib/widget.h"
 
@@ -61,6 +62,18 @@
 /*** forward declarations (file scope functions) *************************************************/
 
 /*** file scope variables ************************************************************************/
+
+/* Indices of top-level menus in the menubar; set in edit_init_menu().
+ * menu_idx_navigate is -1 when no plugin contributes Navigate entries. */
+static int menu_idx_file = 0;
+static int menu_idx_edit = 1;
+static int menu_idx_search = 2;
+static int menu_idx_command = 3;
+static int menu_idx_navigate = -1;
+static int menu_idx_format = 4;
+static int menu_idx_window = 5;
+static int menu_idx_plugins = 6;
+static int menu_idx_options = 7;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
@@ -158,10 +171,6 @@ create_command_menu (void)
                               menu_entry_new (_ ("Toggle s&yntax highlighting"), CK_SyntaxOnOff));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Togg&le right margin"), CK_ShowMargin));
     entries = g_list_prepend (entries, menu_separator_new ());
-    entries = g_list_prepend (entries, menu_entry_new (_ ("&Find declaration"), CK_Find));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Back from &declaration"), CK_FilePrev));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("For&ward to declaration"), CK_FileNext));
-    entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("Encod&ing..."), CK_SelectCodepage));
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Fold / Unfold block"), CK_FoldToggle));
@@ -258,7 +267,11 @@ create_plugins_menu (void)
         const mc_editor_plugin_t *plugin = (const mc_editor_plugin_t *) plugins->data;
         const char *label;
 
-        if (plugin->activate == NULL || (plugin->flags & MC_EPF_HAS_MENU) == 0)
+        /* command_id must keep its 1:1 correspondence with the plugin
+           list position, so we increment it even when skipping a plugin. */
+        if (plugin->activate == NULL || (plugin->flags & MC_EPF_HAS_MENU) == 0
+            || (plugin->name != NULL
+                && mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_EDITOR, plugin->name)))
         {
             command_id++;
             continue;
@@ -274,6 +287,78 @@ create_plugins_menu (void)
             g_list_prepend (entries, menu_entry_new (_ ("(no plugins loaded)"), CK_IgnoreKey));
 
     return g_list_reverse (entries);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Collect cmd_menu_entries from all plugins that target @menu_name.
+ * Returns a GList<menu_entry_t*> or NULL if no entries matched. */
+static GList *
+create_plugin_menu_entries (const char *menu_name)
+{
+    const GSList *plugins;
+    GList *entries = NULL;
+    gsize plugin_idx = 0;
+
+    for (plugins = mc_editor_plugin_list (); plugins != NULL;
+         plugins = g_slist_next (plugins), plugin_idx++)
+    {
+        const mc_editor_plugin_t *plugin = (const mc_editor_plugin_t *) plugins->data;
+        int i;
+
+        if (plugin->cmd_menu_entries == NULL || plugin->cmd_menu_entry_count <= 0)
+            continue;
+
+        if (plugin->name != NULL
+            && mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_EDITOR, plugin->name))
+            continue;
+
+        for (i = 0; i < plugin->cmd_menu_entry_count; i++)
+        {
+            const mc_ep_cmd_menu_entry_t *e = &plugin->cmd_menu_entries[i];
+            menu_entry_t *me;
+            long cmd;
+
+            if (g_strcmp0 (e->menu_name, menu_name) != 0)
+                continue;
+
+            if (e->label == NULL)
+            {
+                entries = g_list_prepend (entries, menu_separator_new ());
+                continue;
+            }
+
+            /* Reject out-of-range action indices: the encoding multiplexes
+               plugin_idx and action_index into a single command id, so an
+               action_index that overflows MC_EDITOR_PLUGIN_ACTIONS_MAX
+               would silently target a neighbouring plugin's action slot.
+               Also require it to be a valid index into plugin->actions. */
+            if (e->action_index < 0 || e->action_index >= MC_EDITOR_PLUGIN_ACTIONS_MAX
+                || e->action_index >= plugin->action_count)
+                continue;
+
+            cmd = MC_EDITOR_PLUGIN_ACTION_BASE + (long) plugin_idx * MC_EDITOR_PLUGIN_ACTIONS_MAX
+                + (long) e->action_index;
+
+            me = menu_entry_new (_ (e->label), cmd);
+            {
+                char *dynamic = NULL;
+
+                if (plugin->get_menu_shortcut != NULL)
+                    dynamic = plugin->get_menu_shortcut (e->action_index);
+                if (dynamic != NULL)
+                {
+                    menu_entry_set_shortcut (me, dynamic);
+                    g_free (dynamic);
+                }
+                else if (e->shortcut != NULL)
+                    menu_entry_set_shortcut (me, e->shortcut);
+            }
+            entries = g_list_prepend (entries, me);
+        }
+    }
+
+    return entries != NULL ? g_list_reverse (entries) : NULL;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -294,22 +379,50 @@ edit_drop_menu_cmd (WDialog *h, int which)
 void
 edit_init_menu (WMenuBar *menubar)
 {
+    GList *navigate_entries;
+    int idx = 0;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("&File"), create_file_menu (), "[Internal File Editor]"));
+    menu_idx_file = idx++;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("&Edit"), create_edit_menu (), "[Internal File Editor]"));
+    menu_idx_edit = idx++;
+
     menubar_add_menu (
         menubar, menu_new (_ ("&Search"), create_search_replace_menu (), "[Internal File Editor]"));
+    menu_idx_search = idx++;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("&Command"), create_command_menu (), "[Internal File Editor]"));
+    menu_idx_command = idx++;
+
+    navigate_entries = create_plugin_menu_entries (MC_EP_MENU_NAVIGATE);
+    if (navigate_entries != NULL)
+    {
+        menubar_add_menu (menubar,
+                          menu_new (_ ("&Navigate"), navigate_entries, "[Internal File Editor]"));
+        menu_idx_navigate = idx++;
+    }
+    else
+        menu_idx_navigate = -1;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("For&mat"), create_format_menu (), "[Internal File Editor]"));
+    menu_idx_format = idx++;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("&Window"), create_window_menu (), "[Internal File Editor]"));
+    menu_idx_window = idx++;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("Pl&ugins"), create_plugins_menu (), "[Internal File Editor]"));
+    menu_idx_plugins = idx++;
+
     menubar_add_menu (menubar,
                       menu_new (_ ("&Options"), create_options_menu (), "[Internal File Editor]"));
+    menu_idx_options = idx++;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -325,36 +438,43 @@ edit_menu_cmd (WDialog *h)
 gboolean
 edit_drop_hotkey_menu (WDialog *h, int key)
 {
-    int m = 0;
+    int m = -1;
+
     switch (key)
     {
     case ALT ('f'):
-        m = 0;
+        m = menu_idx_file;
         break;
     case ALT ('e'):
-        m = 1;
+        m = menu_idx_edit;
         break;
     case ALT ('s'):
-        m = 2;
+        m = menu_idx_search;
         break;
     case ALT ('c'):
-        m = 3;
+        m = menu_idx_command;
+        break;
+    case ALT ('n'):
+        m = menu_idx_navigate;
         break;
     case ALT ('m'):
-        m = 4;
+        m = menu_idx_format;
         break;
     case ALT ('w'):
-        m = 5;
+        m = menu_idx_window;
         break;
     case ALT ('p'):
-        m = 6;
+        m = menu_idx_plugins;
         break;
     case ALT ('o'):
-        m = 7;
+        m = menu_idx_options;
         break;
     default:
         return FALSE;
     }
+
+    if (m < 0)
+        return FALSE;
 
     edit_drop_menu_cmd (h, m);
     return TRUE;

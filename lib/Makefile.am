@@ -47,6 +47,7 @@ libmc_la_SOURCES = \
 	panel-plugin.c panel-plugin.h \
 	panel-cache.h \
 	panel-plugin-loader.c \
+	plugin-prefs.c plugin-prefs.h \
 	serialize.c serialize.h \
 	shell.c shell.h \
 	stat-size.h \

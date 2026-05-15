@@ -691,7 +691,7 @@ edit_file_at_line (const vfs_path_t *what_vpath, gboolean internal, long start_l
 #ifdef USE_INTERNAL_EDIT
     if (internal)
     {
-        const edit_arg_t arg = { (vfs_path_t *) what_vpath, start_line };
+        const edit_arg_t arg = { (vfs_path_t *) what_vpath, start_line, 0, -1 };
 
         edit_file (&arg);
         dialog_switch_process_pending ();

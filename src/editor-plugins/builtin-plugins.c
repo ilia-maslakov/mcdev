@@ -19,8 +19,6 @@ typedef struct
     GArray *spell_keymap;
 } editor_builtin_plugin_data_t;
 
-static gboolean editor_builtin_plugins_registered = FALSE;
-
 typedef struct
 {
     long command;
@@ -285,8 +283,8 @@ mail_plugin_activate (void *plugin_data, void *edit)
 
     edit_mail_dialog ((WEdit *) edit);
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -305,8 +303,8 @@ scripts_plugin_handle_action (void *plugin_data, long command, void *edit)
     macro_number = (int) (command - CK_PipeBlock (0));
     edit_block_process_cmd ((WEdit *) edit, macro_number);
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -323,8 +321,8 @@ etags_plugin_handle_action (void *plugin_data, long command, void *edit)
 
     edit_get_match_keyword_cmd ((WEdit *) edit);
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -341,8 +339,8 @@ spell_plugin_activate (void *plugin_data, void *edit)
 
     edit_spellcheck_file ((WEdit *) edit);
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -357,8 +355,8 @@ spell_plugin_configure (void *plugin_data, void *edit)
     (void) edit;
     edit_spell_plugin_settings ();
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -403,8 +401,8 @@ spell_plugin_handle_action (void *plugin_data, long command, void *edit)
         return MC_EPR_NOT_SUPPORTED;
     }
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -459,8 +457,8 @@ spell_plugin_handle_key (void *plugin_data, int key, void *edit)
 
     spell_plugin_debug_log ("spell: key command handled command=%ld", command);
 
-    if (data != NULL && data->host != NULL && data->host->refresh != NULL)
-        (data->host->refresh) (data->host);
+    if (data != NULL && data->host != NULL && data->host->redraw != NULL)
+        (data->host->redraw) (data->host);
 
     return MC_EPR_OK;
 }
@@ -546,10 +544,9 @@ static const mc_editor_plugin_t edit_builtin_spell_plugin = {
 void
 editor_plugins_register_all (void)
 {
-    if (editor_builtin_plugins_registered)
-        return;
-
-    editor_builtin_plugins_registered = TRUE;
+    /* This pass is repeatable: mc_editor_plugin_add() rejects duplicates by
+       name, and plugins skipped while disabled can be registered after the
+       preference changes. */
     (void) mc_editor_plugin_add (&edit_builtin_mail_plugin);
     (void) mc_editor_plugin_add (&edit_builtin_scripts_plugin);
     (void) mc_editor_plugin_add (&edit_builtin_etags_plugin);
