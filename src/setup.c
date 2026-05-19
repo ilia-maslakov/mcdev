@@ -49,9 +49,8 @@
 
 #include "filemanager/dir.h"
 #include "filemanager/filemanager.h"
-#include "filemanager/tree.h"      // xtree_mode
-#include "filemanager/hotlist.h"   // load/save/done hotlist
-#include "filemanager/panelize.h"  // load/save/done panelize
+#include "filemanager/tree.h"     // xtree_mode
+#include "filemanager/hotlist.h"  // load/save/done hotlist
 #include "filemanager/layout.h"
 #include "filemanager/cmd.h"
 
@@ -896,7 +895,6 @@ load_setup (void)
     load_config ();
     load_layout ();
     panels_load_options ();
-    external_panelize_load ();
 
     // Load time formats
     user_recent_timeformat = mc_config_get_string (mc_global.main_config, CONFIG_MISC_SECTION,
@@ -988,7 +986,6 @@ save_setup (gboolean save_options, gboolean save_panel_options)
         save_config ();
         save_layout ();
         panels_save_options ();
-        external_panelize_save ();
         // directory_history_save ();
 
         mc_config_set_string (mc_global.main_config, CONFIG_MISC_SECTION, "display_codepage",
@@ -1043,7 +1040,6 @@ done_setup (void)
         g_free (*str_options[i].opt_addr);
 
     done_hotlist ();
-    external_panelize_free ();
     //    directory_history_free ();
 
     g_free (autodetect_codeset);

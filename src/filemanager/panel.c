@@ -251,32 +251,6 @@ static GString *string_file_name_buffer;
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-static panelized_descr_t *
-panelized_descr_new (void)
-{
-    panelized_descr_t *p;
-
-    p = g_new0 (panelized_descr_t, 1);
-    p->list.len = -1;
-
-    return p;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static void
-panelized_descr_free (panelized_descr_t *p)
-{
-    if (p != NULL)
-    {
-        dir_list_free_list (&p->list);
-        vfs_path_free (p->root_vpath, TRUE);
-        g_free (p);
-    }
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static char *
 plugin_title_last_component (const char *title)
 {
@@ -1664,13 +1638,12 @@ panel_destroy (WPanel *p)
 
     g_free (p->name);
 
-    panelized_descr_free (p->panelized_descr);
-
     g_string_free (p->quick_search.buffer, TRUE);
     g_string_free (p->quick_search.prev_buffer, TRUE);
 
     vfs_path_free (p->lwd_vpath, TRUE);
     vfs_path_free (p->cwd_vpath, TRUE);
+    vfs_path_free (p->plugin_pre_cwd_vpath, TRUE);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2177,16 +2150,25 @@ panel_plugin_apply_default_columns_format (WPanel *panel)
         return;
 
     cols = panel_plugin_get_columns (panel, &cols_count);
+
+    if (panel->plugin->get_default_format != NULL)
+        configured_fmt = panel->plugin->get_default_format (panel->plugin_data);
+
     if (cols == NULL || cols_count == 0)
     {
-        /* Plugin has no custom columns - recalculate standard format for current width */
+        /* Plugin has no custom columns. If it provided a default format string
+           (e.g. to drop the leading type-marker column), honour that; otherwise
+           recalculate standard format for current width. */
         GSList *form;
         char *err = NULL;
+        const char *fmt_str;
 
         if (panel->list_format == list_user)
             panel->list_format = panel->plugin_base_list_format;
 
-        form = use_display_format (panel, panel_format (panel), &err, FALSE);
+        fmt_str = (configured_fmt != NULL && *configured_fmt != '\0') ? configured_fmt
+                                                                      : panel_format (panel);
+        form = use_display_format (panel, fmt_str, &err, FALSE);
         if (form != NULL)
         {
             g_slist_free_full (panel->format, (GDestroyNotify) format_item_free);
@@ -2195,9 +2177,6 @@ panel_plugin_apply_default_columns_format (WPanel *panel)
         g_free (err);
         return;
     }
-
-    if (panel->plugin->get_default_format != NULL)
-        configured_fmt = panel->plugin->get_default_format (panel->plugin_data);
 
     if (configured_fmt != NULL && *configured_fmt != '\0')
         fmt = g_string_new (configured_fmt);
@@ -2705,8 +2684,8 @@ goto_parent_dir (WPanel *panel)
         {
             char *fname2;
 
-            fname2 = mc_build_filename (vfs_path_as_str (panel->panelized_descr->root_vpath),
-                                        fname->str, (char *) NULL);
+            fname2 =
+                mc_build_filename (vfs_path_as_str (panel->cwd_vpath), fname->str, (char *) NULL);
 
             fname = g_string_new_take (fname2);
         }
@@ -3369,8 +3348,39 @@ do_enter (WPanel *panel)
 
     if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
     {
-        if (panel->plugin->get_title != NULL && fe->fname != NULL && fe->fname->str != NULL
-            && strcmp (fe->fname->str, "..") == 0)
+        gboolean local_files = (panel->plugin->flags & MC_PPF_LOCAL_FILES) != 0;
+        gboolean is_dotdot =
+            (fe->fname != NULL && fe->fname->str != NULL && strcmp (fe->fname->str, "..") == 0);
+
+        /* LOCAL_FILES plugins without navigation hooks use native file handling. */
+        if (local_files && panel->plugin->enter == NULL
+            && (panel->plugin->chdir == NULL || (panel->plugin->flags & MC_PPF_NAVIGATE) == 0))
+        {
+            if (is_dotdot)
+            {
+                panel_plugin_close (panel);
+                return TRUE;
+            }
+
+            if (S_ISDIR (fe->st.st_mode) || link_isdir (fe))
+            {
+                vfs_path_t *target;
+                gboolean ok;
+
+                /* panel_plugin_close() reloads dir_list and invalidates fe. */
+                target = vfs_path_from_str (fe->fname->str);
+                panel_plugin_close (panel);
+                ok = panel_cd (panel, target, cd_exact);
+                if (!ok)
+                    cd_error_message (vfs_path_as_str (target));
+                vfs_path_free (target, TRUE);
+                return TRUE;
+            }
+
+            return do_enter_on_file_entry (panel, fe);
+        }
+
+        if (panel->plugin->get_title != NULL && is_dotdot)
         {
             const char *title = panel->plugin->get_title (panel->plugin_data);
             focus_name = plugin_title_last_component (title);
@@ -4086,7 +4096,8 @@ panel_execute_cmd (WPanel *panel, long command)
         chdir_to_readlink (panel);
         break;
     case CK_CopySingle:
-        if (panel->is_plugin_panel)
+        if (panel->is_plugin_panel && panel->plugin != NULL
+            && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
             plugin_panel_copy_cmd (panel);
         else
             copy_cmd_local (panel);
@@ -4110,7 +4121,8 @@ panel_execute_cmd (WPanel *panel, long command)
             edit_cmd_new ();
         break;
     case CK_MoveSingle:
-        if (panel->is_plugin_panel)
+        if (panel->is_plugin_panel && panel->plugin != NULL
+            && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
             plugin_panel_move_cmd (panel);
         else
             rename_cmd_local (panel);
@@ -4724,43 +4736,6 @@ panel_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-reload_panelized (WPanel *panel)
-{
-    int i, j;
-    dir_list *list = &panel->dir;
-
-    // refresh current VFS directory required for vfs_path_from_str()
-    (void) mc_chdir (panel->cwd_vpath);
-
-    for (i = 0, j = 0; i < list->len; i++)
-    {
-        vfs_path_t *vpath;
-
-        vpath = vfs_path_from_str (list->list[i].fname->str);
-        if (mc_lstat (vpath, &list->list[i].st) != 0)
-            g_string_free (list->list[i].fname, TRUE);
-        else
-        {
-            if (j != i)
-                list->list[j] = list->list[i];
-            j++;
-        }
-        vfs_path_free (vpath, TRUE);
-    }
-    if (j == 0)
-        dir_list_init (list);
-    else
-        list->len = j;
-
-    recalculate_panel_summary (panel);
-
-    if (panel != current_panel)
-        (void) mc_chdir (current_panel->cwd_vpath);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static void
 update_one_panel_widget (WPanel *panel, panel_update_flags_t flags, const char *current_file)
 {
     gboolean free_pointer;
@@ -4779,7 +4754,10 @@ update_one_panel_widget (WPanel *panel, panel_update_flags_t flags, const char *
             current_file = saved_name;
         }
 
-        panel_plugin_reload (panel);
+        if ((flags & UP_RELOAD) != 0)
+            panel_plugin_reload (panel);
+        else
+            panel_plugin_refresh (panel);
         panel_set_current_by_name (panel, current_file);
         panel->dirty = TRUE;
         g_free (saved_name);
@@ -4788,7 +4766,6 @@ update_one_panel_widget (WPanel *panel, panel_update_flags_t flags, const char *
 
     if ((flags & UP_RELOAD) != 0)
     {
-        panel->is_panelized = FALSE;
         mc_setctl (panel->cwd_vpath, VFS_SETCTL_FLUSH, NULL);
         memset (&(panel->dir_stat), 0, sizeof (panel->dir_stat));
     }
@@ -4806,10 +4783,7 @@ update_one_panel_widget (WPanel *panel, panel_update_flags_t flags, const char *
         current_file = my_current_file;
     }
 
-    if (panel->is_panelized)
-        reload_panelized (panel);
-    else
-        panel_reload (panel);
+    panel_reload (panel);
 
     panel_set_current_by_name (panel, current_file);
     panel->dirty = TRUE;
@@ -5869,173 +5843,6 @@ panel_get_user_possible_fields (gsize *array_size)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/**
- * Restores the contents of the panel from a snapshot previously saved by
- * panel_panelize_save()
- */
-void
-panel_panelize_restore (void)
-{
-    WPanel *panel;
-    int i;
-    dir_list *list;
-    panelized_descr_t *pdescr;
-    dir_list *plist;
-    gboolean panelized_same;
-
-    if (!SELECTED_IS_PANEL)
-        create_panel (MENU_PANEL_IDX, view_listing);
-
-    panel = PANEL (get_panel_widget (MENU_PANEL_IDX));
-
-    dir_list_clean (&panel->dir);
-
-    if (panel->panelized_descr == NULL)
-        panel->panelized_descr = panelized_descr_new ();
-
-    pdescr = panel->panelized_descr;
-    plist = &pdescr->list;
-
-    if (pdescr->root_vpath == NULL)
-        panel_panelize_change_root (panel, panel->cwd_vpath);
-
-    if (plist->len < 1)
-        dir_list_init (plist);
-    else if (plist->len > panel->dir.size)
-        dir_list_grow (&panel->dir, plist->len - panel->dir.size);
-
-    list = &panel->dir;
-    list->len = plist->len;
-
-    panelized_same = vfs_path_equal (pdescr->root_vpath, panel->cwd_vpath);
-
-    for (i = 0; i < plist->len; i++)
-    {
-        if (panelized_same || DIR_IS_DOTDOT (plist->list[i].fname->str))
-            list->list[i].fname = mc_g_string_dup (plist->list[i].fname);
-        else
-        {
-            vfs_path_t *tmp_vpath;
-
-            tmp_vpath =
-                vfs_path_append_new (pdescr->root_vpath, plist->list[i].fname->str, (char *) NULL);
-            list->list[i].fname = g_string_new_take (vfs_path_free (tmp_vpath, FALSE));
-        }
-        list->list[i].f.link_to_dir = plist->list[i].f.link_to_dir;
-        list->list[i].f.stale_link = plist->list[i].f.stale_link;
-        list->list[i].f.dir_size_computed = plist->list[i].f.dir_size_computed;
-        list->list[i].f.marked = plist->list[i].f.marked;
-        list->list[i].st = plist->list[i].st;
-        list->list[i].name_sort_key = plist->list[i].name_sort_key;
-        list->list[i].extension_sort_key = plist->list[i].extension_sort_key;
-    }
-
-    panel->is_panelized = TRUE;
-    panel_panelize_absolutize_if_needed (panel);
-
-    panel_set_current_by_name (panel, NULL);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-/**
- * Change root directory of panelized content.
- * @param panel file panel
- * @param new_root new path
- */
-void
-panel_panelize_change_root (WPanel *panel, const vfs_path_t *new_root)
-{
-    if (panel->panelized_descr == NULL)
-        panel->panelized_descr = panelized_descr_new ();
-    else
-        vfs_path_free (panel->panelized_descr->root_vpath, TRUE);
-
-    panel->panelized_descr->root_vpath = vfs_path_clone (new_root);
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-/**
- * Conditionally switches a panel's directory to "/" (root).
- *
- * If a panelized panel's listing contain absolute paths, this function
- * sets the panel's directory to "/". Otherwise it does nothing.
- *
- * Rationale:
- *
- * This makes tokenized strings like "%d/%p" work. This also makes other
- * places work where such naive concatenation is done in code (e.g., when
- * pressing ctrl+shift+enter, for CK_PutCurrentFullSelected).
- *
- * When to call:
- *
- * You should always call this function after you populate the listing
- * of a panelized panel.
- */
-void
-panel_panelize_absolutize_if_needed (WPanel *panel)
-{
-    const dir_list *const list = &panel->dir;
-
-    /* Note: We don't support mixing of absolute and relative paths, which is
-     * why it's ok for us to check only the 1st entry. */
-    if (list->len > 1 && g_path_is_absolute (list->list[1].fname->str))
-    {
-        vfs_path_t *root;
-
-        root = vfs_path_from_str (PATH_SEP_STR);
-        panel_set_cwd (panel, root);
-        if (panel == current_panel)
-            mc_chdir (root);
-        vfs_path_free (root, TRUE);
-    }
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-/**
- * Saves the contents of the panel into a snapshot, so it may be restored later
- * by panel_panelize_restore().
- */
-void
-panel_panelize_save (WPanel *panel)
-{
-    int i;
-    dir_list *list = &panel->dir;
-    dir_list *plist;
-
-    if (panel->is_plugin_panel)
-        return;
-
-    panel_panelize_change_root (panel, panel->cwd_vpath);
-
-    plist = &panel->panelized_descr->list;
-
-    if (plist->len > 0)
-        dir_list_clean (plist);
-    if (panel->dir.len == 0)
-        return;
-
-    if (panel->dir.len > plist->size)
-        dir_list_grow (plist, panel->dir.len - plist->size);
-    plist->len = panel->dir.len;
-
-    for (i = 0; i < panel->dir.len; i++)
-    {
-        plist->list[i].fname = mc_g_string_dup (list->list[i].fname);
-        plist->list[i].f.link_to_dir = list->list[i].f.link_to_dir;
-        plist->list[i].f.stale_link = list->list[i].f.stale_link;
-        plist->list[i].f.dir_size_computed = list->list[i].f.dir_size_computed;
-        plist->list[i].f.marked = list->list[i].f.marked;
-        plist->list[i].st = list->list[i].st;
-        plist->list[i].name_sort_key = list->list[i].name_sort_key;
-        plist->list[i].extension_sort_key = list->list[i].extension_sort_key;
-    }
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 void
 panel_init (void)
 {
@@ -6081,18 +5888,8 @@ gboolean
 panel_cd (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum exact)
 {
     gboolean res;
-    const vfs_path_t *_new_dir_vpath = new_dir_vpath;
 
-    if (panel->is_panelized && panel->panelized_descr != NULL)
-    {
-        size_t new_vpath_len;
-
-        new_vpath_len = vfs_path_len (new_dir_vpath);
-        if (vfs_path_equal_len (new_dir_vpath, panel->panelized_descr->root_vpath, new_vpath_len))
-            _new_dir_vpath = panel->panelized_descr->root_vpath;
-    }
-
-    res = panel_do_cd (panel, _new_dir_vpath, exact);
+    res = panel_do_cd (panel, new_dir_vpath, exact);
 
     if (res)
     {

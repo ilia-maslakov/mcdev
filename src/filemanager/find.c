@@ -55,7 +55,7 @@
 #include "dir.h"
 #include "cmd.h"  // find_cmd(), view_file_at_line()
 #include "boxes.h"
-#include "panelize.h"
+#include "panel.h"  // panel_plugin_open_file_list, panel_plugin_have_file_list_sink
 
 /*** global variables ****************************************************************************/
 
@@ -194,7 +194,9 @@ static struct
 };
 
 static const size_t fbuts_num = G_N_ELEMENTS (fbuts);
-static const size_t quit_button = 4;  // index of "Quit" button
+static const size_t quit_button = 4;          // index of "Quit" button
+static const size_t panelize_button = 5;      // index of "Panelize" button
+static gboolean show_panelize_button = TRUE;  // cached at setup_gui time
 
 static WListbox *find_list;  // Listbox with the file list
 
@@ -1456,7 +1458,10 @@ find_calc_button_locations (const WDialog *h, gboolean all_buttons)
     int l1, l2;
 
     l1 = fbuts[0].len + fbuts[1].len + fbuts[is_start ? 3 : 2].len + fbuts[4].len + 3;
-    l2 = fbuts[5].len + fbuts[6].len + fbuts[7].len + 2;
+    /* Bottom row: View + Edit, plus Panelize when a sink plugin is loaded. */
+    l2 = fbuts[6].len + fbuts[7].len + 1;
+    if (show_panelize_button)
+        l2 += fbuts[5].len + 1;
 
     fbuts[0].x = (cols - l1) / 2;
     fbuts[1].x = fbuts[0].x + fbuts[0].len + 1;
@@ -1466,8 +1471,14 @@ find_calc_button_locations (const WDialog *h, gboolean all_buttons)
 
     if (all_buttons)
     {
-        fbuts[5].x = (cols - l2) / 2;
-        fbuts[6].x = fbuts[5].x + fbuts[5].len + 1;
+        int x = (cols - l2) / 2;
+
+        if (show_panelize_button)
+        {
+            fbuts[5].x = x;
+            x += fbuts[5].len + 1;
+        }
+        fbuts[6].x = x;
         fbuts[7].x = fbuts[6].x + fbuts[6].len + 1;
     }
 }
@@ -1511,7 +1522,8 @@ find_relocate_buttons (const WDialog *h, gboolean all_buttons)
     find_calc_button_locations (h, all_buttons);
 
     for (i = 0; i < fbuts_num; i++)
-        fbuts[i].button->rect.x = CONST_WIDGET (h)->rect.x + fbuts[i].x;
+        if (fbuts[i].button != NULL)
+            fbuts[i].button->rect.x = CONST_WIDGET (h)->rect.x + fbuts[i].x;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1644,6 +1656,9 @@ setup_gui (void)
         i18n_flag = TRUE;
     }
 
+    /* Re-evaluate on every dialog opening; the plugin set may have changed. */
+    show_panelize_button = panel_plugin_have_file_list_sink ();
+
     lines = LINES - 4;
     cols = COLS - 16;
 
@@ -1672,6 +1687,8 @@ setup_gui (void)
     {
         if (i == 3)
             fbuts[3].button = fbuts[2].button;
+        else if (i == panelize_button && !show_panelize_button)
+            fbuts[i].button = NULL;  // no sink plugin loaded
         else
         {
             fbuts[i].button = WIDGET (button_new (y, fbuts[i].x, fbuts[i].ret_cmd, fbuts[i].flags,
@@ -1738,6 +1755,7 @@ static int
 do_find (WPanel *panel, const char *start_dir, ssize_t start_dir_len, const char *ignore_dirs,
          char **dirname, char **filename)
 {
+    (void) start_dir_len; /* prefix-stripping was removed; plugin gets full paths */
     int return_value;
     char *dir_tmp = NULL, *file_tmp = NULL;
 
@@ -1761,23 +1779,20 @@ do_find (WPanel *panel, const char *start_dir, ssize_t start_dir_len, const char
 
     if (return_value == B_PANELIZE && *filename != NULL)
     {
-        struct stat st;
+        /* Hand an in-memory list of absolute paths to a plugin that accepts
+           file lists. */
         GList *entry;
-        dir_list *list = &panel->dir;
-        char *name = NULL;
-        gboolean ok = TRUE;
+        GPtrArray *paths;
+        char *label;
+        guint i;
 
-        panel_clean_dir (panel);
-        dir_list_init (list);
+        paths = g_ptr_array_new_with_free_func (g_free);
 
-        for (entry = listbox_get_first_link (find_list); entry != NULL && ok;
-             entry = g_list_next (entry))
+        for (entry = listbox_get_first_link (find_list); entry != NULL; entry = g_list_next (entry))
         {
             const char *lc_filename;
             WLEntry *le = LENTRY (entry->data);
             find_match_location_t *location = le->data;
-            char *p;
-            gboolean link_to_dir, stale_link;
 
             if ((le->text == NULL) || (location == NULL) || (location->dir == NULL))
                 continue;
@@ -1787,39 +1802,25 @@ do_find (WPanel *panel, const char *start_dir, ssize_t start_dir_len, const char
             else
                 lc_filename = le->text + 4;
 
-            name = mc_build_filename (location->dir, lc_filename, (char *) NULL);
-            // skip initial start dir
-            p = name;
-            if (start_dir_len > 0)
-                p += (size_t) start_dir_len;
-            if (IS_PATH_SEP (*p))
-                p++;
+            g_ptr_array_add (paths, mc_build_filename (location->dir, lc_filename, (char *) NULL));
 
-            if (!handle_path (p, &st, &link_to_dir, &stale_link))
-            {
-                g_free (name);
-                continue;
-            }
-
-            // don't add files more than once to the panel
-            if (!content_is_empty && list->len != 0
-                && strcmp (list->list[list->len - 1].fname->str, p) == 0)
-            {
-                g_free (name);
-                continue;
-            }
-
-            ok = dir_list_append (list, p, &st, link_to_dir, stale_link);
-
-            g_free (name);
-
-            if ((list->len & 15) == 0)
+            if ((paths->len & 15) == 0)
                 rotate_dash (TRUE);
         }
 
-        panel->is_panelized = TRUE;
-        panel_panelize_absolutize_if_needed (panel);
-        panel_panelize_save (panel);
+        if (paths->len > 0)
+        {
+            const char **arr;
+
+            label = g_strdup_printf ("Find:%s", find_pattern != NULL ? find_pattern : "");
+            arr = g_new (const char *, paths->len);
+            for (i = 0; i < paths->len; i++)
+                arr[i] = (const char *) g_ptr_array_index (paths, i);
+            panel_plugin_open_file_list (panel, arr, paths->len, label);
+            g_free (arr);
+            g_free (label);
+        }
+        g_ptr_array_free (paths, TRUE);
     }
 
     kill_gui ();

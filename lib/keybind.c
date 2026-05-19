@@ -233,7 +233,6 @@ static name_keymap_t command_names[] = {
     ADD_KEYMAP_NAME_DESC (DeleteSingle, N_ ("Delete single file")),
     ADD_KEYMAP_NAME_DESC (CdParent, N_ ("Go to parent directory")),
     ADD_KEYMAP_NAME_DESC (CdChild, N_ ("Enter directory")),
-    ADD_KEYMAP_NAME_DESC (Panelize, N_ ("External panelize")),
     ADD_KEYMAP_NAME_DESC (PanelPlugin, N_ ("Panel plugin menu")),
     ADD_KEYMAP_NAME_DESC (PluginDriveLeft, N_ ("Drive menu (left panel)")),
     ADD_KEYMAP_NAME_DESC (PluginDriveRight, N_ ("Drive menu (right panel)")),

@@ -751,6 +751,7 @@ src/filemanager/Makefile
 
 src/panel-plugins/Makefile
 src/panel-plugins/hello/Makefile
+src/panel-plugins/panelize/Makefile
 src/panel-plugins/samba/Makefile
 src/panel-plugins/ftp/Makefile
 src/panel-plugins/systemd/Makefile

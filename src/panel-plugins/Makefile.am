@@ -1,5 +1,6 @@
 SUBDIRS = systemd
 SUBDIRS += hello
+SUBDIRS += panelize
 
 if ENABLE_VFS_SFTP
 SUBDIRS += sftp
@@ -25,4 +26,4 @@ SUBDIRS += docker
 SUBDIRS += git
 SUBDIRS += shell-link
 
-DIST_SUBDIRS = systemd hello sftp samba ftp arcmc s3 docker git shell-link
+DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 docker git shell-link

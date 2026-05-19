@@ -75,7 +75,6 @@
 #include "layout.h"
 #include "cmd.h"  // commands
 #include "hotlist.h"
-#include "panelize.h"
 #include "command.h"  // cmdline
 #include "dir.h"      // dir_list_clean()
 
@@ -208,7 +207,17 @@ create_panel_menu (gboolean is_right)
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Quick view"), CK_PanelQuickView));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Info"), CK_PanelInfo));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Tree"), CK_PanelTree));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Paneli&ze"), CK_Panelize));
+
+    /* Add panel-menu entries published by panel plugins. */
+    {
+        GList *plugin_entries = panel_plugin_collect_menu_entries (MC_PP_MENU_PANEL);
+        GList *p;
+
+        for (p = plugin_entries; p != NULL; p = g_list_next (p))
+            entries = g_list_prepend (entries, p->data);
+        g_list_free (plugin_entries);
+    }
+
     entries = g_list_prepend (entries, menu_separator_new ());
     entries =
         g_list_prepend (entries, menu_entry_new (_ ("&Listing format..."), CK_SetupListingFormat));
@@ -283,8 +292,6 @@ create_command_menu (void)
 #ifdef USE_DIFF_VIEW
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&ompare files"), CK_CompareFiles));
 #endif
-    entries =
-        g_list_prepend (entries, menu_entry_new (_ ("E&xternal panelize"), CK_ExternalPanelize));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Show directory s&izes"), CK_DirSize));
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("Command &history"), CK_History));
@@ -312,32 +319,19 @@ create_command_menu (void)
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("Pl&ugin panel..."), CK_PanelPlugin));
 
-    /* inject plugin Command-menu entries */
+    /* Plugin Command-menu entries (plugins with cmd_menu_entries.menu_name
+       == MC_PP_MENU_COMMAND or NULL). Generic helper, no per-plugin code. */
     {
-        const GSList *plist = mc_panel_plugin_list ();
-        int plugin_idx = 0;
+        GList *plugin_entries = panel_plugin_collect_menu_entries (MC_PP_MENU_COMMAND);
 
-        for (; plist != NULL; plist = g_slist_next (plist), plugin_idx++)
+        if (plugin_entries != NULL)
         {
-            const mc_panel_plugin_t *pp = (const mc_panel_plugin_t *) plist->data;
-            int ci;
-
-            if (pp->cmd_menu_entries == NULL || pp->cmd_menu_entry_count <= 0)
-                continue;
+            GList *p;
 
             entries = g_list_prepend (entries, menu_separator_new ());
-
-            for (ci = 0; ci < pp->cmd_menu_entry_count; ci++)
-            {
-                long cmd = CK_PluginActionBase + (long) plugin_idx * 16
-                    + pp->cmd_menu_entries[ci].action_index;
-                menu_entry_t *me;
-
-                me = menu_entry_new (_ (pp->cmd_menu_entries[ci].label), cmd);
-                if (pp->cmd_menu_entries[ci].shortcut != NULL)
-                    menu_entry_set_shortcut (me, pp->cmd_menu_entries[ci].shortcut);
-                entries = g_list_prepend (entries, me);
-            }
+            for (p = plugin_entries; p != NULL; p = g_list_next (p))
+                entries = g_list_prepend (entries, p->data);
+            g_list_free (plugin_entries);
         }
     }
 
@@ -1144,14 +1138,33 @@ midnight_execute_cmd (Widget *sender, long command)
     // stop quick search before executing any command
     send_message (current_panel, NULL, MSG_ACTION, CK_SearchStop, NULL);
 
-    /* Block destructive/inapplicable file operations on plugin panels - the listed
-       entries are virtual and do not exist on the real filesystem.
-       View and Edit are allowed (the viewer/editor will handle missing files). */
-    if (current_panel->is_plugin_panel)
+    /* Destination plugin handles incoming Copy/Move before source handling. */
+    if (get_other_type () == view_listing && other_panel->is_plugin_panel
+        && other_panel->plugin != NULL && other_panel->plugin->put_file != NULL)
     {
         switch (command)
         {
         case CK_Copy:
+            plugin_panel_put_cmd (current_panel);
+            return MSG_HANDLED;
+        case CK_Move:
+            plugin_panel_put_move_cmd (current_panel);
+            return MSG_HANDLED;
+        default:
+            break;
+        }
+    }
+
+    if (current_panel->is_plugin_panel)
+    {
+        gboolean local_files = current_panel->plugin != NULL
+            && (current_panel->plugin->flags & MC_PPF_LOCAL_FILES) != 0;
+
+        switch (command)
+        {
+        case CK_Copy:
+            if (local_files)
+                break; /* fall through to native copy_cmd below */
             if (current_panel->plugin != NULL && current_panel->plugin->handle_key != NULL
                 && current_panel->plugin->handle_key (current_panel->plugin_data, CK_Copy)
                     == MC_PPR_OK)
@@ -1159,6 +1172,8 @@ midnight_execute_cmd (Widget *sender, long command)
             plugin_panel_copy_cmd (current_panel);
             return MSG_HANDLED;
         case CK_Move:
+            if (local_files)
+                break; /* fall through to native move_cmd below */
             if (current_panel->plugin != NULL && current_panel->plugin->handle_key != NULL
                 && current_panel->plugin->handle_key (current_panel->plugin_data, CK_Move)
                     == MC_PPR_OK)
@@ -1166,6 +1181,9 @@ midnight_execute_cmd (Widget *sender, long command)
             plugin_panel_move_cmd (current_panel);
             return MSG_HANDLED;
         case CK_Delete:
+            /* Delete on a plugin panel = remove from list (FAR TmpPanel style),
+               including for LOCAL_FILES plugins. Native rm-from-disk would
+               require a separate explicit action. */
             plugin_panel_delete_cmd (current_panel);
             return MSG_HANDLED;
         case CK_Edit:
@@ -1196,25 +1214,9 @@ midnight_execute_cmd (Widget *sender, long command)
 #ifdef USE_DIFF_VIEW
         case CK_CompareFiles:
 #endif
+            if (local_files)
+                break; /* real local files; native handlers can operate on them */
             message (D_ERROR, MSG_ERROR, _ ("This operation is not supported for plugin panels"));
-            return MSG_HANDLED;
-        default:
-            break;
-        }
-    }
-
-    /* Copy/Move FROM regular panel TO plugin panel with put_file support */
-    if (!current_panel->is_plugin_panel && get_other_type () == view_listing
-        && other_panel->is_plugin_panel && other_panel->plugin != NULL
-        && other_panel->plugin->put_file != NULL)
-    {
-        switch (command)
-        {
-        case CK_Copy:
-            plugin_panel_put_cmd (current_panel);
-            return MSG_HANDLED;
-        case CK_Move:
-            plugin_panel_put_move_cmd (current_panel);
             return MSG_HANDLED;
         default:
             break;
@@ -1325,16 +1327,29 @@ midnight_execute_cmd (Widget *sender, long command)
         edit_symlink_cmd ();
         break;
     case CK_ExternalPanelize:
-        external_panelize_cmd ();
+    {
+        /* Preserve the historical ExternalPanelize key binding. */
+        WPanel *target_panel = current_panel;
+
+        if (sender == WIDGET (the_menubar))
+        {
+            menu_t *active_menu =
+                (menu_t *) g_list_nth_data (the_menubar->menu, (int) the_menubar->current);
+
+            if (active_menu == left_menu)
+                target_panel = left_panel;
+            else if (active_menu == right_menu)
+                target_panel = right_panel;
+        }
+
+        panel_plugin_run_action_by_name (target_panel, "panelize", 0);
         break;
+    }
     case CK_ViewFiltered:
         view_filtered_cmd (current_panel);
         break;
     case CK_Find:
         find_cmd (current_panel);
-        break;
-    case CK_Panelize:
-        panel_panelize_restore ();
         break;
     case CK_PanelPlugin:
     {

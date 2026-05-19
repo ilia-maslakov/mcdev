@@ -74,12 +74,6 @@ typedef struct panel_field_struct
 
 typedef struct
 {
-    dir_list list;
-    vfs_path_t *root_vpath;
-} panelized_descr_t;
-
-typedef struct
-{
     Widget widget;
 
     char *name;  // The panel name
@@ -89,14 +83,14 @@ typedef struct
     gboolean active;  // If panel is currently selected
     gboolean dirty;   // Should we redisplay the panel?
 
-    gboolean is_panelized;               // Panelization: special mode, can't reload the file list
-    panelized_descr_t *panelized_descr;  // Panelization descriptor
+    gboolean is_panelized;  // Special mode: list not reloaded from disk (plugins set this too)
 
     gboolean is_plugin_panel;               // TRUE when driven by a panel plugin
     const mc_panel_plugin_t *plugin;        // active plugin descriptor, or NULL
     void *plugin_data;                      // instance handle from plugin->open()
     mc_panel_host_t *plugin_host;           // host interface given to the plugin
     list_format_t plugin_base_list_format;  // list format active before plugin custom columns
+    vfs_path_t *plugin_pre_cwd_vpath;       // panel cwd captured at activation; restored on close
 
     int codepage;  // Panel codepage
 
@@ -201,15 +195,11 @@ char **panel_get_user_possible_fields (gsize *array_size);
 void panel_set_cwd (WPanel *panel, const vfs_path_t *vpath);
 void panel_set_lwd (WPanel *panel, const vfs_path_t *vpath);
 
-void panel_panelize_restore (void);
-void panel_panelize_change_root (WPanel *panel, const vfs_path_t *new_root);
-void panel_panelize_absolutize_if_needed (WPanel *panel);
-void panel_panelize_save (WPanel *panel);
-
 void panel_init (void);
 void panel_deinit (void);
 
 void panel_plugin_apply_default_columns_format (WPanel *panel);
+void panel_plugin_refresh (WPanel *panel);
 void panel_plugin_reload (WPanel *panel);
 void panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path);
 gboolean panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name,
@@ -218,8 +208,19 @@ const mc_panel_plugin_t *panel_plugin_find_by_path (const char *open_path);
 gboolean panel_plugin_activate_by_path (WPanel *panel, const char *open_path);
 void panel_plugin_close (WPanel *panel);
 void panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int action_index);
+gboolean panel_plugin_run_action_by_name (WPanel *panel, const char *plugin_name, int action_index);
 void panel_plugin_select_and_activate (WPanel *panel);
 gboolean panel_plugin_drive_change (WPanel *panel);
+
+/* TRUE if any loaded plugin accepts file lists. */
+gboolean panel_plugin_have_file_list_sink (void);
+
+/* Open a plugin panel populated with @paths, showing a picker if needed. */
+gboolean panel_plugin_open_file_list (WPanel *panel, const char *const *paths, size_t count,
+                                      const char *label);
+
+/* Collect plugin menu entries targeting @menu_name. */
+GList *panel_plugin_collect_menu_entries (const char *menu_name);
 
 void panel_directory_history_add_path (WPanel *panel, const char *path);
 gboolean panel_navigate_to_path (WPanel *panel, const char *path, gboolean add_to_history,
