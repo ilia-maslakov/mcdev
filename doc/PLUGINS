@@ -2,45 +2,85 @@ Plugin Development Guide for GNU Midnight Commander
 ===================================================
 
 This document describes how to create plugins from scratch for mc.
-It focuses on practical implementation details for:
+It covers:
 
 - panel plugins (filemanager virtual panels)
 - editor plugins (mcedit extensions)
 
-If you need API declarations, use these headers as source of truth:
+The authoritative declarations live in:
 
 - lib/panel-plugin.h
 - lib/editor-plugin.h
+
+This guide reflects the current API only.  When in doubt, the header
+is the source of truth.
 
 
 1. Plugin Types
 ---------------
 
-mc currently supports three plugin families:
+mc supports three plugin families:
 
 - VFS plugins (virtual filesystems)
 - Panel plugins (content providers for filemanager panels)
 - Editor plugins (extensions for mcedit)
 
-This guide focuses on panel/editor plugins. VFS has its own flow and is
-not the preferred starting point for new UI-oriented features.
+VFS plugins use mc_vfs_plugin_init() and are not the preferred starting
+point for new UI-oriented features.  This guide focuses on panel and
+editor plugins.
 
 
 2. Common Rules
 ---------------
 
 - Keep core plugin-agnostic.
-  Do not require plugin-specific checks in filemanager/editor core.
-- Use generic callback contracts from plugin headers.
+  Core must not branch on a plugin's name; expose a capability flag or
+  callback instead.
+- Use generic callback contracts from the plugin headers.
 - Return explicit status codes:
-  - panel: MC_PPR_OK / MC_PPR_FAILED / MC_PPR_NOT_SUPPORTED
+  - panel: MC_PPR_OK / MC_PPR_FAILED / MC_PPR_NOT_SUPPORTED / MC_PPR_CLOSE
   - editor: MC_EPR_OK / MC_EPR_FAILED / MC_EPR_NOT_SUPPORTED
 - Avoid shell string composition when a generic host callback exists.
   Example: panel diff should use host->open_diff().
+- Activation contract: if a plugin's open() / open_file_list() /
+  action callback returns NULL, the previously active panel remains
+  intact.  Return NULL on Cancel.
 
 
 3. Panel Plugins (Filemanager)
 ------------------------------
+
+In-tree references (read these before writing your own):
+
+  src/panel-plugins/hello/       smallest working plugin
+  src/panel-plugins/arcmc/       archive panels, custom columns
+  src/panel-plugins/git/         shell-driven listing, custom columns
+  src/panel-plugins/panelize/    list curation; LOCAL_FILES,
+                                 open_file_list, menu self-registration
+
+
+3.0 Lifecycle and Location
+
+mc loads dynamic panel plugins at startup via mc_panel_plugins_load()
+(invoked from filemanager.c).  The loader scans:
+
+    $(libdir)/mc/panel-plugins/<plugin>/mc-panel-<plugin>.so
+
+The directory is configurable at build time:
+
+    ./configure --with-panel-plugins-dir=DIR
+
+Each .so is dlopen'd; the loader resolves the exported symbol
+"mc_panel_plugin_register" (MC_PANEL_PLUGIN_ENTRY), calls it to obtain
+the descriptor, and rejects the plugin with a log warning if
+api_version does not match MC_PANEL_PLUGIN_API_VERSION exactly.  No
+soft/legacy fallback -- rebuild your plugin every time the header
+version is bumped.
+
+The Manage Plugins dialog (panel menu -> Manage Plugins) lets the
+user enable/disable individual plugins at runtime; a disabled plugin
+is unloaded and does not appear in mc_panel_plugin_list().
+
 
 3.1 API Entry Point
 
@@ -48,142 +88,401 @@ A panel plugin module must export:
 
     const mc_panel_plugin_t *mc_panel_plugin_register (void);
 
-The descriptor must have:
+The descriptor minimum:
 
-- api_version = MC_PANEL_PLUGIN_API_VERSION
-- unique name
-- required callbacks:
-  - open()
-  - close()
-  - get_items()
+- api_version = MC_PANEL_PLUGIN_API_VERSION (the header constant;
+  current value is 7)
+- unique name (used by mc_panel_plugin_find_by_name)
+- display_name (UI label)
+- proto and prefix when the plugin owns a protocol scheme
+  (e.g. "git:", "docker:")
+- required callbacks: open, close, get_items
 
-
-3.2 Host Services Available to Plugin
-
-From mc_panel_host_t:
-
-- refresh(host)
-- set_hint(host, text)
-- message(host, flags, title, text)
-- run_command(host, command, flags)
-- open_diff(host, left_path, right_path)
-- close_plugin(host, dir_path)
-- get_marked_count(host)
-- get_next_marked(host, &current)
-- get_current(host)
-
-Use open_diff() for two-file diff integration.
+The loader strictly rejects mismatched api_version; rebuild against the
+header any time it changes.
 
 
-3.3 Minimal Panel Plugin Skeleton
+3.2 Capability Flags (mc_pp_flags_t)
 
-Minimal structure:
+Set in the descriptor's .flags field.  Multiple flags may be combined.
 
-- src/panel-plugins/myplugin/myplugin.c
-- src/panel-plugins/myplugin/Makefile.am
-
-Example descriptor:
-
-```c
-#include <config.h>
-#include "lib/global.h"
-#include "lib/panel-plugin.h"
-
-static void *my_open (mc_panel_host_t *host, const char *open_path)
-{
-    (void) host;
-    (void) open_path;
-    return g_new0 (int, 1);
-}
-
-static void my_close (void *plugin_data)
-{
-    g_free (plugin_data);
-}
-
-static mc_pp_result_t my_get_items (void *plugin_data, void *list_ptr)
-{
-    (void) plugin_data;
-    (void) list_ptr;
-    return MC_PPR_OK;
-}
-
-static const mc_panel_plugin_t my_plugin = {
-    .api_version = MC_PANEL_PLUGIN_API_VERSION,
-    .name = "myplugin",
-    .display_name = "My Plugin",
-    .proto = "my",
-    .prefix = "my:",
-    .flags = MC_PPF_NONE,
-
-    .open = my_open,
-    .close = my_close,
-    .get_items = my_get_items,
-};
-
-const mc_panel_plugin_t *
-mc_panel_plugin_register (void)
-{
-    return &my_plugin;
-}
-```
+  MC_PPF_NAVIGATE             plugin handles chdir / ".."
+  MC_PPF_GET_FILES            plugin can extract files
+  MC_PPF_DELETE               supports Delete (F8) via delete_items
+  MC_PPF_CUSTOM_TITLE         plugin provides its own panel title text
+  MC_PPF_CREATE               supports Shift-F4 (new item) via create_item
+  MC_PPF_PUT_FILES            accepts files via put_file/save_file (F5/F6
+                              from another panel)
+  MC_PPF_SHOW_IN_MENU         add an entry to the Left/Right panel menu
+  MC_PPF_SHOW_IN_DRIVE_MENU   show in the Alt-F1 / Alt-F2 drive menu
+  MC_PPF_LOCAL_FILES          entries are real local paths; core uses
+                              them directly for view/edit/copy/move and
+                              skips the get_local_copy/unlink dance
+  MC_PPF_ACCEPTS_FILE_LIST    plugin implements open_file_list(); can be
+                              a destination for Find results and similar
+                              list producers
 
 
-3.4 Required get_items() Behavior
+3.3 Host Services (mc_panel_host_t)
 
-get_items(plugin_data, list) receives a dir_list* as opaque void*.
+What mc provides to the plugin while the panel is active:
 
-Important rule:
+  refresh(host)
+                              redraw the panel
+  set_hint(host, text)
+                              show a transient hint line
+  message(host, flags, title, text)
+                              modal message box
+  run_command(host, command, flags)
+                              execute a shell command in the panel's
+                              subshell
+  open_diff(host, left, right)
+                              two-file diff via the integrated viewer
+  close_plugin(host, dir_path)
+                              ask the host to tear down the plugin and
+                              optionally cd to dir_path
+  add_history(host, path)
+                              push entry into panel directory history
+  get_marked_count(host)
+                              number of files the user marked
+  get_next_marked(host, &cur)
+                              iterate marked entries
+  get_current(host)
+                              currently focused entry name
+  navigate_other_panel(host, dir, focus_file)
+                              cd the opposite panel and optionally
+                              focus a specific entry
+  set_cwd(host, path)
+                              set the host panel's cwd; used by plugins
+                              whose listing carries absolute paths so
+                              that %d/%p tokens and copy targets
+                              resolve against "/" (or another base)
 
-- Do not add ".." yourself.
-  Core creates parent entry before calling plugin.
+Fields:
+
+  host_data                   opaque, owned by core
+  focus_after                 plugin sets this string to request cursor
+                              positioning after a standalone action;
+                              core frees it
 
 
-3.5 Optional Panel Callbacks
+3.4 get_items() Contract
 
-Navigation and actions:
+    mc_pp_result_t get_items (void *plugin_data, void *list);
 
-- chdir(plugin_data, path)
-- enter(plugin_data, fname, st)
-- handle_key(plugin_data, key_or_command)
-- create_item(plugin_data)                 (requires MC_PPF_CREATE)
-- delete_items(plugin_data, names, count)  (requires MC_PPF_DELETE)
-- get_local_copy(plugin_data, fname, &local_path)
+The list parameter is a `dir_list *` cast to void*.  Cast back inside
+the plugin (include src/filemanager/dir.h).
+
+Rule: do not add the ".." entry.  Core inserts it at index 0 before
+calling the plugin.
+
+Use the shared helper mc_pp_add_entry() for plain entries; plugins
+that need link_to_dir / stale_link bits should call dir_list_append
++ handle_path from src/filemanager/dir.h directly.
+
+Minimal working example -- a panel with three fake regular files of
+different sizes:
+
+    static mc_pp_result_t
+    my_get_items (void *plugin_data, void *list)
+    {
+        (void) plugin_data;
+
+        mc_pp_add_entry (list, "README",  S_IFREG | 0644, 1234, time (NULL));
+        mc_pp_add_entry (list, "main.c",  S_IFREG | 0644, 5678, time (NULL));
+        mc_pp_add_entry (list, "build/",  S_IFDIR | 0755, 0,    time (NULL));
+
+        return MC_PPR_OK;
+    }
+
+
+3.5 Optional Plugin Callbacks
+
+Listing and content:
+
+  chdir(plugin_data, path)             requires MC_PPF_NAVIGATE
+  enter(plugin_data, fname, st)
+  view(plugin_data, fname, st, plain)  return MC_PPR_OK to override F3
+  get_local_copy(plugin_data, fname, &local_path)
+  copy_to_local(plugin_data, fname, local_path)
+                                       direct download; if NULL core
+                                       falls back to get_local_copy +
+                                       copy
+  put_file(plugin_data, local, dest)   requires MC_PPF_PUT_FILES
+  save_file(plugin_data, local, name)  requires MC_PPF_PUT_FILES
+  create_item(plugin_data)             requires MC_PPF_CREATE
+  delete_items(plugin_data, names[], count)  requires MC_PPF_DELETE
+  handle_key(plugin_data, key)
+  reload(plugin_data)                  called before get_items() during
+                                       Ctrl-R (explicit refresh).  Use
+                                       to re-run a command or re-stat a
+                                       cached list.  NULL = cache-only
+                                       refresh.
+  open_file_list(host, paths, count, label)
+                                       requires MC_PPF_ACCEPTS_FILE_LIST.
+                                       Open a plugin panel populated
+                                       with @paths (caller-owned, copy
+                                       what you need).  Return NULL on
+                                       cancel/empty.
 
 UI integration:
 
-- view(plugin_data, fname, st, plain_view)
-- get_help_info(plugin_data, &filename, &node)
-- get_title(plugin_data)
-- get_columns(plugin_data, &count)
-- get_column_value(plugin_data, fname, column_id)
-- get_default_format(plugin_data)
-- get_footer(plugin_data)
-- get_focus_name(plugin_data)
+  get_title(plugin_data)               requires MC_PPF_CUSTOM_TITLE
+  get_footer(plugin_data)
+  get_focus_name(plugin_data)          preferred focus item after
+                                       navigation/reload
+  get_help_info(plugin_data, &filename, &node)
+                                       used for F1 in the plugin panel
+  get_columns(plugin_data, &count)     custom column descriptors
+  get_column_value(plugin_data, fname, column_id)
+  get_default_format(plugin_data)      default panel format string,
+                                       e.g. "half name | size | mtime";
+                                       returning NULL/empty falls back
+                                       to get_columns()
+
+Sort preferences:
+
+  default_sort_id                      mc sort id ("name", "mtime",
+                                       "size", "extension", ...).
+                                       Applied once at panel open.
+  default_sort_reverse                 TRUE = descending
 
 
-3.6 Panel Build Integration
+3.6 Actions and Menu Self-Registration
 
-Plugin Makefile.am example:
+A plugin exposes named actions through:
 
-```make
-panelplugindir = $(panel_plugins_dir)
-panelplugin_LTLIBRARIES = mc-panel-myplugin.la
+    const mc_pp_action_t *actions;
+    int action_count;
 
-mc_panel_myplugin_la_SOURCES = myplugin.c
-mc_panel_myplugin_la_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir)
-mc_panel_myplugin_la_LDFLAGS = -module -avoid-version
-mc_panel_myplugin_la_LIBADD = $(GLIB_LIBS)
-```
+Each action has a label and a callback:
 
-Then include subdir:
+    void *(*callback) (mc_panel_host_t *host, const char *open_path);
 
-- src/panel-plugins/Makefile.am: add SUBDIRS += myplugin
-- configure.ac: add src/panel-plugins/myplugin/Makefile
+Callback returns non-NULL plugin_data to activate a plugin panel, or
+NULL to perform a standalone operation (e.g. open a configuration
+dialog).
+
+A plugin publishes itself into top-level menus through:
+
+    const mc_pp_cmd_menu_entry_t *cmd_menu_entries;
+    int cmd_menu_entry_count;
+
+Each entry sets:
+
+    label            menu text (with & accelerator); NULL = separator
+    action_index     index into actions[]
+    shortcut         display string for the shortcut column
+    key              key code, or 0
+    menu_name        MC_PP_MENU_COMMAND or MC_PP_MENU_PANEL.  NULL
+                     defaults to MC_PP_MENU_COMMAND.
+
+Core scans the registry per menu and appends entries via
+panel_plugin_collect_menu_entries(); the menu builders carry no
+plugin-specific strings.
+
+
+3.7 Shared Helpers
+
+  mc_pp_add_entry(list, name, mode, size, mtime)
+                              append one entry to a dir_list
+  mc_pp_rename_with_ext(&local_path, fname)
+                              rename a temp file to preserve fname's
+                              extension (for viewers/syntax)
+  mc_pp_join_path(base, name) / mc_pp_path_up(path)
+                              UNIX-path helpers; no double slashes
+
+
+3.8 Registry
+
+  mc_panel_plugin_list()                   GSList of all registered
+                                           plugins, in registration
+                                           order
+  mc_panel_plugin_find_by_name(name)       lookup by descriptor name
+  mc_panel_plugin_find_by_prefix(prefix)   lookup by URL prefix
+
+Producers (such as Find) ask the core layer rather than the registry
+directly:
+
+  panel_plugin_have_file_list_sink()       any sink loaded?
+  panel_plugin_open_file_list(panel, paths, count, label)
+                                           0 sinks -> FALSE; 1 sink ->
+                                           activate; >=2 -> show
+                                           "Send to panel" picker.
+
+
+3.9 Build Integration
+
+Plugin Makefile.am skeleton (src/panel-plugins/myplugin/Makefile.am):
+
+    myplugindir = $(panel_plugins_dir)/myplugin
+    myplugin_LTLIBRARIES = mc-panel-myplugin.la
+
+    mc_panel_myplugin_la_SOURCES = myplugin.c
+    mc_panel_myplugin_la_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir)
+    mc_panel_myplugin_la_LDFLAGS = -module -avoid-version
+    mc_panel_myplugin_la_LIBADD = $(GLIB_LIBS)
+
+The mandatory `-module -avoid-version` libtool flags produce
+`mc-panel-myplugin.so` rather than a versioned shared library, which
+is what the loader expects.
+
+Wire-up:
+
+- src/panel-plugins/Makefile.am: add `myplugin` to both `SUBDIRS` and
+  `DIST_SUBDIRS`.
+- configure.ac: append the file to `AC_CONFIG_FILES`:
+
+      src/panel-plugins/myplugin/Makefile
+
+Build / install cycle for iterating on a plugin:
+
+    autoreconf -fi              # only after Makefile.am / configure.ac edits
+    cd <build-dir>
+    ../mc/configure --prefix=/usr ...   # if not configured yet
+    make
+    sudo make install
+    # restart mc; check that the plugin appears in Manage Plugins.
+
+The loader writes rejection reasons (version mismatch, missing
+required callbacks) directly to stderr; redirect mc's stderr or check
+the terminal scrollback if the plugin silently fails to load.
+
+
+3.10 Minimal Skeleton
+
+A buildable plugin that loads, registers in the drive menu, and shows
+three fake files when activated:
+
+    #include <config.h>
+
+    #include <sys/stat.h>
+    #include <time.h>
+
+    #include "lib/global.h"
+    #include "lib/panel-plugin.h"
+
+    static void *
+    my_open (mc_panel_host_t *host, const char *open_path)
+    {
+        (void) host;
+        (void) open_path;
+        return g_new0 (int, 1);   /* opaque plugin_data */
+    }
+
+    static void
+    my_close (void *plugin_data)
+    {
+        g_free (plugin_data);
+    }
+
+    static mc_pp_result_t
+    my_get_items (void *plugin_data, void *list)
+    {
+        (void) plugin_data;
+        mc_pp_add_entry (list, "README", S_IFREG | 0644, 1234, time (NULL));
+        mc_pp_add_entry (list, "main.c", S_IFREG | 0644, 5678, time (NULL));
+        mc_pp_add_entry (list, "build/", S_IFDIR | 0755, 0,    time (NULL));
+        return MC_PPR_OK;
+    }
+
+    static const mc_panel_plugin_t my_plugin = {
+        .api_version  = MC_PANEL_PLUGIN_API_VERSION,
+        .name         = "myplugin",
+        .display_name = N_ ("My Plugin"),
+        .proto        = "my",
+        .prefix       = "my:",
+        .flags        = MC_PPF_SHOW_IN_DRIVE_MENU,
+
+        .open         = my_open,
+        .close        = my_close,
+        .get_items    = my_get_items,
+    };
+
+    const mc_panel_plugin_t *
+    mc_panel_plugin_register (void)
+    {
+        return &my_plugin;
+    }
+
+After `sudo make install` and restarting mc, the plugin shows up in
+the Alt-F1 / Alt-F2 drive menu under "My Plugin"; pressing Enter on
+it opens a panel populated by my_get_items().
+
+
+3.11 Activation Entry Points
+
+How a user invokes a panel plugin depends on which capability flags
+are set and what self-registration entries the descriptor declares:
+
+  Drive menu (Alt-F1 / Alt-F2)
+                              MC_PPF_SHOW_IN_DRIVE_MENU.  The
+                              display_name appears as a menu entry;
+                              activation calls open(host, cwd).
+
+  Left / Right panel menu
+                              MC_PPF_SHOW_IN_MENU, plus an entry in
+                              cmd_menu_entries with
+                              menu_name = MC_PP_MENU_PANEL.  Activates
+                              the chosen action.
+
+  Command menu
+                              cmd_menu_entries entry with
+                              menu_name = MC_PP_MENU_COMMAND.  Used
+                              for actions reachable via Alt-letter or
+                              a keymap binding.
+
+  URL prefix
+                              When the panel descriptor sets `prefix`
+                              (e.g. "my:"), the host treats it as a
+                              protocol for plugin activation.  Other
+                              plugins / core code can call
+                              panel_plugin_activate_by_path("my:foo").
+
+  Programmatic file-list
+                              MC_PPF_ACCEPTS_FILE_LIST with
+                              open_file_list().  Producers such as
+                              Find pick the plugin via
+                              panel_plugin_open_file_list() -- no
+                              direct user choice unless multiple
+                              sinks exist.
+
+A plugin can advertise multiple paths simultaneously (drive menu +
+self-registered Command menu + file-list sink); the registry handles
+each independently.
 
 
 4. Editor Plugins (mcedit)
 --------------------------
+
+In-tree references:
+
+  src/editor-plugins/spell/      classic plugin: open + activate +
+                                 configure with no dynamic actions
+  src/editor-plugins/ctags/      self-registered menu entries, named
+                                 actions, dynamic shortcut resolver
+
+
+4.0 Lifecycle and Location
+
+Editor plugins are loaded at editor startup.  The loader scans:
+
+    $(libdir)/mc/editor-plugins/<plugin>/mc-editor-<plugin>.so
+
+The directory is configurable at build time:
+
+    ./configure --with-editor-plugins-dir=DIR
+
+Each .so is dlopen'd; the loader resolves
+"mc_editor_plugin_register" (MC_EDITOR_PLUGIN_ENTRY) and rejects the
+plugin if api_version != MC_EDITOR_PLUGIN_API_VERSION.  Rejection
+reasons go to stderr.
+
+A second integration mode (builtin) registers descriptors from core
+startup and links the plugin sources directly into the editor binary;
+see src/editor-plugins/builtin-plugins.c.  Use it only for transition
+or bootstrapping -- prefer dynamic mode for new plugins.
+
 
 4.1 API Entry Point
 
@@ -191,75 +490,217 @@ An editor plugin module must export:
 
     const mc_editor_plugin_t *mc_editor_plugin_register (void);
 
-Required callbacks:
+The descriptor minimum:
 
-- open(host, editor_dialog)
-- close(plugin_data)
+- api_version = MC_EDITOR_PLUGIN_API_VERSION (current value is 4)
+- unique name
+- display_name
+- required callbacks: open, close
+
+Strict version check at load.
 
 
-4.2 Editor Callback Contract
+4.2 Capability Flags (mc_ep_flags_t)
 
-Main optional callbacks:
+  MC_EPF_HAS_MENU            plugin contributes entries to a top-level
+                             editor menu (actions[] + cmd_menu_entries[])
 
-- activate(plugin_data, edit)
-  Main action entry (for Plugins menu command).
-- configure(plugin_data, edit)
-  Settings action (for Plugin info/configure flow).
-- handle_action(plugin_data, command, edit)
-  Command dispatcher for editor actions.
-- query_state(plugin_data, edit, state)
-  Availability/enabled/reason for menu and execution logic.
-- handle_key(plugin_data, key, edit)
-  Raw key handling.
-- handle_event(plugin_data, edit, event_id, payload)
-  Generic event channel.
-- on_file_open(plugin_data, edit)
-- on_file_close(plugin_data, edit)
+
+4.3 Host Services (mc_editor_host_t)
+
+  redraw(host)
+                             redraw the editor window
+  message(host, flags, title, text)
+                             modal message box
+  get_cursor_word(host, edit)
+                             word under cursor; NULL if not on a word.
+                             Caller frees with g_free()
+  get_current_file(host, edit)
+                             absolute path of the open file or NULL;
+                             caller frees
+  get_cursor_line(host, edit)
+                             1-based line number; 0 if unavailable
+  jump_to(host, edit, file, line)
+                             open file at line; pushes the current
+                             position onto the navigation stack
+  insert_text(host, edit, text, remove_before)
+                             insert at cursor after deleting
+                             remove_before bytes backwards
+
+Fields:
+
+  host_data                  opaque, owned by core
+
+
+4.4 Plugin Callbacks
+
+  activate(plugin_data, edit)
+                             primary action invoked from the Plugins
+                             menu / shortcut
+  configure(plugin_data, edit)
+                             open settings dialog
+  handle_action(plugin_data, command, edit)
+                             dispatch a menu-command id
+  query_state(plugin_data, edit, &state)
+                             fill mc_ep_state_t (available / enabled /
+                             reason) for menu and shortcut logic
+  handle_key(plugin_data, key, edit)
+                             raw key interception
+  handle_event(plugin_data, edit, event_id, payload)
+                             generic event channel; see MC_EP_EVENT_*
+  on_file_open(plugin_data, edit)
+                             callback fired when a file is opened
+  on_file_close(plugin_data, edit)
+                             callback fired when a file is closed
 
 State contract (mc_ep_state_t):
 
-- available: plugin can operate in current environment
-- enabled: action currently enabled
-- reason: optional explanation shown to user
+  available                  plugin can operate in the current
+                             environment (binaries present, etc.)
+  enabled                    action is currently usable
+  reason                     optional explanation shown to the user
 
 
-4.3 Editor Host Services
+4.5 Actions, Menu Entries, Events
 
-From mc_editor_host_t:
+A plugin exposes actions through:
 
-- refresh(host)
-- message(host, flags, title, text)
+    const mc_ep_action_t *actions;
+    int action_count;
+
+Each entry has a label and a direct callback:
+
+    mc_ep_result_t (*callback) (void *plugin_data, void *edit);
+
+The callback is invoked directly when the user picks the menu item or
+fires the action keymap binding; activate / handle_action are not used
+for it.
+
+Top-level menu integration:
+
+    const mc_ep_cmd_menu_entry_t *cmd_menu_entries;
+    int cmd_menu_entry_count;
+
+Each entry sets:
+
+    menu_name        MC_EP_MENU_COMMAND or MC_EP_MENU_NAVIGATE
+    label            menu text (with & accelerator); NULL = separator
+    action_index     index into actions[]
+    shortcut         display string for the shortcut column; NULL =
+                     omit.  Overridden at menu-build time if the plugin
+                     defines get_menu_shortcut().
+
+Optional dynamic shortcut resolver:
+
+    char *(*get_menu_shortcut) (int action_index);
+
+Returns a newly-allocated string (caller frees with g_free) or NULL to
+fall back to the static shortcut text.
+
+Events delivered via handle_event(plugin_data, edit, event_id, payload):
+
+  MC_EP_EVENT_FILE_SAVED      file written; payload = const char *path
+  MC_EP_EVENT_FILE_RENAMED    Save As completed; payload = new path
+  MC_EP_EVENT_FOCUS_IN        editor window got focus
+  MC_EP_EVENT_FOCUS_OUT       editor window lost focus
 
 
-4.4 Editor Build/Integration Modes
+4.6 Registry
 
-There are two practical ways to integrate editor plugin code:
+  mc_editor_plugin_list()
+  mc_editor_plugin_find_by_name(name)
 
-- dynamic module (preferred for clean decoupling)
-- in-tree builtin registration (used for transition/bootstrapping)
 
-Dynamic mode requires module build/install to MC_EDITOR_PLUGINS_DIR.
-Builtin mode registers descriptors from core startup code and links
-plugin sources into editor library.
+4.7 Build Integration
 
-When adding a new plugin from scratch, prefer dynamic mode unless
-project constraints require builtin linkage.
+Plugin Makefile.am skeleton (src/editor-plugins/myplugin/Makefile.am):
+
+    myplugindir = $(editor_plugins_dir)/myplugin
+    myplugin_LTLIBRARIES = mc-editor-myplugin.la
+
+    mc_editor_myplugin_la_SOURCES = myplugin.c
+    mc_editor_myplugin_la_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir)
+    mc_editor_myplugin_la_LDFLAGS = -module -avoid-version
+    mc_editor_myplugin_la_LIBADD = $(GLIB_LIBS)
+
+Wire-up:
+
+- src/editor-plugins/Makefile.am: add `myplugin` to both `SUBDIRS` and
+  `DIST_SUBDIRS`.
+- configure.ac: append `src/editor-plugins/myplugin/Makefile` to
+  `AC_CONFIG_FILES`.
+
+Build / install cycle is identical to panel plugins.
+
+
+4.8 Minimal Skeleton
+
+A buildable plugin that registers and reacts to an "activate" menu
+pick (no extra menus, no named actions):
+
+    #include <config.h>
+
+    #include "lib/global.h"
+    #include "lib/editor-plugin.h"
+
+    static void *
+    my_open (mc_editor_host_t *host, void *editor_dialog)
+    {
+        (void) editor_dialog;
+        return host;  /* any non-NULL opaque handle */
+    }
+
+    static void
+    my_close (void *plugin_data)
+    {
+        (void) plugin_data;
+    }
+
+    static mc_ep_result_t
+    my_activate (void *plugin_data, void *edit)
+    {
+        mc_editor_host_t *host = (mc_editor_host_t *) plugin_data;
+        (void) edit;
+        if (host->message != NULL)
+            host->message (host, 0, "My Plugin", "Hello from the editor.");
+        return MC_EPR_OK;
+    }
+
+    static const mc_editor_plugin_t my_plugin = {
+        .api_version  = MC_EDITOR_PLUGIN_API_VERSION,
+        .name         = "myedit",
+        .display_name = N_ ("My Editor Plugin"),
+        .flags        = MC_EPF_NONE,
+
+        .open         = my_open,
+        .close        = my_close,
+        .activate     = my_activate,
+    };
+
+    const mc_editor_plugin_t *
+    mc_editor_plugin_register (void)
+    {
+        return &my_plugin;
+    }
+
+After install and editor restart, the plugin appears in the editor's
+Plugins menu; selecting it calls my_activate().
 
 
 5. Help Integration
 -------------------
 
-Panel plugin help:
+Panel plugins:
 
 - implement get_help_info()
-- return filename/node
-- on MC_PPR_OK core opens that help node on F1
+- return filename / node
+- on MC_PPR_OK core opens the help node on F1
 
-Editor plugin help/config UX:
+Editor plugins:
 
-- keep activate() for main action
-- keep configure() for settings
-- do not overload activate() with settings dialog
+- keep activate() for the main action
+- keep configure() for settings only
+- do not overload activate() with a configuration dialog
 
 
 6. Key Handling Model
@@ -267,8 +708,9 @@ Editor plugin help/config UX:
 
 Panel plugins:
 
-- core first passes mapped command id to handle_key()
-- if not handled and raw key differs, core retries with raw key
+- core first passes the mapped command id to handle_key()
+- if the plugin returns MC_PPR_NOT_SUPPORTED and the raw key differs,
+  core retries with the raw key
 
 This allows either style:
 
@@ -284,21 +726,24 @@ Editor plugins:
 7. Testing Checklist
 --------------------
 
-For panel plugins:
+Panel plugins:
 
-- plugin appears in Plugin panel menu
+- plugin appears in the drive menu (if MC_PPF_SHOW_IN_DRIVE_MENU set)
+  and/or the Left/Right panel menu (if MC_PPF_SHOW_IN_MENU set)
+- self-registered menu entries land in the right top-level menu
 - prefix activation works (example: my:.)
-- get_items() returns stable list and no duplicate ".."
-- F3/F4/F5/F8 behavior is correct for plugin entries
-- marked/current item flows work the same
-- help opens plugin-specific node if provided
+- get_items() returns a stable list and never adds a second ".."
+- F3 / F4 / F5 / F6 / F8 behave correctly for plugin entries; for
+  MC_PPF_LOCAL_FILES the file is NOT deleted after view/edit
+- Cancel during plugin activation leaves the previous panel intact
+- ".." in a plugin panel returns to the pre-activation cwd
 
-For editor plugins:
+Editor plugins:
 
-- plugin appears in editor plugin menu/info
-- activate() runs primary action
+- plugin appears in the editor plugin menu
+- activate() runs the primary action
 - configure() opens settings only
-- query_state() reflects backend/runtime availability
+- query_state() reflects backend / runtime availability
 - missing dependencies are reported via clear user message
 
 
@@ -306,23 +751,30 @@ For editor plugins:
 ------------------
 
 - Plugin not loaded:
-  - verify module installed into correct plugin directory
-  - verify exported symbol name (mc_panel_plugin_register or
-    mc_editor_plugin_register)
-  - verify api_version matches header constant
+  - verify the module installed into the correct plugin directory
+  - verify the exported symbol name
+    (mc_panel_plugin_register or mc_editor_plugin_register)
+  - verify api_version matches the header constant
+  - check the log for a version-mismatch rejection
 
 - Plugin listed but does nothing:
-  - check required callbacks are non-NULL
-  - confirm return codes (NOT_SUPPORTED vs FAILED)
+  - check that required callbacks are non-NULL
+  - confirm correct return codes (NOT_SUPPORTED vs FAILED)
+  - confirm the right capability flag is set for the feature
 
 - Key does not trigger:
-  - confirm command mapping and raw key fallback path
-  - verify plugin handle_key() compares against correct key ids
+  - confirm command mapping and the raw-key fallback path
+  - verify the plugin's handle_key() compares against the correct ids
+
+- Find "Panelize" button missing:
+  - some panel plugin must advertise MC_PPF_ACCEPTS_FILE_LIST and
+    implement open_file_list().  When no such plugin is loaded the
+    button is hidden by design.
 
 
 9. Notes on VFS Plugins
 -----------------------
 
-VFS plugin mechanism still exists and uses mc_vfs_plugin_init().
-If you are implementing UI features, panel/editor plugins are usually
-a better fit than adding new VFS classes.
+The VFS plugin mechanism uses mc_vfs_plugin_init().  If you are
+implementing UI features, panel/editor plugins are usually a better fit
+than adding a new VFS class.
