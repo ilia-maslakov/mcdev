@@ -171,7 +171,7 @@ static const mc_pp_action_t arcmc_actions[] = {
 };
 
 static const mc_pp_cmd_menu_entry_t arcmc_cmd_menu[] = {
-    { N_ ("Cre&ate archive"), 1, "S-F1", KEY_F (11) },
+    { N_ ("Cre&ate archive"), 1, "S-F1", KEY_F (11), NULL },
 };
 
 static const mc_panel_plugin_t arcmc_plugin = {

@@ -15,8 +15,15 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 6
+#define MC_PANEL_PLUGIN_API_VERSION 7
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
+
+/* Well-known target menu names for mc_pp_cmd_menu_entry_t.menu_name.
+   Plugins set .menu_name = MC_PP_MENU_* to publish their entries into
+   the corresponding menu. NULL menu_name defaults to "Command" for
+   backward compatibility with plugins built before this field existed. */
+#define MC_PP_MENU_COMMAND "Command"
+#define MC_PP_MENU_PANEL   "Panel"
 
 /*** enums ***************************************************************************************/
 
@@ -35,10 +42,16 @@ typedef enum
     MC_PPF_GET_FILES = 1 << 1, /* can extract files */
     MC_PPF_DELETE = 1 << 2,    /* can delete items */
     MC_PPF_CUSTOM_TITLE = 1 << 3,
-    MC_PPF_CREATE = 1 << 4,            /* supports Shift+F4 (create item) */
-    MC_PPF_PUT_FILES = 1 << 5,         /* can accept files (put_file/save_file) */
-    MC_PPF_SHOW_IN_MENU = 1 << 6,      /* add entry to left/right panel menu */
-    MC_PPF_SHOW_IN_DRIVE_MENU = 1 << 7 /* show in Alt-F1/Alt-F2 drive menu */
+    MC_PPF_CREATE = 1 << 4,             /* supports Shift+F4 (create item) */
+    MC_PPF_PUT_FILES = 1 << 5,          /* can accept files (put_file/save_file) */
+    MC_PPF_SHOW_IN_MENU = 1 << 6,       /* add entry to left/right panel menu */
+    MC_PPF_SHOW_IN_DRIVE_MENU = 1 << 7, /* show in Alt-F1/Alt-F2 drive menu */
+    MC_PPF_LOCAL_FILES = 1 << 8,        /* entries are real local paths;
+                                           core uses them directly for view/edit/
+                                           copy/move, bypassing get_local_copy */
+    MC_PPF_ACCEPTS_FILE_LIST = 1 << 9   /* plugin implements open_file_list(),
+                                           i.e. can be a destination for Find
+                                           results and similar list producers */
 } mc_pp_flags_t;
 
 /*** structures declarations (and typedefs of structures)*****************************************/
@@ -56,10 +69,11 @@ typedef struct mc_pp_action_t
 /* Entry added to the Command menu by a plugin. */
 typedef struct mc_pp_cmd_menu_entry_t
 {
-    const char *label;    /* menu item text (with & accelerator) */
-    int action_index;     /* index into mc_panel_plugin_t.actions[] */
-    const char *shortcut; /* shortcut text shown in menu (e.g. "S-F1"), or NULL */
-    int key;              /* key code (e.g. KEY_F(11) for S-F1), or 0 for none */
+    const char *label;     /* menu item text (with & accelerator). NULL = separator */
+    int action_index;      /* index into mc_panel_plugin_t.actions[] */
+    const char *shortcut;  /* shortcut text shown in menu (e.g. "S-F1"), or NULL */
+    int key;               /* key code (e.g. KEY_F(11) for S-F1), or 0 for none */
+    const char *menu_name; /* MC_PP_MENU_COMMAND, MC_PP_MENU_PANEL, ... NULL = "Command" */
 } mc_pp_cmd_menu_entry_t;
 
 typedef struct mc_panel_column_t
@@ -93,6 +107,12 @@ typedef struct mc_panel_host_t
     /* Set by plugin to request cursor positioning after standalone action completes.
        The host frees this string after use. */
     char *focus_after;
+
+    /* === v7 additions below; append-only to preserve struct ABI for older plugins === */
+    /* Set the host panel's cwd to the given path. Used by plugins (e.g. panelize)
+       whose listing carries absolute paths and which need %d/%p tokens and copy
+       targets to resolve against "/" or another base. */
+    void (*set_cwd) (struct mc_panel_host_t *host, const char *path);
 } mc_panel_host_t;
 
 /* What the plugin provides (callback table) */
@@ -164,6 +184,15 @@ typedef struct mc_panel_plugin_t
     const char *default_sort_id;
     /* TRUE = sort descending (newest-first for mtime). Ignored when default_sort_id is NULL. */
     gboolean default_sort_reverse;
+
+    /* === v7 additions below; append-only to preserve struct ABI for older plugins === */
+    /* Optional reload hook called before get_items() on Ctrl-R. */
+    mc_pp_result_t (*reload) (void *plugin_data);
+
+    /* Open a panel from caller-owned absolute paths. The plugin must copy
+       paths it keeps. Return NULL to leave the current panel unchanged. */
+    void *(*open_file_list) (struct mc_panel_host_t *host, const char *const *paths, size_t count,
+                             const char *label);
 } mc_panel_plugin_t;
 
 typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);

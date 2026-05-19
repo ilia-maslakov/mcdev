@@ -48,6 +48,7 @@
 #include "cd.h"
 
 #include "panel.h"
+#include "filemanager.h"
 
 /*** global variables ****************************************************************************/
 
@@ -139,6 +140,13 @@ host_close_plugin_impl (mc_panel_host_t *host, const char *dir_path)
     if (plugin_path != NULL && target_dir != NULL)
         panel_directory_history_add_path (panel, plugin_path);
 
+    /* Explicit target_dir overrides the saved pre-plugin cwd. */
+    if (target_dir != NULL && panel != NULL && panel->plugin_pre_cwd_vpath != NULL)
+    {
+        vfs_path_free (panel->plugin_pre_cwd_vpath, TRUE);
+        panel->plugin_pre_cwd_vpath = NULL;
+    }
+
     panel_plugin_close (panel);
 
     if (target_dir != NULL)
@@ -220,6 +228,24 @@ host_navigate_other_panel_impl (mc_panel_host_t *host, const char *dir_path, con
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+host_set_cwd_impl (mc_panel_host_t *host, const char *path)
+{
+    WPanel *panel = (WPanel *) host->host_data;
+    vfs_path_t *vpath;
+
+    if (panel == NULL || path == NULL || path[0] == '\0')
+        return;
+
+    vpath = vfs_path_from_str (path);
+    panel_set_cwd (panel, vpath);
+    if (panel == current_panel)
+        (void) mc_chdir (vpath);
+    vfs_path_free (vpath, TRUE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
 {
     host->refresh = host_refresh_impl;
@@ -233,6 +259,7 @@ panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
     host->get_next_marked = host_get_next_marked_impl;
     host->get_current = host_get_current_impl;
     host->navigate_other_panel = host_navigate_other_panel_impl;
+    host->set_cwd = host_set_cwd_impl;
     host->host_data = panel;
 }
 
@@ -240,8 +267,8 @@ panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-void
-panel_plugin_reload (WPanel *panel)
+static void
+panel_plugin_reload_internal (WPanel *panel, gboolean call_plugin_reload)
 {
     gboolean was_dotdot = FALSE;
     char *focus_name = NULL;
@@ -267,6 +294,9 @@ panel_plugin_reload (WPanel *panel)
 
     panel_plugin_apply_default_columns_format (panel);
 
+    if (call_plugin_reload && panel->plugin->reload != NULL)
+        panel->plugin->reload (panel->plugin_data);
+
     dir_list_init (&panel->dir);
     panel->plugin->get_items (panel->plugin_data, &panel->dir);
 
@@ -284,28 +314,67 @@ panel_plugin_reload (WPanel *panel)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+panel_plugin_reload (WPanel *panel)
+{
+    panel_plugin_reload_internal (panel, TRUE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+panel_plugin_refresh (WPanel *panel)
+{
+    panel_plugin_reload_internal (panel, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path)
 {
     mc_panel_host_t *host;
+    void *new_data;
 
     if (panel == NULL || plugin == NULL)
         return;
 
-    // close any previous plugin
-    if (panel->is_plugin_panel)
-        panel_plugin_close (panel);
-
-    // build host interface
+    /* Keep the previous plugin active until the new open() returns data. */
     host = g_new0 (mc_panel_host_t, 1);
     panel_plugin_init_host (host, panel);
 
-    panel->plugin_data = plugin->open (host, open_path);
-    if (panel->plugin_data == NULL)
+    /* Capture the cwd before open(); the plugin may update the panel cwd
+       while building its listing. */
     {
-        g_free (host);
-        return;
+        vfs_path_t *saved_pre_cwd = panel->plugin_pre_cwd_vpath;
+        gboolean was_plugin = panel->is_plugin_panel;
+        panel->plugin_pre_cwd_vpath =
+            was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
+
+        new_data = plugin->open (host, open_path);
+        if (new_data == NULL)
+        {
+            /* Activation aborted; keep the current panel intact. */
+            if (!was_plugin)
+            {
+                vfs_path_free (panel->plugin_pre_cwd_vpath, TRUE);
+                panel->plugin_pre_cwd_vpath = saved_pre_cwd;
+            }
+            g_free (host);
+            return;
+        }
+        (void) saved_pre_cwd;
     }
 
+    if (panel->is_plugin_panel)
+    {
+        /* Keep pre-plugin cwd while replacing the plugin instance. */
+        vfs_path_t *keep = panel->plugin_pre_cwd_vpath;
+        panel->plugin_pre_cwd_vpath = NULL;
+        panel_plugin_close (panel);
+        panel->plugin_pre_cwd_vpath = keep;
+    }
+
+    panel->plugin_data = new_data;
     panel->plugin = plugin;
     panel->plugin_host = host;
     panel->is_plugin_panel = TRUE;
@@ -356,6 +425,8 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
 void
 panel_plugin_close (WPanel *panel)
 {
+    vfs_path_t *restore_to = NULL;
+
     if (panel == NULL || !panel->is_plugin_panel)
         return;
 
@@ -373,8 +444,26 @@ panel_plugin_close (WPanel *panel)
     panel->plugin_host = NULL;
 
     panel->is_panelized = FALSE;
+
+    /* Take ownership of the saved cwd before we touch the panel so that
+       panel_do_cd / set_panel_formats / panel_reload see the right state. */
+    restore_to = panel->plugin_pre_cwd_vpath;
+    panel->plugin_pre_cwd_vpath = NULL;
+
     set_panel_formats (panel);
-    panel_reload (panel);
+
+    if (restore_to != NULL)
+    {
+        /* Return to the directory the user was in before activating the plugin.
+           panel_do_cd handles cwd, lwd, mc_chdir, dir_list reload, and history. */
+        if (!panel_do_cd (panel, restore_to, cd_exact))
+            panel_reload (panel);
+        vfs_path_free (restore_to, TRUE);
+    }
+    else
+    {
+        panel_reload (panel);
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -418,37 +507,11 @@ panel_plugin_find_by_path (const char *open_path)
     return plugin;
 }
 
-static char *
-panel_plugin_canonical_path (const mc_panel_plugin_t *plugin, const char *payload)
-{
-    const char *prefix = plugin->prefix != NULL ? plugin->prefix : plugin->proto;
-    size_t prefix_len = strlen (prefix);
-    char *base;
-
-    if (prefix_len > 0 && prefix[prefix_len - 1] == ':')
-        base = g_strndup (prefix, prefix_len - 1);
-    else
-        base = g_strdup (prefix);
-
-    char *result;
-    if (payload != NULL && payload[0] != '\0')
-        result = g_strdup_printf ("%s:%s", base, payload);
-    else
-        result = g_strdup_printf ("%s:/", base);
-
-    g_free (base);
-    return result;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 gboolean
 panel_plugin_activate_by_path (WPanel *panel, const char *open_path)
 {
     const mc_panel_plugin_t *plugin;
-    gboolean activated;
 
-    g_debug ("panel_plugin_activate_by_path open_path='%s'", open_path ? open_path : "(null)");
     if (panel == NULL)
         return FALSE;
 
@@ -456,20 +519,185 @@ panel_plugin_activate_by_path (WPanel *panel, const char *open_path)
     if (plugin == NULL)
         return FALSE;
 
-    const char *colon = strchr (open_path, ':');
-    const char *payload = (colon != NULL) ? colon + 1 : open_path;
-    while (*payload == ':')
-        payload++;
-
-    char *sanitized_path = panel_plugin_canonical_path (plugin, payload);
-
-    g_debug ("panel_plugin_activate_by_path sanitized_path='%s'", sanitized_path);
-
     panel_plugin_activate (panel, plugin, open_path);
-    activated = (panel->is_plugin_panel && panel->plugin == plugin);
+    return (panel->is_plugin_panel && panel->plugin == plugin);
+}
 
-    g_free (sanitized_path);
+/* --------------------------------------------------------------------------------------------- */
 
+/* Returned list owns only the GSList nodes. */
+static GSList *
+panel_plugin_collect_file_list_sinks (void)
+{
+    const GSList *iter;
+    GSList *sinks = NULL;
+
+    for (iter = mc_panel_plugin_list (); iter != NULL; iter = g_slist_next (iter))
+    {
+        const mc_panel_plugin_t *pp = (const mc_panel_plugin_t *) iter->data;
+
+        if ((pp->flags & MC_PPF_ACCEPTS_FILE_LIST) != 0 && pp->open_file_list != NULL)
+            sinks = g_slist_prepend (sinks, (gpointer) pp);
+    }
+
+    return g_slist_reverse (sinks);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_have_file_list_sink (void)
+{
+    const GSList *iter;
+
+    for (iter = mc_panel_plugin_list (); iter != NULL; iter = g_slist_next (iter))
+    {
+        const mc_panel_plugin_t *pp = (const mc_panel_plugin_t *) iter->data;
+
+        if ((pp->flags & MC_PPF_ACCEPTS_FILE_LIST) != 0 && pp->open_file_list != NULL)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Activate @plugin's open_file_list on @panel using @paths/@count/@label. */
+static gboolean
+panel_plugin_open_file_list_one (WPanel *panel, const mc_panel_plugin_t *plugin,
+                                 const char *const *paths, size_t count, const char *label)
+{
+    mc_panel_host_t *host;
+    void *new_data;
+
+    if (plugin->open_file_list == NULL)
+        return FALSE;
+
+    host = g_new0 (mc_panel_host_t, 1);
+    panel_plugin_init_host (host, panel);
+
+    /* Capture the cwd before the callback; the plugin may update the panel cwd
+       while building its listing. */
+    {
+        vfs_path_t *saved_pre_cwd = panel->plugin_pre_cwd_vpath;
+        gboolean was_plugin = panel->is_plugin_panel;
+        panel->plugin_pre_cwd_vpath =
+            was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
+
+        new_data = plugin->open_file_list (host, paths, count, label);
+        if (new_data == NULL)
+        {
+            if (!was_plugin)
+            {
+                vfs_path_free (panel->plugin_pre_cwd_vpath, TRUE);
+                panel->plugin_pre_cwd_vpath = saved_pre_cwd;
+            }
+            g_free (host);
+            return FALSE;
+        }
+        (void) saved_pre_cwd;
+    }
+
+    if (panel->is_plugin_panel)
+    {
+        /* Keep pre-plugin cwd while replacing the plugin instance. */
+        vfs_path_t *keep = panel->plugin_pre_cwd_vpath;
+        panel->plugin_pre_cwd_vpath = NULL;
+        panel_plugin_close (panel);
+        panel->plugin_pre_cwd_vpath = keep;
+    }
+
+    panel->plugin_data = new_data;
+    panel->plugin = plugin;
+    panel->plugin_host = host;
+    panel->is_plugin_panel = TRUE;
+    panel->is_panelized = TRUE;
+    panel->plugin_base_list_format = panel->list_format;
+
+    panel_clean_dir (panel);
+    panel->is_panelized = TRUE;
+    panel->is_plugin_panel = TRUE;
+
+    panel_plugin_apply_default_columns_format (panel);
+
+    if (plugin->default_sort_id != NULL)
+    {
+        const panel_field_t *sf;
+
+        sf = panel_get_field_by_id (plugin->default_sort_id);
+        if (sf != NULL)
+        {
+            panel_set_sort_order (panel, sf);
+            panel->sort_info.reverse = plugin->default_sort_reverse ? 1 : 0;
+        }
+    }
+
+    dir_list_init (&panel->dir);
+    plugin->get_items (panel->plugin_data, &panel->dir);
+
+    panel_re_sort (panel);
+    panel->dirty = TRUE;
+
+    if (plugin->proto != NULL && plugin->get_title != NULL)
+    {
+        const char *title = plugin->get_title (panel->plugin_data);
+        if (title != NULL)
+        {
+            const char *path_tail = (title[0] != '\0') ? title : "/";
+            char *plugin_path = g_strdup_printf ("%s:%s", plugin->proto, path_tail);
+            panel_directory_history_add_path (panel, plugin_path);
+            g_free (plugin_path);
+        }
+    }
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_open_file_list (WPanel *panel, const char *const *paths, size_t count,
+                             const char *label)
+{
+    GSList *sinks;
+    const mc_panel_plugin_t *chosen = NULL;
+    gboolean activated;
+
+    if (panel == NULL || paths == NULL || count == 0)
+        return FALSE;
+
+    sinks = panel_plugin_collect_file_list_sinks ();
+    if (sinks == NULL)
+        return FALSE;
+
+    if (g_slist_next (sinks) == NULL)
+    {
+        /* Exactly one sink -- activate directly. */
+        chosen = (const mc_panel_plugin_t *) sinks->data;
+    }
+    else
+    {
+        /* Multiple sinks -- let the user pick. */
+        Listbox *lb;
+        int result;
+        const GSList *it;
+
+        lb = listbox_window_new (12, 40, _ ("Send to panel"), "[Panel Plugins]");
+        for (it = sinks; it != NULL; it = g_slist_next (it))
+        {
+            const mc_panel_plugin_t *pp = (const mc_panel_plugin_t *) it->data;
+            const char *label_text = pp->display_name != NULL ? pp->display_name : pp->name;
+
+            listbox_add_item (lb->list, LISTBOX_APPEND_AT_END, 0, label_text, (void *) pp, FALSE);
+        }
+        result = listbox_run (lb);
+        if (result >= 0)
+            chosen = (const mc_panel_plugin_t *) g_slist_nth_data (sinks, (guint) result);
+    }
+
+    activated =
+        (chosen != NULL) && panel_plugin_open_file_list_one (panel, chosen, paths, count, label);
+
+    g_slist_free (sinks);
     return activated;
 }
 
@@ -487,27 +715,51 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
     if (plugin->actions == NULL || action_index < 0 || action_index >= plugin->action_count)
         return;
 
-    /* close any previous plugin */
-    if (panel->is_plugin_panel)
-        panel_plugin_close (panel);
-
-    /* build host interface */
+    /* Keep the previous plugin active until the action returns replacement data. */
     host = g_new0 (mc_panel_host_t, 1);
     panel_plugin_init_host (host, panel);
 
-    path = vfs_path_as_str (panel->cwd_vpath);
-    pdata = plugin->actions[action_index].callback (host, path);
-    if (pdata == NULL)
+    /* Capture the cwd before the callback; the action may update the panel cwd
+       while building its listing. */
     {
-        /* action performed standalone operation (e.g. dialog), no panel activation */
-        if (host->focus_after != NULL)
+        vfs_path_t *saved_pre_cwd = panel->plugin_pre_cwd_vpath;
+        gboolean was_plugin = panel->is_plugin_panel;
+        panel->plugin_pre_cwd_vpath =
+            was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
+
+        path = vfs_path_as_str (panel->cwd_vpath);
+        pdata = plugin->actions[action_index].callback (host, path);
+        if (pdata == NULL)
         {
-            panel_reload (panel);
-            panel_set_current_by_name (panel, host->focus_after);
-            g_free (host->focus_after);
+            /* action performed standalone operation (e.g. dialog), no panel activation */
+            if (!was_plugin)
+            {
+                vfs_path_free (panel->plugin_pre_cwd_vpath, TRUE);
+                panel->plugin_pre_cwd_vpath = saved_pre_cwd;
+            }
+            if (host->focus_after != NULL)
+            {
+                /* Keep plugin panels in plugin mode. */
+                if (was_plugin)
+                    panel_plugin_refresh (panel);
+                else
+                    panel_reload (panel);
+                panel_set_current_by_name (panel, host->focus_after);
+                g_free (host->focus_after);
+            }
+            g_free (host);
+            return;
         }
-        g_free (host);
-        return;
+        (void) saved_pre_cwd;
+    }
+
+    if (panel->is_plugin_panel)
+    {
+        /* Keep pre-plugin cwd while replacing the plugin instance. */
+        vfs_path_t *keep = panel->plugin_pre_cwd_vpath;
+        panel->plugin_pre_cwd_vpath = NULL;
+        panel_plugin_close (panel);
+        panel->plugin_pre_cwd_vpath = keep;
     }
 
     panel->plugin_data = pdata;
@@ -525,11 +777,54 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
 
     panel_plugin_apply_default_columns_format (panel);
 
+    if (plugin->default_sort_id != NULL)
+    {
+        const panel_field_t *sf;
+
+        sf = panel_get_field_by_id (plugin->default_sort_id);
+        if (sf != NULL)
+        {
+            panel_set_sort_order (panel, sf);
+            panel->sort_info.reverse = plugin->default_sort_reverse ? 1 : 0;
+        }
+    }
+
     dir_list_init (&panel->dir);
     plugin->get_items (panel->plugin_data, &panel->dir);
 
     panel_re_sort (panel);
     panel->dirty = TRUE;
+
+    /* Record plugin panel in directory history. */
+    if (panel->plugin->proto != NULL && panel->plugin->get_title != NULL)
+    {
+        const char *title = panel->plugin->get_title (panel->plugin_data);
+        if (title != NULL)
+        {
+            const char *path_tail = (title[0] != '\0') ? title : "/";
+            char *plugin_path = g_strdup_printf ("%s:%s", panel->plugin->proto, path_tail);
+            panel_directory_history_add_path (panel, plugin_path);
+            g_free (plugin_path);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_run_action_by_name (WPanel *panel, const char *plugin_name, int action_index)
+{
+    const mc_panel_plugin_t *p;
+
+    if (panel == NULL || plugin_name == NULL)
+        return FALSE;
+
+    p = mc_panel_plugin_find_by_name (plugin_name);
+    if (p == NULL || p->actions == NULL || action_index < 0 || action_index >= p->action_count)
+        return FALSE;
+
+    panel_plugin_run_action (panel, p, action_index);
+    return TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -584,29 +879,7 @@ panel_plugin_select_and_activate (WPanel *panel)
         }
 
         if (selected != NULL)
-        {
-            if (selected->actions != NULL && selected->action_count > 0)
-            {
-                /* show second listbox with available actions */
-                Listbox *action_lb;
-                int action_result;
-                int ai;
-                const char *title =
-                    selected->display_name != NULL ? selected->display_name : selected->name;
-
-                action_lb = listbox_window_new (12, 40, title, "[Panel Plugins]");
-
-                for (ai = 0; ai < selected->action_count; ai++)
-                    listbox_add_item (action_lb->list, LISTBOX_APPEND_AT_END, 0,
-                                      _ (selected->actions[ai].label), NULL, FALSE);
-
-                action_result = listbox_run (action_lb);
-                if (action_result >= 0 && action_result < selected->action_count)
-                    panel_plugin_run_action (panel, selected, action_result);
-            }
-            else
-                panel_plugin_activate (panel, selected, vfs_path_as_str (panel->cwd_vpath));
-        }
+            panel_plugin_activate (panel, selected, vfs_path_as_str (panel->cwd_vpath));
     }
 }
 
@@ -707,42 +980,6 @@ panel_plugin_drive_change (WPanel *panel)
         if (selected == NULL)
             return FALSE;
 
-        if (selected->actions != NULL && selected->action_count > 0)
-        {
-            Listbox *action_lb;
-            int action_result;
-            int ai;
-            int action_max_len = 0;
-            int action_cols;
-            const char *action_title =
-                selected->display_name != NULL ? selected->display_name : selected->name;
-
-            for (ai = 0; ai < selected->action_count; ai++)
-            {
-                int len = str_term_width1 (_ (selected->actions[ai].label));
-
-                if (len > action_max_len)
-                    action_max_len = len;
-            }
-
-            action_cols = MAX (action_max_len + 4, str_term_width1 (action_title) + 4);
-
-            action_lb = listbox_window_centered_new (center_y, center_x, selected->action_count,
-                                                     action_cols, action_title, "[Panel Plugins]");
-
-            for (ai = 0; ai < selected->action_count; ai++)
-                listbox_add_item (action_lb->list, LISTBOX_APPEND_AT_END, 0,
-                                  _ (selected->actions[ai].label), NULL, FALSE);
-
-            action_result = listbox_run (action_lb);
-            if (action_result >= 0 && action_result < selected->action_count)
-            {
-                panel_plugin_run_action (panel, selected, action_result);
-                return TRUE;
-            }
-            return FALSE;
-        }
-
         panel_plugin_activate (panel, selected, vfs_path_as_str (panel->cwd_vpath));
         return TRUE;
     }
@@ -791,6 +1028,58 @@ panel_navigate_to_path (WPanel *panel, const char *path, gboolean add_to_history
         cd_error_message (path);
 
     return ok;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Returns owned menu_entry_t nodes in an owned GList. */
+GList *
+panel_plugin_collect_menu_entries (const char *menu_name)
+{
+    const GSList *plugins;
+    GList *entries = NULL;
+    gsize plugin_idx = 0;
+
+    if (menu_name == NULL)
+        return NULL;
+
+    for (plugins = mc_panel_plugin_list (); plugins != NULL;
+         plugins = g_slist_next (plugins), plugin_idx++)
+    {
+        const mc_panel_plugin_t *pp = (const mc_panel_plugin_t *) plugins->data;
+        int i;
+
+        if (pp->cmd_menu_entries == NULL || pp->cmd_menu_entry_count <= 0)
+            continue;
+
+        for (i = 0; i < pp->cmd_menu_entry_count; i++)
+        {
+            const mc_pp_cmd_menu_entry_t *e = &pp->cmd_menu_entries[i];
+            const char *target = e->menu_name != NULL ? e->menu_name : MC_PP_MENU_COMMAND;
+            menu_entry_t *me;
+            long cmd;
+
+            if (g_strcmp0 (target, menu_name) != 0)
+                continue;
+
+            if (e->label == NULL)
+            {
+                entries = g_list_prepend (entries, menu_separator_new ());
+                continue;
+            }
+
+            if (pp->actions == NULL || e->action_index < 0 || e->action_index >= pp->action_count)
+                continue;
+
+            cmd = CK_PluginActionBase + (long) plugin_idx * 16 + (long) e->action_index;
+            me = menu_entry_new (_ (e->label), cmd);
+            if (e->shortcut != NULL)
+                menu_entry_set_shortcut (me, e->shortcut);
+            entries = g_list_prepend (entries, me);
+        }
+    }
+
+    return entries != NULL ? g_list_reverse (entries) : NULL;
 }
 
 /* --------------------------------------------------------------------------------------------- */

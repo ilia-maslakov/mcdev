@@ -160,7 +160,8 @@ do_view_cmd (WPanel *panel, gboolean plain_view)
             cd_error_message (fe->fname->str);
         vfs_path_free (fname_vpath, TRUE);
     }
-    else if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
+    else if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+             && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
     {
         if (panel->plugin->get_local_copy == NULL)
         {
@@ -726,7 +727,8 @@ edit_cmd (const WPanel *panel)
     if (fe == NULL)
         return;
 
-    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
+    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+        && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
     {
         if (panel->plugin->get_local_copy == NULL)
         {
@@ -1936,7 +1938,8 @@ plugin_panel_put_cmd (WPanel *panel)
         const file_entry_t *fe;
 
         fe = panel_current_entry (panel);
-        if (fe == NULL || S_ISDIR (fe->st.st_mode))
+        if (fe == NULL
+            || (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0))
             return;
     }
 
@@ -1954,7 +1957,7 @@ plugin_panel_put_cmd (WPanel *panel)
             if (!fe->f.marked)
                 continue;
 
-            if (S_ISDIR (fe->st.st_mode))
+            if (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
                 continue;
 
             full_path = mc_build_filename (vfs_path_as_str (panel->cwd_vpath), fe->fname->str,
@@ -1974,7 +1977,8 @@ plugin_panel_put_cmd (WPanel *panel)
 
         fe = panel_current_entry (panel);
         /* already validated above, but keep the guard */
-        if (fe == NULL || S_ISDIR (fe->st.st_mode))
+        if (fe == NULL
+            || (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0))
             return;
 
         full_path =
@@ -2014,7 +2018,8 @@ plugin_panel_put_move_cmd (WPanel *panel)
         const file_entry_t *fe;
 
         fe = panel_current_entry (panel);
-        if (fe == NULL || S_ISDIR (fe->st.st_mode))
+        if (fe == NULL
+            || (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0))
             return;
     }
 
@@ -2032,7 +2037,7 @@ plugin_panel_put_move_cmd (WPanel *panel)
             if (!fe->f.marked)
                 continue;
 
-            if (S_ISDIR (fe->st.st_mode))
+            if (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
                 continue;
 
             full_path = mc_build_filename (vfs_path_as_str (panel->cwd_vpath), fe->fname->str,
@@ -2045,7 +2050,7 @@ plugin_panel_put_move_cmd (WPanel *panel)
                 continue;
             }
 
-            if (unlink (full_path) != 0)
+            if ((dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0 && unlink (full_path) != 0)
                 message (D_ERROR, MSG_ERROR, _ ("Cannot delete local file %s"), fe->fname->str);
 
             g_free (full_path);
@@ -2059,7 +2064,8 @@ plugin_panel_put_move_cmd (WPanel *panel)
 
         fe = panel_current_entry (panel);
         /* already validated above, but keep the guard */
-        if (fe == NULL || S_ISDIR (fe->st.st_mode))
+        if (fe == NULL
+            || (S_ISDIR (fe->st.st_mode) && (dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0))
             return;
 
         full_path =
@@ -2072,7 +2078,7 @@ plugin_panel_put_move_cmd (WPanel *panel)
             return;
         }
 
-        if (unlink (full_path) != 0)
+        if ((dest->plugin->flags & MC_PPF_LOCAL_FILES) == 0 && unlink (full_path) != 0)
             message (D_ERROR, MSG_ERROR, _ ("Cannot delete local file %s"), fe->fname->str);
 
         g_free (full_path);

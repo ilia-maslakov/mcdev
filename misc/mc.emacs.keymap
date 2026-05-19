@@ -107,7 +107,6 @@ SelectInvert = alt-asterisk
 CdChild = ctrl-pgdn
 CdParent = ctrl-pgup
 # CdParentSmart =
-# Panelize =
 History = alt-shift-h
 HistoryNext = alt-u
 HistoryPrev = alt-y

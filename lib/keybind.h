@@ -153,6 +153,9 @@ enum
     CK_EditExtensionsFile,
     CK_EditFileHighlightFile,
     CK_LinkSymbolicEdit,
+    /* Generic "external panelize" command. Bound to a keystroke via the
+       keymap; the handler delegates to whichever panel plugin claims it
+       (currently the "panelize" plugin). */
     CK_ExternalPanelize,
     CK_Filter,
     CK_ConnectShell,
@@ -196,7 +199,10 @@ enum
     // panels
     CK_PanelOtherCd = 200L,
     CK_PanelOtherCdLink,
-    CK_Panelize,
+    /* CK_Panelize is removed (replaced by the panelize panel plugin), but its
+       enum slot (202) is preserved so subsequent CK_* values keep stable
+       numeric IDs in saved keymaps. */
+    CK_PanelizeDeprecated,
     CK_PanelPlugin,
     CK_PluginDriveLeft,
     CK_PluginDriveRight,

@@ -1277,11 +1277,11 @@ swap_panels (void)
         panelswap (top);
         panelswap (current);
         panelswap (is_panelized);
-        panelswap (panelized_descr);
         panelswap (is_plugin_panel);
         panelswap (plugin);
         panelswap (plugin_data);
         panelswap (plugin_host);
+        panelswap (plugin_pre_cwd_vpath);
         panelswap (dir_stat);
 #undef panelswap
 
