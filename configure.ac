@@ -216,6 +216,15 @@ dnl Check for main libraries
 dnl ############################################################################
 
 mc_CHECK_GLIB
+PKG_CHECK_MODULES([MCTREE_JSON], [json-glib-1.0],
+    [AC_DEFINE([HAVE_MCTREE_JSON_GLIB], [1], [Define if json-glib is available for mctree])],
+    [:])
+PKG_CHECK_MODULES([MCTREE_XML], [libxml-2.0],
+    [AC_DEFINE([HAVE_MCTREE_LIBXML2], [1], [Define if libxml2 is available for mctree])],
+    [:])
+PKG_CHECK_MODULES([MCTREE_MAGIC], [libmagic],
+    [AC_DEFINE([HAVE_MCTREE_MAGIC], [1], [Define if libmagic is available for mctree])],
+    [:])
 mc_G_MODULE_SUPPORTED
 mc_WITH_SCREEN
 dnl X11 support. Used to read keyboard modifiers when running under X11.
@@ -743,6 +752,7 @@ src/Makefile
 src/consaver/Makefile
 src/editor/Makefile
 src/man2hlp/Makefile
+src/mctree/Makefile
 src/subshell/Makefile
 src/viewer/Makefile
 src/mcterm/Makefile
@@ -751,6 +761,7 @@ src/filemanager/Makefile
 
 src/panel-plugins/Makefile
 src/panel-plugins/hello/Makefile
+src/panel-plugins/mctree/Makefile
 src/panel-plugins/panelize/Makefile
 src/panel-plugins/samba/Makefile
 src/panel-plugins/ftp/Makefile

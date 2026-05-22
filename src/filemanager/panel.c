@@ -731,6 +731,93 @@ panel_plugin_get_column_value (const WPanel *panel, const file_entry_t *fe, cons
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_set_color (int color)
+{
+    if (color >= 0)
+        tty_setcolor (color);
+    else
+        tty_lowlevel_setcolor (-color);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_print_colored_span (const char *start, gsize len, int color, int *remaining)
+{
+    char *part;
+    int width;
+
+    if (start == NULL || len == 0 || *remaining <= 0)
+        return;
+
+    part = g_strndup (start, len);
+    width = str_term_width1 (part);
+    if (width > 0)
+    {
+        panel_set_color (color);
+        if (width <= *remaining)
+        {
+            tty_print_string (part);
+            *remaining -= width;
+        }
+        else
+        {
+            tty_print_string (str_fit_to_term (part, *remaining, J_LEFT_FIT));
+            *remaining = 0;
+        }
+    }
+    g_free (part);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+panel_plugin_print_mctree_value (const WPanel *panel, const format_item_t *fi, const char *txt,
+                                 int width, int base_color)
+{
+    const char *key;
+    const char *colon;
+    int key_color;
+    int value_color;
+    int remaining = width;
+
+    if (panel == NULL || panel->plugin == NULL || fi == NULL || txt == NULL
+        || strcmp (panel->plugin->name, "mctree") != 0 || strcmp (fi->id, "tree") != 0)
+        return FALSE;
+
+    key_color = base_color == CORE_NORMAL_COLOR ? MCTREE_KEY_COLOR : base_color;
+    value_color = base_color == CORE_NORMAL_COLOR ? MCTREE_VALUE_COLOR : base_color;
+
+    key = txt;
+    while (*key == ' ')
+        key++;
+    if ((*key == '+' || *key == '-' || *key == ' ') && key[1] == ' ')
+        key += 2;
+
+    colon = strstr (key, ": ");
+
+    panel_print_colored_span (txt, (gsize) (key - txt), base_color, &remaining);
+    if (colon != NULL)
+    {
+        panel_print_colored_span (key, (gsize) (colon - key), key_color, &remaining);
+        panel_print_colored_span (colon, 2, base_color, &remaining);
+        panel_print_colored_span (colon + 2, strlen (colon + 2), value_color, &remaining);
+    }
+    else
+        panel_print_colored_span (key, strlen (key), key_color, &remaining);
+
+    if (remaining > 0)
+    {
+        panel_set_color (base_color);
+        tty_print_string (str_fit_to_term ("", remaining, J_LEFT));
+    }
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /** Formats the file number file_index of panel in the buffer dest */
 
 static filename_scroll_flag_t
@@ -811,10 +898,14 @@ format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolea
                     perm = 2;
             }
 
-            if (color >= 0)
-                tty_setcolor (color);
-            else
-                tty_lowlevel_setcolor (-color);
+            panel_set_color (color);
+
+            if (fi->is_plugin_column
+                && panel_plugin_print_mctree_value (panel, fi, txt, len, color))
+            {
+                length += len;
+                continue;
+            }
 
             if (!isstatus)
                 prepared_text = str_fit_to_term (txt + name_offset, len, HIDE_FIT (fi->just_mode));
@@ -4696,6 +4787,16 @@ panel_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         break;
 
     case MSG_MOUSE_CLICK:
+        if ((event->count & GPM_SINGLE) != 0 && (event->buttons & GPM_B_LEFT) != 0
+            && panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+            && panel->plugin->handle_key != NULL && panel->plugin->name != NULL
+            && strcmp (panel->plugin->name, "mctree") == 0
+            && panel_mouse_is_on_item (panel, event->y - 2, event->x) >= 0)
+        {
+            if (panel->plugin->handle_key (panel->plugin_data, CK_Enter) == MC_PPR_OK)
+                panel_plugin_reload (panel);
+        }
+
         if ((event->count & GPM_DOUBLE) != 0 && (event->buttons & GPM_B_LEFT) != 0
             && panel_mouse_is_on_item (panel, event->y - 2, event->x) >= 0)
             do_enter (panel);

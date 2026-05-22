@@ -581,6 +581,7 @@ create_panels (void)
     panel_view_mode_t current_mode, other_mode;
     char *current_dir, *other_dir;
     vfs_path_t *original_dir;
+    gboolean current_is_plugin_path, other_is_plugin_path;
 
     /*
      * Following cases from command line are possible:
@@ -655,9 +656,11 @@ create_panels (void)
 
     // 1. Get current dir
     original_dir = vfs_path_clone (vfs_get_raw_current_dir ());
+    current_is_plugin_path = panel_plugin_find_by_path (current_dir) != NULL;
+    other_is_plugin_path = panel_plugin_find_by_path (other_dir) != NULL;
 
     // 2. Create passive panel
-    if (other_dir != NULL)
+    if (other_dir != NULL && !other_is_plugin_path)
     {
         vfs_path_t *vpath;
 
@@ -671,7 +674,7 @@ create_panels (void)
     create_panel (other_index, other_mode);
 
     // 3. Create active panel
-    if (current_dir == NULL)
+    if (current_dir == NULL || current_is_plugin_path)
         mc_chdir (original_dir);
     else
     {
@@ -692,6 +695,12 @@ create_panels (void)
         current_panel = right_panel;
     else
         current_panel = left_panel;
+
+    if (other_is_plugin_path)
+        (void) panel_plugin_activate_by_path (other_index == 0 ? left_panel : right_panel,
+                                              other_dir);
+    if (current_is_plugin_path)
+        (void) panel_plugin_activate_by_path (current_panel, current_dir);
 
     vfs_path_free (original_dir, TRUE);
 

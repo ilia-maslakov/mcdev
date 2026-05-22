@@ -57,6 +57,8 @@ gboolean mc_args__force_colors = FALSE;
 /* Don't load keymap from file and use default one */
 gboolean mc_args__nokeymap = FALSE;
 
+gboolean mc_args__mctree = FALSE;
+
 char *mc_args__last_wd_file = NULL;
 
 /* when enabled NETCODE, use following file as logfile */
@@ -594,6 +596,8 @@ mc_setup_run_mode (char **argv)
         mc_global.mc_run_mode = MC_RUN_DIFFVIEWER;
     }
 #endif
+    else if (strcmp (base, "mctree") == 0)
+        mc_args__mctree = TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -730,6 +734,22 @@ mc_setup_by_args (int argc, char **argv, GError **mcerror)
 #endif
 
     tmp = (argc > 0) ? argv[1] : NULL;
+
+    if (mc_args__mctree)
+    {
+        char *abs_path;
+
+        if (tmp == NULL)
+        {
+            mc_propagate_error (mcerror, 0, "%s\n", _ ("No arguments given to mctree."));
+            return FALSE;
+        }
+
+        abs_path = g_canonicalize_filename (tmp, NULL);
+        mc_run_param0 = g_strconcat ("mctree:", abs_path, (char *) NULL);
+        g_free (abs_path);
+        return TRUE;
+    }
 
     switch (mc_global.mc_run_mode)
     {

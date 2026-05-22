@@ -1,5 +1,6 @@
 SUBDIRS = systemd
 SUBDIRS += hello
+SUBDIRS += mctree
 SUBDIRS += panelize
 
 if ENABLE_VFS_SFTP
@@ -26,4 +27,4 @@ SUBDIRS += docker
 SUBDIRS += git
 SUBDIRS += shell-link
 
-DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 docker git shell-link
+DIST_SUBDIRS = systemd hello mctree panelize sftp samba ftp arcmc s3 docker git shell-link
