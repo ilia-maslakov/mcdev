@@ -193,6 +193,7 @@ typedef struct mc_panel_plugin_t
        paths it keeps. Return NULL to leave the current panel unchanged. */
     void *(*open_file_list) (struct mc_panel_host_t *host, const char *const *paths, size_t count,
                              const char *label);
+
 } mc_panel_plugin_t;
 
 typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);

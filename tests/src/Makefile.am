@@ -34,6 +34,9 @@ TESTS = \
 	file_history \
 	keymap_reload \
 	learn_modifiers \
+	mctree_model \
+	mctree_resolver \
+	mctree_view \
 	term_key_merge \
 	usermenu__test_condition \
 	usermenu__test_expand_format
@@ -71,6 +74,15 @@ mcterm_key_encode_SOURCES = \
 
 mcterm_osc7_parse_SOURCES = \
 	mcterm_osc7_parse.c
+
+mctree_model_SOURCES = \
+	mctree_model.c
+
+mctree_resolver_SOURCES = \
+	mctree_resolver.c
+
+mctree_view_SOURCES = \
+	mctree_view.c
 
 term_key_merge_SOURCES = \
 	term_key_merge.c

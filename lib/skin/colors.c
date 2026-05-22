@@ -335,6 +335,9 @@ mc_skin_color_cache_init (void)
     DIFFVIEWER_ERROR_COLOR = mc_skin_color_get ("diffviewer", "error");
 
     FILEHIGHLIGHT_DEFAULT_COLOR = mc_skin_color_get ("filehighlight", "_default_");
+
+    MCTREE_KEY_COLOR = mc_skin_color_get ("mctree", "key");
+    MCTREE_VALUE_COLOR = mc_skin_color_get ("mctree", "value");
 }
 
 /* --------------------------------------------------------------------------------------------- */
