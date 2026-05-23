@@ -717,6 +717,58 @@ edit_file_at_line (const vfs_path_t *what_vpath, gboolean internal, long start_l
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Edit a file that lives on a plugin panel: fetch a local copy, run the editor
+   (internal when @force_internal), and push it back via save_file if it
+   changed. The entry name is copied before opening the editor. */
+static void
+edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_internal)
+{
+    char *plugin_fname;
+    char *local_path = NULL;
+    vfs_path_t *local_vpath;
+    struct stat st_before, st_after;
+    gboolean had_before;
+
+    if (panel->plugin->get_local_copy == NULL)
+    {
+        message (D_ERROR, MSG_ERROR, _ ("This plugin does not support file editing"));
+        return;
+    }
+
+    plugin_fname = g_strdup (fname);
+    if (panel->plugin->get_local_copy (panel->plugin_data, plugin_fname, &local_path) != MC_PPR_OK
+        || local_path == NULL)
+    {
+        message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), plugin_fname);
+        g_free (plugin_fname);
+        return;
+    }
+
+    had_before = stat (local_path, &st_before) == 0;
+
+    local_vpath = vfs_path_from_str (local_path);
+    if (regex_command (local_vpath, "Edit") == 0)
+    {
+        if (force_internal)
+            edit_file_at_line (local_vpath, TRUE, 1);
+        else
+            do_edit (local_vpath);
+    }
+    vfs_path_free (local_vpath, TRUE);
+
+    /* Save when the file changed; if the initial stat failed, save conservatively. */
+    if (panel->plugin->save_file != NULL && stat (local_path, &st_after) == 0
+        && (!had_before || st_after.st_mtime != st_before.st_mtime)
+        && panel->plugin->save_file (panel->plugin_data, local_path, plugin_fname) != MC_PPR_OK)
+        message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"), plugin_fname);
+
+    unlink (local_path);
+    g_free (local_path);
+    g_free (plugin_fname);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 void
 edit_cmd (const WPanel *panel)
 {
@@ -730,48 +782,7 @@ edit_cmd (const WPanel *panel)
     if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
         && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
     {
-        if (panel->plugin->get_local_copy == NULL)
-        {
-            message (D_ERROR, MSG_ERROR, _ ("This plugin does not support file editing"));
-            return;
-        }
-
-        {
-            char *local_path = NULL;
-            mc_pp_result_t r;
-
-            r = panel->plugin->get_local_copy (panel->plugin_data, fe->fname->str, &local_path);
-            if (r != MC_PPR_OK || local_path == NULL)
-            {
-                message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), fe->fname->str);
-                return;
-            }
-
-            {
-                vfs_path_t *local_vpath;
-                struct stat st_before, st_after;
-
-                (void) stat (local_path, &st_before);
-
-                local_vpath = vfs_path_from_str (local_path);
-                if (regex_command (local_vpath, "Edit") == 0)
-                    do_edit (local_vpath);
-                vfs_path_free (local_vpath, TRUE);
-
-                if (panel->plugin->save_file != NULL && stat (local_path, &st_after) == 0
-                    && st_after.st_mtime != st_before.st_mtime)
-                {
-                    mc_pp_result_t sr;
-
-                    sr = panel->plugin->save_file (panel->plugin_data, local_path, fe->fname->str);
-                    if (sr != MC_PPR_OK)
-                        message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"),
-                                 fe->fname->str);
-                }
-            }
-            unlink (local_path);
-            g_free (local_path);
-        }
+        edit_plugin_panel_file (panel, fe->fname->str, FALSE);
         return;
     }
 
@@ -796,48 +807,7 @@ edit_cmd_force_internal (const WPanel *panel)
 
     if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
     {
-        if (panel->plugin->get_local_copy == NULL)
-        {
-            message (D_ERROR, MSG_ERROR, _ ("This plugin does not support file editing"));
-            return;
-        }
-
-        {
-            char *local_path = NULL;
-            mc_pp_result_t r;
-
-            r = panel->plugin->get_local_copy (panel->plugin_data, fe->fname->str, &local_path);
-            if (r != MC_PPR_OK || local_path == NULL)
-            {
-                message (D_ERROR, MSG_ERROR, _ ("Cannot get local copy of %s"), fe->fname->str);
-                return;
-            }
-
-            {
-                vfs_path_t *local_vpath;
-                struct stat st_before, st_after;
-
-                (void) stat (local_path, &st_before);
-
-                local_vpath = vfs_path_from_str (local_path);
-                if (regex_command (local_vpath, "Edit") == 0)
-                    edit_file_at_line (local_vpath, TRUE, 1);
-                vfs_path_free (local_vpath, TRUE);
-
-                if (panel->plugin->save_file != NULL && stat (local_path, &st_after) == 0
-                    && st_after.st_mtime != st_before.st_mtime)
-                {
-                    mc_pp_result_t sr;
-
-                    sr = panel->plugin->save_file (panel->plugin_data, local_path, fe->fname->str);
-                    if (sr != MC_PPR_OK)
-                        message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"),
-                                 fe->fname->str);
-                }
-            }
-            unlink (local_path);
-            g_free (local_path);
-        }
+        edit_plugin_panel_file (panel, fe->fname->str, TRUE);
         return;
     }
 

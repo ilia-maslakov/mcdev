@@ -22,8 +22,12 @@ if ENABLE_PANEL_PLUGIN_S3
 SUBDIRS += s3
 endif
 
+if ENABLE_PANEL_PLUGIN_MONGO
+SUBDIRS += mongo
+endif
+
 SUBDIRS += docker
 SUBDIRS += git
 SUBDIRS += shell-link
 
-DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 docker git shell-link
+DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 mongo docker git shell-link

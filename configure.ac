@@ -707,6 +707,38 @@ fi
 
 AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_S3], [test x"$have_panel_plugin_s3" = xyes])
 
+dnl mongo -- MongoDB browser panel plugin (libmongoc + libbson)
+have_panel_plugin_mongo=no
+enable_panel_plugin_mongo=auto
+
+AC_ARG_ENABLE([panel-plugin-mongo],
+    AS_HELP_STRING([--enable-panel-plugin-mongo@<:@=auto/yes/no@:>@],
+                   [Build MongoDB panel plugin (default: auto)]),
+    [enable_panel_plugin_mongo="$enableval"],
+    [enable_panel_plugin_mongo=auto])
+
+AS_CASE([$enable_panel_plugin_mongo],
+    [yes|no|auto], [],
+    [AC_MSG_ERROR([bad value '$enable_panel_plugin_mongo' for --enable-panel-plugin-mongo (use auto, yes, or no)])])
+
+if test "x$enable_panel_plugin_mongo" != xno; then
+    PKG_CHECK_MODULES([MONGOC],
+        [libmongoc-1.0 >= 1.21 libbson-1.0 >= 1.21],
+        [have_panel_plugin_mongo=yes],
+        [:])
+fi
+
+if test "x$enable_panel_plugin_mongo" = xyes && test "x$have_panel_plugin_mongo" != xyes; then
+    AC_MSG_ERROR([MongoDB panel plugin requested but libmongoc-1.0 >= 1.21 and libbson-1.0 >= 1.21 were not found.
+Install the MongoDB C driver development packages (for example: libmongoc-dev libbson-dev) or use --enable-panel-plugin-mongo=auto/no.])
+fi
+
+if test "x$enable_panel_plugin_mongo" = xauto && test "x$have_panel_plugin_mongo" != xyes; then
+    AC_MSG_WARN([MongoDB panel plugin disabled: libmongoc-1.0 / libbson-1.0 not found.])
+fi
+
+AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_MONGO], [test x"$have_panel_plugin_mongo" = xyes])
+
 AC_ARG_ENABLE([configure-args],
     AS_HELP_STRING([--enable-configure-args], [Embed ./configure arguments into binaries]))
 if test "x$enable_configure_args" != xno; then
@@ -761,6 +793,7 @@ src/panel-plugins/git/Makefile
 src/panel-plugins/shell-link/Makefile
 src/panel-plugins/arcmc/Makefile
 src/panel-plugins/s3/Makefile
+src/panel-plugins/mongo/Makefile
 
 src/vfs/Makefile
 
@@ -879,6 +912,7 @@ tests/src/panel-plugins/ftp/Makefile
 tests/src/panel-plugins/arcmc/Makefile
 tests/src/panel-plugins/samba/Makefile
 tests/src/panel-plugins/docker/Makefile
+tests/src/panel-plugins/mongo/Makefile
 tests/src/panel-plugins/pp_common/Makefile
 tests/misc/Makefile
 tests/misc/ext.d/Makefile
