@@ -27,6 +27,7 @@
 
 #include "lib/global.h"
 #include "lib/tty/tty.h"
+#include "lib/keybind.h"  // CK_Enter
 #include "lib/widget.h"
 #include "lib/widget/table.h"
 #include "lib/editor-plugin.h"
@@ -45,11 +46,19 @@
 
 typedef struct
 {
-    const char *kind;         /* "mcedit" or "panel" (display only) */
-    mc_plugin_kind_t kind_id; /* prefs namespace */
-    const char *name;         /* plugin id */
-    const char *desc;         /* display name */
+    const char *kind;                      /* "mcedit" or "panel" (display only) */
+    mc_plugin_kind_t kind_id;              /* prefs namespace */
+    const char *name;                      /* plugin id */
+    const char *desc;                      /* display name */
+    const mc_panel_plugin_t *panel_plugin; /* panel plugin for settings, else NULL */
 } mp_row_t;
+
+/* Passed to the dialog callback so Enter/F4 can reach the selected row. */
+typedef struct
+{
+    WTable *tbl;
+    const GArray *rows;
+} mp_ctx_t;
 
 /*** file scope functions ************************************************************************/
 
@@ -96,6 +105,7 @@ mp_collect_rows (GPtrArray *strpool)
         r.kind_id = MC_PLUGIN_KIND_EDITOR;
         r.name = p->name;
         r.desc = p->display_name != NULL ? p->display_name : p->name;
+        r.panel_plugin = NULL;
         g_array_append_val (rows, r);
     }
 
@@ -111,6 +121,7 @@ mp_collect_rows (GPtrArray *strpool)
         r.kind_id = MC_PLUGIN_KIND_PANEL;
         r.name = p->name;
         r.desc = p->display_name != NULL ? p->display_name : p->name;
+        r.panel_plugin = p;
         g_array_append_val (rows, r);
     }
 
@@ -151,6 +162,7 @@ mp_collect_rows (GPtrArray *strpool)
                 r.kind_id = kinds[k].kind_id;
                 r.name = owned;
                 r.desc = _ ("(disabled, not loaded)");
+                r.panel_plugin = NULL;
                 g_array_append_val (rows, r);
             }
             g_strfreev (disabled);
@@ -231,6 +243,62 @@ mp_set_checked (void *data, int row, int col, gboolean val)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+/* Open the settings dialog of the plugin under the table cursor, if it has one. */
+static void
+mp_invoke_settings (const mp_ctx_t *ctx)
+{
+    int row;
+    const mp_row_t *r;
+
+    if (ctx == NULL || ctx->rows == NULL)
+        return;
+
+    row = table_get_current (ctx->tbl);
+    if (row < 0 || row >= (int) ctx->rows->len)
+        return;
+
+    r = &g_array_index (ctx->rows, mp_row_t, (guint) row);
+    if (r->panel_plugin == NULL || r->panel_plugin->configure == NULL)
+    {
+        message (D_NORMAL, _ ("Manage Plugins"), "%s", _ ("This plugin has no settings."));
+        return;
+    }
+
+    r->panel_plugin->configure ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t
+mp_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
+{
+    const mp_ctx_t *ctx = (const mp_ctx_t *) DIALOG (w)->data.p;
+
+    switch (msg)
+    {
+    case MSG_NOTIFY:
+        if (ctx != NULL && sender == WIDGET (ctx->tbl) && parm == CK_Enter)
+        {
+            mp_invoke_settings (ctx);
+            return MSG_HANDLED;
+        }
+        return MSG_NOT_HANDLED;
+
+    case MSG_UNHANDLED_KEY:
+        if (ctx != NULL && parm == KEY_F (4))
+        {
+            mp_invoke_settings (ctx);
+            return MSG_HANDLED;
+        }
+        return MSG_NOT_HANDLED;
+
+    default:
+        return dlg_default_callback (w, sender, msg, parm, data);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
@@ -245,6 +313,7 @@ manage_plugins_dialog (void)
     int check_w, kind_w, name_w, desc_w;
     table_column_def_t col_defs[4];
     table_datasource_t ds;
+    mp_ctx_t ctx;
 
     strpool = g_ptr_array_new_with_free_func (g_free);
     rows = mp_collect_rows (strpool);
@@ -288,11 +357,15 @@ manage_plugins_dialog (void)
     col_defs[3].type = TABLE_COL_TEXT;
 
     dlg = dlg_create (TRUE, (LINES - dlg_h) / 2, (COLS - dlg_w) / 2, dlg_h, dlg_w,
-                      WPOS_KEEP_DEFAULT, TRUE, dialog_colors, dlg_default_callback, NULL,
+                      WPOS_KEEP_DEFAULT, TRUE, dialog_colors, mp_dlg_callback, NULL,
                       "[Manage Plugins]", _ ("Manage Plugins"));
 
     tbl = table_new (1, 1, table_h, table_w, 4, col_defs);
     tbl->scrollbar = TRUE;
+
+    ctx.tbl = tbl;
+    ctx.rows = rows;
+    dlg->data.p = &ctx;
 
     ds.get_nrows = mp_get_nrows;
     ds.get_text = mp_get_text;

@@ -64,6 +64,7 @@ static void *arcmc_action_create (mc_panel_host_t *host, const char *open_path);
 static void *arcmc_action_extract (mc_panel_host_t *host, const char *open_path);
 static void *arcmc_action_test (mc_panel_host_t *host, const char *open_path);
 static void *arcmc_action_settings (mc_panel_host_t *host, const char *open_path);
+static void arcmc_configure (void);
 
 /*** file scope functions (helpers) ***************************************************************/
 
@@ -200,6 +201,7 @@ static const mc_panel_plugin_t arcmc_plugin = {
     .action_count = G_N_ELEMENTS (arcmc_actions),
     .cmd_menu_entries = arcmc_cmd_menu,
     .cmd_menu_entry_count = G_N_ELEMENTS (arcmc_cmd_menu),
+    .configure = arcmc_configure,
 };
 
 /*** file scope functions ************************************************************************/
@@ -852,6 +854,15 @@ arcmc_action_settings (mc_panel_host_t *host, const char *open_path)
 
     arcmc_show_settings_dialog ();
     return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Settings entry point for the Manage Plugins dialog (.configure hook). */
+static void
+arcmc_configure (void)
+{
+    arcmc_show_settings_dialog ();
 }
 
 /* --------------------------------------------------------------------------------------------- */

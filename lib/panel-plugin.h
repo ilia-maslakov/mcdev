@@ -15,7 +15,7 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 7
+#define MC_PANEL_PLUGIN_API_VERSION 8
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
 
 /* Well-known target menu names for mc_pp_cmd_menu_entry_t.menu_name.
@@ -108,7 +108,6 @@ typedef struct mc_panel_host_t
        The host frees this string after use. */
     char *focus_after;
 
-    /* === v7 additions below; append-only to preserve struct ABI for older plugins === */
     /* Set the host panel's cwd to the given path. Used by plugins (e.g. panelize)
        whose listing carries absolute paths and which need %d/%p tokens and copy
        targets to resolve against "/" or another base. */
@@ -185,7 +184,6 @@ typedef struct mc_panel_plugin_t
     /* TRUE = sort descending (newest-first for mtime). Ignored when default_sort_id is NULL. */
     gboolean default_sort_reverse;
 
-    /* === v7 additions below; append-only to preserve struct ABI for older plugins === */
     /* Optional reload hook called before get_items() on Ctrl-R. */
     mc_pp_result_t (*reload) (void *plugin_data);
 
@@ -193,6 +191,12 @@ typedef struct mc_panel_plugin_t
        paths it keeps. Return NULL to leave the current panel unchanged. */
     void *(*open_file_list) (struct mc_panel_host_t *host, const char *const *paths, size_t count,
                              const char *label);
+
+    /* Optional: open the plugin's standalone settings/preferences dialog.
+       Invoked from the Manage Plugins dialog (Enter or F4 on the plugin row).
+       Operates without an open panel instance; the plugin loads/saves its own
+       config. NULL = the plugin has no settings. */
+    void (*configure) (void);
 } mc_panel_plugin_t;
 
 typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);
