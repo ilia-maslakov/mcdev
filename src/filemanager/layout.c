@@ -1167,24 +1167,8 @@ create_panel (int num, panel_view_mode_t type)
         break;
 
     case view_quick:
-    {
-        WPanel *the_other_panel;
-        const char *file_name = "";
-
         new_widget = WIDGET (mcview_new (&r, TRUE));
-        the_other_panel = PANEL (panels[the_other].widget);
-        if (the_other_panel != NULL)
-        {
-            const file_entry_t *fe;
-
-            fe = panel_current_entry (the_other_panel);
-            if (fe != NULL)
-                file_name = fe->fname->str;
-        }
-
-        mcview_load ((WView *) new_widget, 0, file_name, 0, 0, 0);
         break;
-    }
 
     default:
         break;
@@ -1241,6 +1225,11 @@ create_panel (int num, panel_view_mode_t type)
         current_panel = num == 0 ? right_panel : left_panel;
 
     g_free (old_widget);
+
+    /* Load quick-view content only after the widget swap settles; plugin
+       get_local_copy may open a nested dialog. */
+    if (type == view_quick)
+        mcview_load_panel_current ((WView *) new_widget, PANEL (panels[the_other].widget));
 }
 
 /* --------------------------------------------------------------------------------------------- */

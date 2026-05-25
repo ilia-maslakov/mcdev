@@ -375,10 +375,33 @@ mcterm_overlay_destroy (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Draw one panel slot. Only a view_listing slot is a real WPanel; tree/info/
+   quick-view widgets must NOT be cast to WPanel (writing p->active into, e.g.,
+   a WTree corrupts its memory and crashes on draw). */
+static void
+mcterm_overlay_draw_panel_slot (int idx, const WPanel *active_panel)
+{
+    Widget *pw = get_panel_widget (idx);
+
+    if (pw == NULL || !widget_get_state (pw, WST_VISIBLE))
+        return;
+
+    if (get_panel_type (idx) == view_listing)
+    {
+        WPanel *p = PANEL (pw);
+        gboolean saved = p->active;
+
+        p->active = (p == active_panel);
+        widget_draw (pw);
+        p->active = saved;
+    }
+    else
+        widget_draw (pw);
+}
+
 void
 mcterm_overlay_draw_visible_panels (void)
 {
-    Widget *pw;
     WPanel *active_panel;
 
     if (!mcterm_mode || mcterm_panel == NULL)
@@ -388,27 +411,8 @@ mcterm_overlay_draw_visible_panels (void)
         ? current_panel
         : NULL;
 
-    pw = get_panel_widget (0);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
-    {
-        WPanel *p = PANEL (pw);
-        gboolean saved = p->active;
-
-        p->active = (p == active_panel);
-        widget_draw (pw);
-        p->active = saved;
-    }
-
-    pw = get_panel_widget (1);
-    if (pw != NULL && widget_get_state (pw, WST_VISIBLE))
-    {
-        WPanel *p = PANEL (pw);
-        gboolean saved = p->active;
-
-        p->active = (p == active_panel);
-        widget_draw (pw);
-        p->active = saved;
-    }
+    mcterm_overlay_draw_panel_slot (0, active_panel);
+    mcterm_overlay_draw_panel_slot (1, active_panel);
 }
 
 /* --------------------------------------------------------------------------------------------- */

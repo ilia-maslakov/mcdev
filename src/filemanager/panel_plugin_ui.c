@@ -60,6 +60,11 @@
 
 /*** file scope variables ************************************************************************/
 
+/* When set, host_message_impl swallows plugin messages instead of popping a
+   modal dialog. Used for passive, repeated calls (quick-view follow), where a
+   modal on every cursor move would be intrusive. */
+static gboolean pp_quiet_messages = FALSE;
+
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
@@ -86,6 +91,8 @@ static void
 host_message_impl (mc_panel_host_t *host, int flags, const char *title, const char *text)
 {
     (void) host;
+    if (pp_quiet_messages)
+        return;
     message (flags, title, "%s", text);
 }
 
@@ -265,6 +272,18 @@ panel_plugin_init_host (mc_panel_host_t *host, WPanel *panel)
 
 /* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+/* Suppress (or restore) plugin modal messages. Returns the previous setting so
+   callers can save and restore it around a passive plugin call. */
+gboolean
+panel_plugin_set_quiet_messages (gboolean quiet)
+{
+    gboolean prev = pp_quiet_messages;
+    pp_quiet_messages = quiet;
+    return prev;
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static void
