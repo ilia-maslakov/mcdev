@@ -22,7 +22,9 @@ mc_panel_mongo_la_SOURCES = \
 	mongo_settings.c \
 	mongo_settings.h \
 	mongo_ui.c \
-	mongo_ui.h
+	mongo_ui.h \
+	mongo_wizard.c \
+	mongo_wizard.h
 
 mc_panel_mongo_la_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
