@@ -96,6 +96,15 @@ gboolean mongo_conn_min_max_id (mongoc_client_t *client, const char *db_name, co
                                 bson_value_t *min_out, bson_value_t *max_out, gboolean *found_out,
                                 char **err_out);
 
+/* Distinct scalar values of @field over the collection AND @filter_extra,
+   via $unwind+$group (so arrays are expanded). At most @limit values are
+   returned, sorted ascending; @capped_out is set TRUE when more than @limit
+   exist. Non-scalar values are skipped. Caller g_strfreev; NULL on error. */
+char **mongo_conn_distinct_values (mongoc_client_t *client, const char *db_name,
+                                   const char *coll_name, const char *field,
+                                   const bson_t *filter_extra, gint64 limit, gboolean *capped_out,
+                                   char **err_out);
+
 /* Fetch one document from [@lo, @hi) AND @filter_extra, sorted by _id.
    Returns NULL with @err_out set on error, or NULL with @err_out NULL when
    the scope is empty. Caller bson_destroy. */

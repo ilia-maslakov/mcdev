@@ -794,6 +794,149 @@ mongo_conn_bucket_auto (mongoc_client_t *client, const char *db_name, const char
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* Scalar BSON value -> display string (caller g_free), or NULL to skip
+   non-scalar values (documents, arrays, oid, date, ...). */
+static char *
+distinct_value_to_string (bson_iter_t *it)
+{
+    switch (bson_iter_type (it))
+    {
+    case BSON_TYPE_UTF8:
+    {
+        uint32_t len = 0;
+        const char *s = bson_iter_utf8 (it, &len);
+        return g_strndup (s, len);
+    }
+    case BSON_TYPE_INT32:
+        return g_strdup_printf ("%d", bson_iter_int32 (it));
+    case BSON_TYPE_INT64:
+        return g_strdup_printf ("%" G_GINT64_FORMAT, (gint64) bson_iter_int64 (it));
+    case BSON_TYPE_DOUBLE:
+    {
+        char buf[G_ASCII_DTOSTR_BUF_SIZE];
+        g_ascii_dtostr (buf, sizeof (buf), bson_iter_double (it));
+        return g_strdup (buf);
+    }
+    case BSON_TYPE_BOOL:
+        return g_strdup (bson_iter_bool (it) ? "true" : "false");
+    default:
+        return NULL;
+    }
+}
+
+static gint
+distinct_str_cmp (gconstpointer a, gconstpointer b)
+{
+    return strcmp (*(const char *const *) a, *(const char *const *) b);
+}
+
+char **
+mongo_conn_distinct_values (mongoc_client_t *client, const char *db_name, const char *coll_name,
+                            const char *field, const bson_t *filter_extra, gint64 limit,
+                            gboolean *capped_out, char **err_out)
+{
+    bson_t pipeline = BSON_INITIALIZER;
+    bson_t stage, body;
+    bson_array_builder_t *arr;
+    char *path;
+    mongoc_collection_t *coll;
+    mongoc_cursor_t *cursor;
+    const bson_t *doc;
+    GPtrArray *vals;
+    bson_error_t err;
+    gint64 ndocs = 0;
+    gboolean has_extra = filter_extra != NULL && bson_count_keys (filter_extra) > 0;
+
+    if (capped_out != NULL)
+        *capped_out = FALSE;
+    if (err_out != NULL)
+        *err_out = NULL;
+    if (client == NULL || db_name == NULL || coll_name == NULL || field == NULL || field[0] == '\0'
+        || limit <= 0)
+    {
+        if (err_out != NULL)
+            *err_out = g_strdup ("Internal: bad arguments to distinct_values.");
+        return NULL;
+    }
+
+    path = g_strconcat ("$", field, NULL);
+
+    bson_append_array_builder_begin (&pipeline, "pipeline", -1, &arr);
+
+    if (has_extra)
+    {
+        bson_array_builder_append_document_begin (arr, &stage);
+        BSON_APPEND_DOCUMENT (&stage, "$match", filter_extra);
+        bson_array_builder_append_document_end (arr, &stage);
+    }
+
+    /* $unwind handles arrays (one row per element) and, since 3.2, treats a
+       scalar as a single-element array; missing paths are dropped. */
+    bson_array_builder_append_document_begin (arr, &stage);
+    BSON_APPEND_UTF8 (&stage, "$unwind", path);
+    bson_array_builder_append_document_end (arr, &stage);
+
+    bson_array_builder_append_document_begin (arr, &stage);
+    BSON_APPEND_DOCUMENT_BEGIN (&stage, "$group", &body);
+    BSON_APPEND_UTF8 (&body, "_id", path);
+    bson_append_document_end (&stage, &body);
+    bson_array_builder_append_document_end (arr, &stage);
+
+    /* Fetch one past the limit so the caller can tell the list was truncated. */
+    bson_array_builder_append_document_begin (arr, &stage);
+    BSON_APPEND_INT64 (&stage, "$limit", limit + 1);
+    bson_array_builder_append_document_end (arr, &stage);
+
+    bson_append_array_builder_end (&pipeline, arr);
+
+    coll = mongoc_client_get_collection (client, db_name, coll_name);
+    cursor = mongoc_collection_aggregate (coll, MONGOC_QUERY_NONE, &pipeline, NULL, NULL);
+
+    vals = g_ptr_array_new_with_free_func (g_free);
+    while (mongoc_cursor_next (cursor, &doc))
+    {
+        bson_iter_t it;
+        char *s;
+
+        ndocs++;
+        if (!bson_iter_init_find (&it, doc, "_id"))
+            continue;
+        s = distinct_value_to_string (&it);
+        if (s != NULL)
+            g_ptr_array_add (vals, s);
+    }
+
+    if (mongoc_cursor_error (cursor, &err))
+    {
+        if (err_out != NULL)
+            *err_out = g_strdup (err.message);
+        g_ptr_array_free (vals, TRUE);
+        vals = NULL;
+    }
+
+    mongoc_cursor_destroy (cursor);
+    mongoc_collection_destroy (coll);
+    bson_destroy (&pipeline);
+    g_free (path);
+
+    if (vals == NULL)
+        return NULL;
+
+    if (ndocs > limit)
+    {
+        if (capped_out != NULL)
+            *capped_out = TRUE;
+        while ((gint64) vals->len > limit)
+            g_ptr_array_remove_index_fast (vals, vals->len - 1);
+    }
+
+    g_ptr_array_sort (vals, distinct_str_cmp);
+    g_ptr_array_add (vals, NULL);
+    return (char **) g_ptr_array_free (vals, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* find().sort(direction).limit(1) within [@lo, @hi); copy _id into out. */
 static gboolean
 find_one_id (mongoc_client_t *client, const char *db_name, const char *coll_name,

@@ -45,15 +45,16 @@
 #include "mongo_filter.h"
 #include "mongo_render.h"
 #include "mongo_ui.h"
+#include "mongo_wizard.h"
 
 /*** forward declarations ************************************************************************/
 
-static int mongo_filter_sample_cb (WButton *button, int action);
+static bson_t *mongo_sample_doc (char **err_out);
 
 /*** file scope macros ***************************************************************************/
 
-#define B_MONGO_FILTER_CLEAR  (B_USER + 1)
-#define B_MONGO_FILTER_SAMPLE (B_USER + 2)
+#define B_MONGO_FILTER_EDIT   (B_USER + 3)
+#define B_MONGO_FILTER_WIZARD (B_USER + 4)
 
 #define HIST_FILTER           "mongo-filter"
 #define HIST_PROJECTION       "mongo-filter-projection"
@@ -118,93 +119,292 @@ parse_bson_field (const char *text, const char *err_label, bson_t **out, char **
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Open a sampled document in the internal editor; on close, if the file was
-   modified, copy its contents into the Filter input.
-
-   This lets the user pull one matching document, trim it down to just the
-   keys/values that should drive a query, and "save -> exit" to land in
-   Filter. Always returns 0 to keep the parent dialog open. */
-static int
-mongo_filter_sample_cb (WButton *button, int action)
+/* The Filter input of the open find dialog, located via its stashed widget id. */
+static WInput *
+mongo_filter_input_of (const WButton *button)
 {
-    char *json = NULL;
-    char *err = NULL;
+    Widget *w;
+
+    if (button == NULL || WIDGET (button)->owner == NULL)
+        return NULL;
+    w = widget_find_by_id ((Widget *) WIDGET (button)->owner, s_filter_input_id);
+    return w != NULL ? INPUT (w) : NULL;
+}
+
+/* Open @seed in the internal editor; return the edited text (caller g_free)
+   if it changed, else NULL. */
+static char *
+mongo_filter_run_mcedit (const char *seed)
+{
     char *tmp_path = NULL;
     int tmp_fd;
     GError *gerr = NULL;
     edit_arg_t *arg;
-    struct stat st_before, st_after;
-    gboolean had_before;
+    struct stat sb, sa;
+    gboolean had;
     gchar *edited = NULL;
-    gsize edited_len = 0;
-    Widget *winput;
-    gsize json_len;
+    gsize elen = 0;
+    gsize slen;
 
-    (void) action;
+    tmp_fd = g_file_open_tmp ("mc-mongo-filterXXXXXX.json", &tmp_path, &gerr);
+    if (tmp_fd < 0)
+    {
+        message (D_ERROR, _ ("MongoDB filter"), "%s",
+                 gerr != NULL ? gerr->message : "Cannot open temp file.");
+        if (gerr != NULL)
+            g_error_free (gerr);
+        return NULL;
+    }
+    slen = seed != NULL ? strlen (seed) : 0;
+    if (slen > 0 && write (tmp_fd, seed, slen) != (ssize_t) slen)
+    {
+        close (tmp_fd);
+        unlink (tmp_path);
+        g_free (tmp_path);
+        message (D_ERROR, _ ("MongoDB filter"), "%s", "Failed to write temp file.");
+        return NULL;
+    }
+    close (tmp_fd);
 
-    if (s_sample_fn == NULL)
-        return 0;
+    had = stat (tmp_path, &sb) == 0;
+    arg = edit_arg_new (tmp_path, 0);
+    edit_file (arg);
+    edit_arg_free (arg);
+
+    if (had && stat (tmp_path, &sa) == 0 && sb.st_mtime == sa.st_mtime && sb.st_size == sa.st_size)
+    {
+        unlink (tmp_path);
+        g_free (tmp_path);
+        return NULL;
+    }
+
+    if (!g_file_get_contents (tmp_path, &edited, &elen, NULL))
+        edited = NULL;
+    unlink (tmp_path);
+    g_free (tmp_path);
+
+    while (edited != NULL && elen > 0
+           && (edited[elen - 1] == '\n' || edited[elen - 1] == '\r' || edited[elen - 1] == ' '
+               || edited[elen - 1] == '\t'))
+        edited[--elen] = '\0';
+    return edited;
+}
+
+/* Sample one real document and open it in the editor, landing the result in the
+   Filter input. */
+static void
+mongo_filter_sample_into (WInput *in)
+{
+    char *err = NULL;
+    char *json;
+    char *edited;
+
+    if (in == NULL || s_sample_fn == NULL)
+        return;
     json = s_sample_fn (s_sample_ctx, &err);
     if (json == NULL)
     {
         message (D_ERROR, _ ("MongoDB sample"), "%s",
                  err != NULL ? err : _ ("No documents in current scope."));
         g_free (err);
-        return 0;
+        return;
     }
-
-    tmp_fd = g_file_open_tmp ("mc-mongo-sampleXXXXXX.json", &tmp_path, &gerr);
-    if (tmp_fd < 0)
-    {
-        message (D_ERROR, _ ("MongoDB sample"), "%s",
-                 gerr != NULL ? gerr->message : "Cannot open temp file.");
-        if (gerr != NULL)
-            g_error_free (gerr);
-        g_free (json);
-        return 0;
-    }
-    json_len = strlen (json);
-    if (write (tmp_fd, json, json_len) != (ssize_t) json_len)
-    {
-        close (tmp_fd);
-        unlink (tmp_path);
-        g_free (tmp_path);
-        g_free (json);
-        message (D_ERROR, _ ("MongoDB sample"), "%s", "Failed to write temp file.");
-        return 0;
-    }
-    close (tmp_fd);
+    edited = mongo_filter_run_mcedit (json);
     g_free (json);
-
-    had_before = stat (tmp_path, &st_before) == 0;
-
-    arg = edit_arg_new (tmp_path, 0);
-    edit_file (arg);
-    edit_arg_free (arg);
-
-    if (had_before && stat (tmp_path, &st_after) == 0 && st_before.st_mtime == st_after.st_mtime
-        && st_before.st_size == st_after.st_size)
+    if (edited != NULL)
     {
-        unlink (tmp_path);
-        g_free (tmp_path);
-        return 0;
-    }
-
-    if (g_file_get_contents (tmp_path, &edited, &edited_len, NULL))
-    {
-        while (edited_len > 0
-               && (edited[edited_len - 1] == '\n' || edited[edited_len - 1] == '\r'
-                   || edited[edited_len - 1] == ' ' || edited[edited_len - 1] == '\t'))
-            edited[--edited_len] = '\0';
-        winput = WIDGET (button)->owner != NULL
-            ? widget_find_by_id ((Widget *) WIDGET (button)->owner, s_filter_input_id)
-            : NULL;
-        if (winput != NULL)
-            input_assign_text (INPUT (winput), edited);
+        input_assign_text (in, edited);
         g_free (edited);
     }
-    unlink (tmp_path);
-    g_free (tmp_path);
+}
+
+/* Edit as File: edit the current Filter JSON in the internal editor; when the
+   field is empty, start from a real sampled document. */
+static int
+mongo_filter_edit_cb (WButton *button, int action)
+{
+    WInput *in;
+    const char *cur;
+
+    (void) action;
+    in = mongo_filter_input_of (button);
+    if (in == NULL)
+        return 0;
+
+    cur = input_get_ctext (in);
+    if (cur != NULL && cur[0] != '\0')
+    {
+        /* Pretty-print the input before opening it in the editor. */
+        char *pretty = mongo_render_pretty_json (cur, 2);
+        char *edited = mongo_filter_run_mcedit (pretty != NULL ? pretty : cur);
+        g_free (pretty);
+        if (edited != NULL)
+        {
+            input_assign_text (in, edited);
+            g_free (edited);
+        }
+        return 0;
+    }
+
+    /* Empty filter: seed the editor with a scaffold built from one sampled
+       document (== on each top-level scalar field), so the user starts from
+       the collection's shape rather than a blank field. */
+    if (s_sample_fn != NULL)
+    {
+        char *err = NULL;
+        bson_t *doc = mongo_sample_doc (&err);
+        char *structure = NULL;
+
+        g_free (err);
+        if (doc != NULL)
+        {
+            char *raw = bson_as_relaxed_extended_json (doc, NULL);
+
+            if (raw != NULL)
+            {
+                structure = mongo_wizard_doc_to_filter (raw);
+                bson_free (raw);
+            }
+            bson_destroy (doc);
+        }
+
+        if (structure != NULL)
+        {
+            char *pretty = mongo_render_pretty_json (structure, 2);
+            char *edited = mongo_filter_run_mcedit (pretty != NULL ? pretty : structure);
+
+            g_free (pretty);
+            g_free (structure);
+            if (edited != NULL)
+            {
+                input_assign_text (in, edited);
+                g_free (edited);
+            }
+        }
+        else
+            mongo_filter_sample_into (in); /* fall back to the raw document */
+    }
+    return 0;
+}
+
+/* Fetch one document from the current scope (bucket range + active filter).
+   Returns a bson_t (caller bson_destroy) or NULL with @err_out set. */
+static bson_t *
+mongo_sample_doc (char **err_out)
+{
+    mongo_data_t *data = (mongo_data_t *) s_sample_ctx;
+    const bson_t *fextra;
+    const char *coll;
+
+    if (err_out != NULL)
+        *err_out = NULL;
+    /* At COLLS level coll_name is not set yet; fall back to the F6 target. */
+    coll = data != NULL ? (data->coll_name != NULL ? data->coll_name : data->pending_coll) : NULL;
+    if (data == NULL || data->client == NULL || coll == NULL)
+    {
+        if (err_out != NULL)
+            *err_out = g_strdup ("Not inside a collection.");
+        return NULL;
+    }
+
+    /* When sampling the not-yet-entered collection, there is no bucket scope
+       or applied filter, so query the whole collection. */
+    fextra = (data->coll_name != NULL && data->filter != NULL) ? data->filter->filter : NULL;
+    return mongo_conn_sample_one_doc (
+        data->client, data->db_name, coll, data->coll_name != NULL ? mongo_current_lo (data) : NULL,
+        data->coll_name != NULL ? mongo_current_hi (data) : NULL, fextra, err_out);
+}
+
+#define MONGO_FIELDS_MAX_DEPTH 6
+#define MONGO_FIELDS_MAX_COUNT 256
+
+/* Recursively collect dot-paths of every key reachable from @it. Nested
+   sub-documents are expanded (awards -> awards.wins); arrays are listed but
+   not descended into, since their element schema is not stable. */
+static void
+mongo_collect_fields (bson_iter_t *it, const char *prefix, GPtrArray *keys, int depth)
+{
+    while (keys->len < MONGO_FIELDS_MAX_COUNT && bson_iter_next (it))
+    {
+        const char *k = bson_iter_key (it);
+        char *path = prefix != NULL ? g_strdup_printf ("%s.%s", prefix, k) : g_strdup (k);
+
+        g_ptr_array_add (keys, path);
+        if (depth + 1 < MONGO_FIELDS_MAX_DEPTH && bson_iter_type (it) == BSON_TYPE_DOCUMENT)
+        {
+            bson_iter_t child;
+            if (bson_iter_recurse (it, &child))
+                mongo_collect_fields (&child, path, keys, depth + 1);
+        }
+    }
+}
+
+/* Wizard value picker: distinct values of @field in the current scope. */
+static char **
+mongo_filter_values_cb (gpointer ctx, const char *field, gboolean *capped_out, char **err_out)
+{
+    mongo_data_t *data = (mongo_data_t *) ctx;
+    const bson_t *fextra;
+    const char *coll;
+
+    coll = data != NULL ? (data->coll_name != NULL ? data->coll_name : data->pending_coll) : NULL;
+    if (data == NULL || data->client == NULL || coll == NULL)
+    {
+        if (err_out != NULL)
+            *err_out = g_strdup ("Not inside a collection.");
+        return NULL;
+    }
+    fextra = (data->coll_name != NULL && data->filter != NULL) ? data->filter->filter : NULL;
+    return mongo_conn_distinct_values (data->client, data->db_name, coll, field, fextra, 200,
+                                       capped_out, err_out);
+}
+
+/* Wizard button: build a filter from a rule list and replace the Filter field. */
+static int
+mongo_filter_wizard_cb (WButton *button, int action)
+{
+    WInput *in;
+    bson_t *doc;
+    char *err = NULL;
+    char **fields = NULL;
+    char *current;
+    char *json;
+
+    (void) action;
+    in = mongo_filter_input_of (button);
+    if (in == NULL)
+        return 0;
+
+    doc = mongo_sample_doc (&err);
+    g_free (err);
+    if (doc != NULL)
+    {
+        GPtrArray *keys = g_ptr_array_new ();
+        bson_iter_t it;
+
+        if (bson_iter_init (&it, doc))
+            mongo_collect_fields (&it, NULL, keys, 0);
+        if (keys->len > 0)
+        {
+            g_ptr_array_add (keys, NULL);
+            fields = (char **) g_ptr_array_free (keys, FALSE);
+        }
+        else
+            g_ptr_array_free (keys, TRUE);
+
+        bson_destroy (doc);
+    }
+
+    current = input_get_text (in);
+    json = mongo_wizard_run ((const char *const *) fields, mongo_filter_values_cb, s_sample_ctx,
+                             current);
+    g_free (current);
+    g_strfreev (fields);
+    if (json != NULL)
+    {
+        input_assign_text (in, json);
+        g_free (json);
+    }
     return 0;
 }
 
@@ -291,13 +491,13 @@ mongo_filter_dialog_run (const mongo_filter_t *initial, mongo_filter_sample_fn s
             QUICK_LABEL (notice, NULL),
             QUICK_START_BUTTONS (TRUE, TRUE),
                 QUICK_BUTTON (N_ ("&OK"), B_ENTER, NULL, NULL),
-                QUICK_BUTTON (N_ ("&Sample"), B_MONGO_FILTER_SAMPLE, mongo_filter_sample_cb, NULL),
+                QUICK_BUTTON (N_ ("&Wizard"), B_MONGO_FILTER_WIZARD, mongo_filter_wizard_cb, NULL),
+                QUICK_BUTTON (N_ ("Edit as &File"), B_MONGO_FILTER_EDIT, mongo_filter_edit_cb, NULL),
                 QUICK_BUTTON (N_ ("&Cancel"), B_CANCEL, NULL, NULL),
-                QUICK_BUTTON (N_ ("C&lear"), B_MONGO_FILTER_CLEAR, NULL, NULL),
             QUICK_END,
             // clang-format on
         };
-        WRect r = { -1, -1, 0, 64 };
+        WRect r = { -1, -1, 0, 76 };
         quick_dialog_t qdlg = {
             .rect = r,
             .title = N_ ("MongoDB find"),
@@ -307,8 +507,6 @@ mongo_filter_dialog_run (const mongo_filter_t *initial, mongo_filter_sample_fn s
             .callback = NULL,
             .mouse_callback = NULL,
         };
-        if (sample_fn == NULL)
-            quick_widgets[7].state = WST_DISABLED;
         rc = quick_dialog (&qdlg);
     }
 
@@ -326,14 +524,6 @@ mongo_filter_dialog_run (const mongo_filter_t *initial, mongo_filter_sample_fn s
         g_free (r_sort);
         g_free (r_limit);
         return MONGO_FILTER_DIALOG_CANCEL;
-    }
-    if (rc == B_MONGO_FILTER_CLEAR)
-    {
-        g_free (r_filter);
-        g_free (r_proj);
-        g_free (r_sort);
-        g_free (r_limit);
-        return MONGO_FILTER_DIALOG_CLEAR;
     }
 
     /* B_ENTER: parse the four inputs. */
@@ -399,39 +589,16 @@ mongo_filter_dialog_run (const mongo_filter_t *initial, mongo_filter_sample_fn s
 static char *
 mongo_sample_for_dialog (gpointer ctx, char **err_out)
 {
-    mongo_data_t *data = (mongo_data_t *) ctx;
     bson_t *doc;
     char *raw;
     char *trimmed;
-    char *err = NULL;
-    const bson_t *fextra;
-    const char *coll;
 
+    (void) ctx;
     if (err_out != NULL)
         *err_out = NULL;
-    /* At COLLS level coll_name is not set yet; fall back to the F6 target. */
-    coll = data != NULL ? (data->coll_name != NULL ? data->coll_name : data->pending_coll) : NULL;
-    if (data == NULL || data->client == NULL || coll == NULL)
-    {
-        if (err_out != NULL)
-            *err_out = g_strdup ("Not inside a collection.");
-        return NULL;
-    }
-
-    /* When sampling the not-yet-entered collection, there is no bucket scope
-       or applied filter, so query the whole collection. */
-    fextra = (data->coll_name != NULL && data->filter != NULL) ? data->filter->filter : NULL;
-    doc = mongo_conn_sample_one_doc (
-        data->client, data->db_name, coll, data->coll_name != NULL ? mongo_current_lo (data) : NULL,
-        data->coll_name != NULL ? mongo_current_hi (data) : NULL, fextra, &err);
+    doc = mongo_sample_doc (err_out);
     if (doc == NULL)
-    {
-        if (err_out != NULL)
-            *err_out = err;
-        else
-            g_free (err);
         return NULL;
-    }
 
     raw = bson_as_relaxed_extended_json (doc, NULL);
     bson_destroy (doc);
