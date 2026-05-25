@@ -212,6 +212,9 @@ gboolean panel_plugin_run_action_by_name (WPanel *panel, const char *plugin_name
 void panel_plugin_select_and_activate (WPanel *panel);
 gboolean panel_plugin_drive_change (WPanel *panel);
 
+/* Suppress/restore plugin modal messages around a passive call; returns prev. */
+gboolean panel_plugin_set_quiet_messages (gboolean quiet);
+
 /* TRUE if any loaded plugin accepts file lists. */
 gboolean panel_plugin_have_file_list_sink (void);
 

@@ -205,6 +205,54 @@ do_view_cmd (WPanel *panel, gboolean plain_view)
 
 /* --------------------------------------------------------------------------------------------- */
 
+void
+mcview_load_panel_current (struct WView *view, WPanel *panel)
+{
+    const file_entry_t *fe;
+
+    fe = panel != NULL ? panel_current_entry (panel) : NULL;
+    if (fe == NULL)
+    {
+        mcview_load ((WView *) view, NULL, "", 0, 0, 0);
+        return;
+    }
+
+    /* Plugin entries need a local copy; mcview_load keeps its own fd, so the
+       temp file can be unlinked right after the load. */
+    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+        && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0 && panel->plugin->get_local_copy != NULL
+        && !S_ISDIR (fe->st.st_mode))
+    {
+        char *local_path = NULL;
+        mc_pp_result_t r;
+        gboolean prev_quiet;
+
+        /* Quick view follows the cursor: this can fire on every move. Silence
+           plugin modal dialogs so a fetch/render error does not pop a dialog
+           per step; a failed entry just shows nothing in the view. */
+        prev_quiet = panel_plugin_set_quiet_messages (TRUE);
+        r = panel->plugin->get_local_copy (panel->plugin_data, fe->fname->str, &local_path);
+        panel_plugin_set_quiet_messages (prev_quiet);
+
+        if (r == MC_PPR_OK && local_path != NULL)
+        {
+            mcview_load ((WView *) view, NULL, local_path, 0, 0, 0);
+            unlink (local_path);
+        }
+        else
+            /* Synthetic entry (a level with no file form, or a transient
+               fetch failure): the name is not a real path, so show nothing
+               rather than trying to open it. */
+            mcview_load ((WView *) view, NULL, "", 0, 0, 0);
+        g_free (local_path);
+        return;
+    }
+
+    mcview_load ((WView *) view, NULL, fe->fname->str, 0, 0, 0);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static inline void
 do_edit (const vfs_path_t *what_vpath)
 {
@@ -726,7 +774,8 @@ edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_i
     char *plugin_fname;
     char *local_path = NULL;
     vfs_path_t *local_vpath;
-    struct stat st_before, st_after;
+    char *before_contents = NULL;
+    gsize before_len = 0;
     gboolean had_before;
 
     if (panel->plugin->get_local_copy == NULL)
@@ -744,7 +793,7 @@ edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_i
         return;
     }
 
-    had_before = stat (local_path, &st_before) == 0;
+    had_before = g_file_get_contents (local_path, &before_contents, &before_len, NULL);
 
     local_vpath = vfs_path_from_str (local_path);
     if (regex_command (local_vpath, "Edit") == 0)
@@ -756,13 +805,31 @@ edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_i
     }
     vfs_path_free (local_vpath, TRUE);
 
-    /* Save when the file changed; if the initial stat failed, save conservatively. */
-    if (panel->plugin->save_file != NULL && stat (local_path, &st_after) == 0
-        && (!had_before || st_after.st_mtime != st_before.st_mtime)
-        && panel->plugin->save_file (panel->plugin_data, local_path, plugin_fname) != MC_PPR_OK)
-        message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"), plugin_fname);
+    /* Push back only when the editor actually changed the file. Compare the
+       full contents rather than mtime: mtime has 1-second granularity, so a
+       quick edit saved within the same second as the local copy would be
+       missed. If the pre-edit read failed, save conservatively. */
+    if (panel->plugin->save_file != NULL)
+    {
+        char *after_contents = NULL;
+        gsize after_len = 0;
+        gboolean changed = FALSE;
+
+        if (g_file_get_contents (local_path, &after_contents, &after_len, NULL))
+        {
+            changed = !had_before || after_len != before_len
+                || memcmp (after_contents, before_contents, after_len) != 0;
+            g_free (after_contents);
+        }
+
+        if (changed
+            && panel->plugin->save_file (panel->plugin_data, local_path, plugin_fname)
+                != MC_PPR_OK)
+            message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"), plugin_fname);
+    }
 
     unlink (local_path);
+    g_free (before_contents);
     g_free (local_path);
     g_free (plugin_fname);
 }
@@ -805,7 +872,8 @@ edit_cmd_force_internal (const WPanel *panel)
     if (fe == NULL)
         return;
 
-    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
+    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
+        && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
     {
         edit_plugin_panel_file (panel, fe->fname->str, TRUE);
         return;

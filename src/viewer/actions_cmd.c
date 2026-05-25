@@ -158,7 +158,7 @@ mcview_hook (void *v)
 
     mcview_done (view);
     mcview_init (view);
-    mcview_load (view, 0, fe->fname->str, 0, 0, 0);
+    mcview_load_panel_current (view, panel);
     mcview_display (view);
 }
 
