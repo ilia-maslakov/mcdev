@@ -127,7 +127,7 @@ static const struct
 #define WIZ_ROW0          3  /* first data row */
 #define WIZ_MAXVIS        11 /* visible rows (scrolling window) */
 #define WIZ_MAXROWS       64 /* hard cap on total conditions */
-#define WIZ_X_MARK        2
+#define WIZ_X_MARK        (WIZ_W - 1) /* scrollbar column, drawn on the right frame */
 #define WIZ_X_FIELD       4
 #define WIZ_W_FIELD       16
 #define WIZ_FIELD_TEXT    13
@@ -1599,15 +1599,37 @@ wiz_draw_rows (void)
         tty_print_string (buf);
     }
 
-    if (s_top > 0)
+    /* Scrollbar in the WListbox style: a full-height vertical track with ^/v
+       end caps and a '*' thumb at the current row's relative position. Drawn
+       only when the rules overflow the visible window. */
+    if ((int) s_rules->len > WIZ_MAXVIS)
     {
+        int len = (int) s_rules->len;
+        int last = WIZ_MAXVIS - 1;
+        int thumb;
+        int row;
+
         widget_gotoyx (w, WIZ_ROW0, WIZ_X_MARK);
-        tty_print_string ("^");
-    }
-    if (s_top + WIZ_MAXVIS < (int) s_rules->len)
-    {
-        widget_gotoyx (w, WIZ_ROW0 + WIZ_MAXVIS - 1, WIZ_X_MARK);
-        tty_print_string ("v");
+        if (s_top == 0)
+            tty_print_one_vline (TRUE);
+        else
+            tty_print_char ('^');
+
+        widget_gotoyx (w, WIZ_ROW0 + last, WIZ_X_MARK);
+        if (s_top + WIZ_MAXVIS >= len)
+            tty_print_one_vline (TRUE);
+        else
+            tty_print_char ('v');
+
+        thumb = 1 + (s_cur * (WIZ_MAXVIS - 2)) / len;
+        for (row = 1; row < last; row++)
+        {
+            widget_gotoyx (w, WIZ_ROW0 + row, WIZ_X_MARK);
+            if (row == thumb)
+                tty_print_char ('*');
+            else
+                tty_print_one_vline (TRUE);
+        }
     }
 }
 
@@ -1662,6 +1684,60 @@ wiz_dlg_cb (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *data)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+/* Mouse on the rows area: a click selects the row under the cursor, the wheel
+   moves the selection. Events over the live edit widgets are dispatched to
+   those widgets and never reach here. */
+static void
+wiz_dlg_mouse_cb (Widget *w, mouse_msg_t msg, mouse_event_t *event)
+{
+    switch (msg)
+    {
+    case MSG_MOUSE_SCROLL_UP:
+        if (s_cur > 0)
+        {
+            wiz_commit_value ();
+            wiz_load_row (s_cur - 1);
+            widget_draw (w);
+        }
+        break;
+
+    case MSG_MOUSE_SCROLL_DOWN:
+        if ((guint) s_cur + 1 < s_rules->len)
+        {
+            wiz_commit_value ();
+            wiz_load_row (s_cur + 1);
+            widget_draw (w);
+        }
+        break;
+
+    case MSG_MOUSE_CLICK:
+    {
+        int vis = event->y - WIZ_ROW0;
+
+        if (vis >= 0 && vis < WIZ_MAXVIS)
+        {
+            int idx = s_top + vis;
+
+            if (idx >= 0 && (guint) idx < s_rules->len && idx != s_cur)
+            {
+                wiz_commit_value ();
+                wiz_load_row (idx);
+                widget_draw (w);
+            }
+        }
+        else
+            event->result.abort = TRUE;
+        break;
+    }
+
+    default:
+        event->result.abort = TRUE;
+        break;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /*** public functions ****************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
@@ -1691,7 +1767,7 @@ mongo_wizard_run (const char *const *fields, mongo_wizard_values_fn values_fn, g
     }
 
     s_dlg = dlg_create (TRUE, (LINES - WIZ_H) / 2, (COLS - WIZ_W) / 2, WIZ_H, WIZ_W,
-                        WPOS_KEEP_DEFAULT, TRUE, dialog_colors, wiz_dlg_cb, NULL,
+                        WPOS_KEEP_DEFAULT, TRUE, dialog_colors, wiz_dlg_cb, wiz_dlg_mouse_cb,
                         "[MongoDB Plugin]", _ ("Filter Builder"));
     g = GROUP (s_dlg);
 
