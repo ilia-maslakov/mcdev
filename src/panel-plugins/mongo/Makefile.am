@@ -24,7 +24,10 @@ mc_panel_mongo_la_SOURCES = \
 	mongo_ui.c \
 	mongo_ui.h \
 	mongo_wizard.c \
-	mongo_wizard.h
+	mongo_wizard.h \
+	mongo_wizard_priv.h \
+	mongo_wizard_json.c \
+	mongo_wizard_parse.c
 
 mc_panel_mongo_la_CPPFLAGS = \
 	$(GLIB_CFLAGS) \
