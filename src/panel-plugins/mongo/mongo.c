@@ -61,6 +61,7 @@ static const char *mongo_get_title (void *plugin_data);
 static const char *mongo_get_focus_name (void *plugin_data);
 static mc_pp_result_t mongo_create_item (void *plugin_data);
 static mc_pp_result_t mongo_handle_key (void *plugin_data, int key);
+static mc_pp_result_t mongo_reload (void *plugin_data);
 static mc_pp_result_t mongo_get_help_info (void *plugin_data, const char **filename,
                                            const char **node);
 
@@ -84,6 +85,7 @@ static const mc_panel_plugin_t mongo_plugin = {
     .get_items = mongo_get_items,
     .chdir = mongo_chdir,
     .handle_key = mongo_handle_key,
+    .reload = mongo_reload,
 
     .get_title = mongo_get_title,
     .get_focus_name = mongo_get_focus_name,
@@ -315,6 +317,22 @@ mongo_handle_key (void *plugin_data, int key)
         return MC_PPR_OK;
     }
     return MC_PPR_NOT_SUPPORTED;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+mongo_reload (void *plugin_data)
+{
+    mongo_data_t *data = (mongo_data_t *) plugin_data;
+
+    if (data == NULL)
+        return MC_PPR_FAILED;
+
+    if (data->level == MONGO_LEVEL_DOCS && data->coll_name != NULL)
+        mongo_reload_current_page (data);
+
+    return MC_PPR_OK;
 }
 
 /* --------------------------------------------------------------------------------------------- */
