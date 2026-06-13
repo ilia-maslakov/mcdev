@@ -92,9 +92,9 @@ static const struct
 /* Grid geometry (dialog-relative). */
 #define WIZ_W             76
 #define WIZ_H             22
-#define WIZ_ROW0          3  /* first data row */
-#define WIZ_MAXVIS        11 /* visible rows (scrolling window) */
-#define WIZ_MAXROWS       64 /* hard cap on total conditions */
+#define WIZ_ROW0          3           /* first data row */
+#define WIZ_MAXVIS        11          /* visible rows (scrolling window) */
+#define WIZ_MAXROWS       64          /* hard cap on total conditions */
 #define WIZ_X_MARK        (WIZ_W - 1) /* scrollbar column, drawn on the right frame */
 #define WIZ_X_FIELD       4
 #define WIZ_W_FIELD       16
@@ -115,8 +115,8 @@ static const struct
 
 /* State of the one open wizard dialog (modal, not reentrant). */
 GArray *s_rules = NULL; /* wiz_rule_t; invariant: len >= 1; shared, see mongo_wizard_priv.h */
-static int s_cur = 0;          /* current row */
-static int s_top = 0;          /* first visible row (scroll offset) */
+static int s_cur = 0;   /* current row */
+static int s_top = 0;   /* first visible row (scroll offset) */
 static WDialog *s_dlg = NULL;
 static WButton *e_field = NULL;
 static WButton *e_op = NULL;

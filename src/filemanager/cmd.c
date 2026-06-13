@@ -816,8 +816,7 @@ edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_i
         }
 
         if (changed
-            && panel->plugin->save_file (panel->plugin_data, local_path, plugin_fname)
-                != MC_PPR_OK)
+            && panel->plugin->save_file (panel->plugin_data, local_path, plugin_fname) != MC_PPR_OK)
             message (D_ERROR, MSG_ERROR, _ ("Cannot save %s back to plugin"), plugin_fname);
     }
 
