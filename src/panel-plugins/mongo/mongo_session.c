@@ -25,6 +25,7 @@
 
 #include <config.h>
 
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -147,19 +148,75 @@ mongo_colls_free (mongo_data_t *data)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Parse "doc:NNNNN" into a slot index, or -1. */
-int
-mongo_slot_from_fname (const char *fname)
+/* Build the panel entry name for a document slot.
+   Format: "{coll}.{id}.json".  The id is rendered from its BSON value
+   (ObjectId -> hex, int -> decimal, string -> as-is) and sanitised to
+   strip path-unsafe characters.  Unsupported types fall back to
+   "doc-NNNNN" using the slot index. */
+char *
+mongo_doc_slot_name (const char *coll_name, const bson_value_t *id, guint slot_idx)
 {
-    char *end;
-    long n;
+    char buf[64];
+    char *p;
 
-    if (fname == NULL || strncmp (fname, "doc:", 4) != 0)
+    if (id == NULL)
+        g_snprintf (buf, sizeof (buf), "doc-%05u", slot_idx);
+    else
+        switch (id->value_type)
+        {
+        case BSON_TYPE_OID:
+        {
+            char hex[25];
+            bson_oid_to_string (&id->value.v_oid, hex);
+            g_strlcpy (buf, hex, sizeof (buf));
+            break;
+        }
+        case BSON_TYPE_INT32:
+            g_snprintf (buf, sizeof (buf), "%" PRId32, id->value.v_int32);
+            break;
+        case BSON_TYPE_INT64:
+            g_snprintf (buf, sizeof (buf), "%" PRId64, id->value.v_int64);
+            break;
+        case BSON_TYPE_UTF8:
+            if (id->value.v_utf8.str != NULL && id->value.v_utf8.str[0] != '\0')
+                g_strlcpy (buf, id->value.v_utf8.str, sizeof (buf));
+            else
+                g_snprintf (buf, sizeof (buf), "doc-%05u", slot_idx);
+            break;
+        default:
+            g_snprintf (buf, sizeof (buf), "doc-%05u", slot_idx);
+            break;
+        }
+
+    for (p = buf; *p != '\0'; p++)
+        if (*p == '/' || *p == '\\' || *p == ':')
+            *p = '_';
+
+    return g_strdup_printf ("%s.%s.json", coll_name != NULL ? coll_name : "doc", buf);
+}
+
+/* Linear scan over data->doc_ids: returns the slot index whose generated
+   name matches @fname, or -1.  O(n) per lookup; acceptable for the
+   flat-cap-sized pages the plugin loads. */
+int
+mongo_slot_from_fname (const mongo_data_t *data, const char *fname)
+{
+    guint i;
+
+    if (data == NULL || data->doc_ids == NULL || data->coll_name == NULL || fname == NULL)
         return -1;
-    n = strtol (fname + 4, &end, 10);
-    if (end == fname + 4 || *end != '\0' || n < 0)
-        return -1;
-    return (int) n;
+
+    for (i = 0; i < data->doc_ids->len; i++)
+    {
+        const bson_value_t *id = &g_array_index (data->doc_ids, bson_value_t, i);
+        char *expected = mongo_doc_slot_name (data->coll_name, id, i);
+        gboolean match = strcmp (expected, fname) == 0;
+        g_free (expected);
+        if (match)
+            return (int) i;
+    }
+
+    return -1;
 }
 
 /* --------------------------------------------------------------------------------------------- */

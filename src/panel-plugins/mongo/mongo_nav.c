@@ -428,9 +428,10 @@ mongo_get_items (void *plugin_data, void *list_ptr)
         if (data->doc_ids != NULL)
             for (i = 0; i < data->doc_ids->len; i++)
             {
-                char slot_fname[32];
-                g_snprintf (slot_fname, sizeof (slot_fname), "doc:%05u", i);
+                const bson_value_t *id = &g_array_index (data->doc_ids, bson_value_t, i);
+                char *slot_fname = mongo_doc_slot_name (data->coll_name, id, i);
                 mc_pp_add_entry (list_ptr, slot_fname, S_IFREG | 0644, 0, time (NULL));
+                g_free (slot_fname);
             }
         return MC_PPR_OK;
 
