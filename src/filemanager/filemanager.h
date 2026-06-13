@@ -41,9 +41,8 @@ extern char *mc_prompt;
 
 struct WView;
 /* Load @panel's current entry into the quick-view @view. For plugin panels
-   the content is fetched via the plugin's get_local_copy (so synthetic entry
-   names like "doc:003" preview real content); otherwise the file is loaded
-   directly. */
+   the content is fetched via the plugin's get_local_copy; otherwise the
+   file is loaded directly. */
 void mcview_load_panel_current (struct WView *view, WPanel *panel);
 
 void update_menu (void);

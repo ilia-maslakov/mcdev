@@ -221,7 +221,6 @@ mp_get_checked (const void *data, int row, int col)
         return FALSE;
 
     r = &g_array_index (rows, mp_row_t, (guint) row);
-    /* Check == enabled.  Disabled plugins are listed in plugins.ini. */
     return !mc_plugin_prefs_is_disabled (r->kind_id, r->name);
 }
 

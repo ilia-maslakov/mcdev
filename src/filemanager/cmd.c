@@ -227,9 +227,6 @@ mcview_load_panel_current (struct WView *view, WPanel *panel)
         mc_pp_result_t r;
         gboolean prev_quiet;
 
-        /* Quick view follows the cursor: this can fire on every move. Silence
-           plugin modal dialogs so a fetch/render error does not pop a dialog
-           per step; a failed entry just shows nothing in the view. */
         prev_quiet = panel_plugin_set_quiet_messages (TRUE);
         r = panel->plugin->get_local_copy (panel->plugin_data, fe->fname->str, &local_path);
         panel_plugin_set_quiet_messages (prev_quiet);
@@ -240,9 +237,7 @@ mcview_load_panel_current (struct WView *view, WPanel *panel)
             unlink (local_path);
         }
         else
-            /* Synthetic entry (a level with no file form, or a transient
-               fetch failure): the name is not a real path, so show nothing
-               rather than trying to open it. */
+            /* Synthetic entry or fetch failure: blank the view. */
             mcview_load ((WView *) view, NULL, "", 0, 0, 0);
         g_free (local_path);
         return;
@@ -805,10 +800,8 @@ edit_plugin_panel_file (const WPanel *panel, const char *fname, gboolean force_i
     }
     vfs_path_free (local_vpath, TRUE);
 
-    /* Push back only when the editor actually changed the file. Compare the
-       full contents rather than mtime: mtime has 1-second granularity, so a
-       quick edit saved within the same second as the local copy would be
-       missed. If the pre-edit read failed, save conservatively. */
+    /* Compare contents rather than mtime: mtime has 1-second granularity
+       and can miss a quick edit saved within the same second. */
     if (panel->plugin->save_file != NULL)
     {
         char *after_contents = NULL;

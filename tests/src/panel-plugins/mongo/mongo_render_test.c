@@ -436,7 +436,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* Arrays with values exercise the '[' / ']' open/close branches. */
 START_TEST (test_pretty_array_with_values)
 {
     const char *in = "[1,2,{\"a\":3}]";
@@ -456,7 +455,6 @@ main (void)
 
     tc_core = tcase_create ("Core");
 
-    /* render_value */
     tcase_add_test (tc_core, test_render_value_null_input);
     tcase_add_test (tc_core, test_render_value_oid);
     tcase_add_test (tc_core, test_render_value_utf8);
@@ -467,12 +465,10 @@ main (void)
     tcase_add_test (tc_core, test_render_value_doc);
     tcase_add_test (tc_core, test_render_value_truncation_fits_buffer);
 
-    /* render_type */
     tcase_add_test (tc_core, test_render_type_oid);
     tcase_add_test (tc_core, test_render_type_array);
     tcase_add_test (tc_core, test_render_type_null_input);
 
-    /* truncate_base64 */
     tcase_add_test (tc_core, test_truncate_short_base64_untouched);
     tcase_add_test (tc_core, test_truncate_long_base64_replaces_tail);
     tcase_add_test (tc_core, test_truncate_preserves_other_fields);
@@ -483,7 +479,6 @@ main (void)
     tcase_add_test (tc_core, test_truncate_no_base64_pattern_passthrough);
     tcase_add_test (tc_core, test_truncate_plain_user_base64_field_also_trimmed);
 
-    /* pretty_json */
     tcase_add_test (tc_core, test_pretty_null_input);
     tcase_add_test (tc_core, test_pretty_simple_object);
     tcase_add_test (tc_core, test_pretty_nested_object);
