@@ -207,6 +207,7 @@ gboolean panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name,
 const mc_panel_plugin_t *panel_plugin_find_by_path (const char *open_path);
 gboolean panel_plugin_activate_by_path (WPanel *panel, const char *open_path);
 void panel_plugin_close (WPanel *panel);
+void panel_plugin_dispose (WPanel *panel);
 void panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int action_index);
 gboolean panel_plugin_run_action_by_name (WPanel *panel, const char *plugin_name, int action_index);
 void panel_plugin_select_and_activate (WPanel *panel);
