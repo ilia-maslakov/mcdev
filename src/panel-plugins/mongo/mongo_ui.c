@@ -187,7 +187,8 @@ mongo_status_set (mongo_status_t *st, const char *text)
 
     label_set_text (ssm->label, text);
 
-    /* Recenter manually: WPOS_CENTER_HORZ saw a zero-width label at init. */
+    /* WPOS_CENTER_HORZ centres on the initial label size; the label widens
+       later, so recenter manually. */
     wd = WIDGET (STATUS_MSG (st)->dlg);
     lw = WIDGET (ssm->label);
     if (lw->rect.cols < wd->rect.cols - 4)
@@ -209,7 +210,7 @@ mongo_status_set (mongo_status_t *st, const char *text)
         }
     }
 
-    /* Old label position bleeds through without a full redraw. */
+    /* The label moved; force a full redraw to clear its previous position. */
     widget_draw (wd);
     (void) status_msg_common_update (STATUS_MSG (st));
 }

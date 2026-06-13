@@ -653,8 +653,6 @@ mongo_apply_filter (mongo_data_t *data, mongo_filter_t *new_filter)
     mongo_filter_drop (data);
     data->filter = new_filter;
 
-    /* Reset to the collection root either way: a filter searches the whole
-       collection, and clearing returns to the top of the bucket tree. */
     mongo_bucket_stack_free (data);
     mongo_docs_free (data);
 
