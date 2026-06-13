@@ -4422,7 +4422,7 @@ panel_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *dat
     case MSG_DESTROY:
         // close plugin panel if active
         if (panel->is_plugin_panel)
-            panel_plugin_close (panel);
+            panel_plugin_dispose (panel);
         vfs_stamp_path (panel->cwd_vpath);
         // unsubscribe from "history_load" event
         mc_event_del (h->event_group, MCEVENT_HISTORY_LOAD, panel_load_history, w);

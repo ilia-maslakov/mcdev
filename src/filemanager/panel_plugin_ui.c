@@ -306,15 +306,15 @@ panel_plugin_reload_internal (WPanel *panel, gboolean call_plugin_reload)
         }
     }
 
+    if (call_plugin_reload && panel->plugin->reload != NULL)
+        panel->plugin->reload (panel->plugin_data);
+
     panel_clean_dir (panel);
     /* panel_clean_dir resets is_panelized; restore plugin state */
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
 
     panel_plugin_apply_default_columns_format (panel);
-
-    if (call_plugin_reload && panel->plugin->reload != NULL)
-        panel->plugin->reload (panel->plugin_data);
 
     dir_list_init (&panel->dir);
     panel->plugin->get_items (panel->plugin_data, &panel->dir);
@@ -437,6 +437,27 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
             g_free (plugin_path);
         }
     }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+panel_plugin_dispose (WPanel *panel)
+{
+    if (panel == NULL || !panel->is_plugin_panel)
+        return;
+
+    if (panel->plugin != NULL && panel->plugin_data != NULL)
+        panel->plugin->close (panel->plugin_data);
+
+    panel->plugin = NULL;
+    panel->plugin_data = NULL;
+    panel->is_plugin_panel = FALSE;
+
+    if (panel->plugin_host != NULL)
+        g_free (panel->plugin_host->focus_after);
+    g_free (panel->plugin_host);
+    panel->plugin_host = NULL;
 }
 
 /* --------------------------------------------------------------------------------------------- */
