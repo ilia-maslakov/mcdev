@@ -84,7 +84,8 @@ const bson_value_t *mongo_current_hi (const mongo_data_t *data);
 void mongo_docs_free (mongo_data_t *data);
 void mongo_filter_drop (mongo_data_t *data);
 void mongo_colls_free (mongo_data_t *data);
-int mongo_slot_from_fname (const char *fname);
+int mongo_slot_from_fname (const mongo_data_t *data, const char *fname);
+char *mongo_doc_slot_name (const char *coll_name, const bson_value_t *id, guint slot_idx);
 gboolean mongo_is_virtual_fname (const char *fname);
 void mongo_session_free (mongo_data_t *data);
 

@@ -137,7 +137,7 @@ mongo_get_column_value (void *plugin_data, const char *fname, const char *column
         return "";
     }
 
-    slot = mongo_slot_from_fname (fname);
+    slot = mongo_slot_from_fname (data, fname);
     if (slot < 0 || (guint) slot >= data->doc_ids->len)
         return "";
 

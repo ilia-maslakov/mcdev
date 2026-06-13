@@ -165,7 +165,7 @@ mongo_get_local_copy (void *plugin_data, const char *fname, char **local_path)
         || data->coll_name == NULL || mongo_is_virtual_fname (fname))
         return MC_PPR_NOT_SUPPORTED;
 
-    slot = mongo_slot_from_fname (fname);
+    slot = mongo_slot_from_fname (data, fname);
     if (slot < 0 || (guint) slot >= data->doc_ids->len)
         return MC_PPR_NOT_SUPPORTED;
 
@@ -208,7 +208,7 @@ mongo_view (void *plugin_data, const char *fname, const struct stat *st, gboolea
         || data->coll_name == NULL || mongo_is_virtual_fname (fname))
         return MC_PPR_NOT_SUPPORTED;
 
-    slot = mongo_slot_from_fname (fname);
+    slot = mongo_slot_from_fname (data, fname);
     if (slot < 0 || (guint) slot >= data->doc_ids->len)
         return MC_PPR_NOT_SUPPORTED;
 
@@ -258,7 +258,7 @@ mongo_save_file (void *plugin_data, const char *local_path, const char *remote_n
         return MC_PPR_FAILED;
     }
 
-    slot = mongo_slot_from_fname (remote_name);
+    slot = mongo_slot_from_fname (data, remote_name);
     if (slot < 0 || (guint) slot >= data->doc_ids->len)
         return MC_PPR_NOT_SUPPORTED;
     original_id = &g_array_index (data->doc_ids, bson_value_t, slot);
@@ -402,7 +402,7 @@ mongo_delete_items (void *plugin_data, const char **names, int count)
         int slot;
         if (names[i] == NULL || mongo_is_virtual_fname (names[i]) || strcmp (names[i], "..") == 0)
             continue;
-        slot = mongo_slot_from_fname (names[i]);
+        slot = mongo_slot_from_fname (data, names[i]);
         if (slot < 0 || (guint) slot >= data->doc_ids->len)
             continue;
         ids[collected++] = &g_array_index (data->doc_ids, bson_value_t, slot);
