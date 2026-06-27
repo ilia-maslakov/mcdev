@@ -1,0 +1,364 @@
+[Kubernetes Plugin]
+
+  Kubernetes Panel Plugin
+
+  Browse and operate on a Kubernetes cluster as if it were a directory
+  tree.  The plugin shells out to kubectl, so anything you can do with
+  kubectl you can do here.
+
+  NAVIGATION
+  ----------
+
+    k8s:/                              favorites list (saved contexts)
+    k8s:/<context>/                    namespaces in that context
+    k8s:/<context>/<ns>/               resource types (pods, deployments,
+                                       services, ...)
+    k8s:/<context>/<ns>/pods/          pod list
+    k8s:/<context>/<ns>/pods/<pod>/    pod details: logs, exec, describe,
+                                       yaml
+    k8s:/<context>/<ns>/deployments/   deployment list
+    k8s:/<context>/<ns>/services/      service list
+    k8s:/<context>/nodes/              cluster nodes (namespace-independent)
+
+  GLOBAL KEYS
+  -----------
+
+    F1            This help.
+    Ctrl-R        Refresh the current view.
+
+  KEYS INSIDE A CONTEXT
+  ---------------------
+
+    Ctrl-B        Context-sensitive:
+                    favorites view  -- no-op (you are already there)
+                    namespaces view -- toggle: add/remove the highlighted
+                                       namespace in per-context favourites
+                    otherwise       -- add the active kubectl context to
+                                       favourites
+    Ctrl-N        Switch namespace (dialog).
+    F8            On a favourite (context or namespace), remove it from
+                  favourites.  On a real resource, kubectl delete.
+
+  NAMESPACE FAVOURITES
+  --------------------
+
+  The namespace view has two modes:
+
+    no favourites  -- full kubectl list, no virtual entries.
+    one or more    -- a single virtual entry "all" followed by the
+       favourites     saved favourite namespaces.  Entering "all"
+                      reveals the full kubectl list one-shot (next
+                      visit to the namespace level returns to the
+                      favourites view).
+
+  Ctrl-B on a namespace toggles favourite status: adds it if not in
+  the list, removes it if already there.  F8 also removes.
+  Favourites are stored per kubectl context in
+  panels.k8s.ini under the [k8s-ns-favs] group, one key per context:
+
+    [k8s-ns-favs]
+    d-yandex=oasis;pur;default
+    p-yandex=oasis;default
+
+  Edit by hand if you prefer.
+
+  KEYS ON THE FAVORITES VIEW
+  --------------------------
+
+    Enter         Open context (switch current kubectl context).
+    Shift-F4      Add a context by name (input dialog).
+    F8            Remove the highlighted context from favorites.
+
+  KEYS ON RESOURCE VIEWS
+  ----------------------
+
+    F3            View: pod logs / deployment describe / service describe.
+                  Pod logs open in the source-controller viewer
+                  (see "POD LOGS" below).
+    Enter         Enter a directory; on the "exec" pseudo-entry inside a
+                  pod folder, run an interactive shell in the container.
+    F8            Delete the highlighted resource (kubectl delete) with
+                  confirmation.
+
+  POD LOGS
+  --------
+
+  F3 on the "logs" pseudo-file in a pod folder opens the internal viewer
+  in source-controller mode.  Inside that viewer:
+
+    Alt-S         Open "Pod logs source" dialog: re-fetch with different
+                  --since / --tail / container / pipe-through formatter.
+                  Filter and follow flag are preserved across the swap.
+    F6            Line filter (substring / regex) applied to the displayed
+                  text.  Press F6 again to edit.  Esc clears.
+    Ctrl-T        Toggle follow mode: scroll to new matches automatically.
+    ]             Jump to next filter match.
+    [             Jump to previous filter match.
+    Esc           Close the viewer.
+
+  POD LOGS SOURCE DIALOG (Alt-S)
+  ------------------------------
+
+  Controls the kubectl invocation, NOT the line filter.  Use F6 inside
+  the viewer for substring / regex filtering after the data has arrived.
+
+    Follow             kubectl logs -f.  Stream new lines.  Mutually
+                       exclusive with Previous.
+    Previous           kubectl logs --previous.  Logs of the previous
+                       container instance (useful after a crash).
+    Show               One field that controls the window.  Accepts:
+                         empty       -- no window (kubectl default)
+                         head        -- first 20 lines from start
+                         head N      -- first N lines, piped via
+                                        `head -n N`
+                         tail        -- last 100 lines (--tail=100)
+                         tail N      -- last N lines (--tail=N)
+                         30s, 5m,
+                         1h, 24h, ...-- kubectl --since=<value>
+                       Garbage in the N slot of head/tail is rejected
+                       with an error.
+    Container          For multi-container pods: -c <name>.  The label
+                       shows the available containers (regular and init).
+                       Empty = first container.
+    Pipe through       Any shell pipeline applied to kubectl's output
+                       before it reaches the viewer.  Empty = raw output.
+                       See examples below.
+
+  PIPE-THROUGH EXAMPLES
+  ---------------------
+
+  All of the below are paste-ready for the "Pipe through" field.
+
+  1) Reduce JSON to time + level + message, tolerate non-JSON lines:
+
+         klog
+
+     (klog.sh ships with this plugin -- see the [Pod logs source]
+     section, recipe 1, for how to install it.)
+
+  2) Same idea inline, without the script:
+
+         jq -rR --unbuffered '. as $l | try (fromjson
+           | "\(."@timestamp"[11:23]) [\(.level)] \(.message)") catch $l'
+
+  3) Only the message field, raw:
+
+         jq -rR --unbuffered '. as $l | try (fromjson | .message
+           // .msg // $l) catch $l'
+
+  4) Custom field selection (e.g. add UserId column):
+
+         jq -rR --unbuffered '. as $l | try (fromjson
+           | "\(."@timestamp"[11:19]) u=\(.UserId // "-") \(.message)")
+           catch $l'
+
+  5) Keep only Error / Warning lines (server-side, less data):
+
+         jq -rR --unbuffered '. as $l | try (fromjson
+           | select(.level=="Error" or .level=="Warning")
+           | "\(."@timestamp"[11:19]) [\(.level)] \(.message)")
+           catch empty'
+
+     "catch empty" drops non-JSON lines.  Use "catch $l" to keep them.
+
+  6) Flatten JSON to key=value, space-separated:
+
+         jq -rR --unbuffered '. as $l | try (fromjson | to_entries
+           | map("\(.key)=\(.value|tostring)") | join(" ")) catch $l'
+
+  7) Plain grep (no JSON parsing):
+
+         grep --line-buffered -v 'health-check'
+
+  8) Pipe chain: format with klog and drop debug:
+
+         klog | grep --line-buffered -v '\[Debug\]'
+
+  NOTES ON THE PIPE-THROUGH FIELD
+  -------------------------------
+
+  - Text is passed verbatim to /bin/sh -c -- shell metachars work
+    (quotes, pipes, redirects).  Plugin-side k8s values (context, ns,
+    pod) are already shell-quoted by the plugin; only your pipe text
+    is your responsibility.
+
+  - kubectl's stderr is merged into stdout (2>&1) BEFORE the pipe,
+    so kubectl error messages reach the formatter.  If the formatter
+    is fragile (e.g. raw jq with no try/catch), kubectl errors may
+    be swallowed.  Examples 1-6 above use try/catch and handle this.
+
+  - For follow mode (-f), the formatter MUST flush per line:
+      jq: --unbuffered
+      grep: --line-buffered
+      awk: implicit per-line, ok
+      sed: -u or --unbuffered
+    Without line buffering the viewer appears frozen.
+
+  ONE-SHOT VIEWERS (no source-controller)
+  ---------------------------------------
+
+  describe and yaml in the pod folder open in a plain viewer:
+  no Alt-S dialog, no re-fetch, F6 filter still works.
+
+  TROUBLESHOOTING
+  ---------------
+
+  "context was not found"
+    The plugin's kubeconfig (panels.k8s.ini -> kubeconfig=) points at a
+    file that does not have the favorite context.  Either re-merge with
+    `kubectl config view --flatten` or remove the kubeconfig= line so
+    the default ~/.kube/config is used.
+
+  "Unable to connect to the server: getting credentials:
+   exec: executable C:\\... not found"
+    The merged kubeconfig refers to a Windows-side credential helper
+    (yc.exe etc).  On WSL, replace the path with /mnt/c/Users/.../yc.exe;
+    WSL runs Windows binaries directly.
+
+  Empty viewer / nothing happens on Follow
+    The pipe-through command is not line-buffered.  Add --unbuffered
+    (jq), --line-buffered (grep), or -u (sed).
+
+[Pod logs source]
+
+  Pod logs source dialog (Alt-S in viewer)
+
+  Controls the kubectl invocation that feeds the viewer.  Closing the
+  dialog with OK triggers a re-fetch with the new parameters; filter
+  and viewing position are preserved across the swap.  This dialog
+  does NOT filter what is already displayed -- use F6 inside the
+  viewer for line filtering.
+
+  FIELDS
+  ------
+
+    Follow         kubectl logs -f.  Stream new lines as they arrive.
+                   Mutually exclusive with Previous.
+
+    Previous       kubectl logs --previous.  Read logs from the
+                   container's previous instance.  Useful right after a
+                   crash, before the data is gone.  Mutually exclusive
+                   with Follow.
+
+    Since          kubectl logs --since=<value>.  Server-side time
+                   window.  Accepts kubectl's duration syntax:
+                     30s    last 30 seconds
+                     2m     last 2 minutes
+                     5m     last 5 minutes
+                     1h     last hour
+                     24h    last day
+                   Empty = no time window (whole log).
+
+    Tail           kubectl logs --tail=<N>.  Last N lines.  Empty or 0
+                   = unlimited (all the buffer kubectl is willing to
+                   give).  Non-numeric input is rejected with an error.
+
+    Container      For multi-container pods, the container name to
+                   target via -c <name>.  The label preview lists the
+                   pod's regular and init containers, e.g.
+                     Container (available: app, sidecar, init1 (init)):
+                   Empty = first container kubectl picks by default.
+                   The " (init)" suffix in the hint is just for
+                   readability and is stripped before being passed to
+                   kubectl.
+
+    Pipe through   A shell command pipeline applied to kubectl's output
+                   before it reaches the viewer.  Empty = raw output.
+                   See PIPE-THROUGH RECIPES below for paste-ready
+                   snippets.
+
+  BUTTONS
+  -------
+
+    OK             Validate the inputs, re-fetch from kubectl with the
+                   new parameters, swap the viewer's data source.
+                   The filter pattern (F6) and viewing position carry
+                   over.  Auto-scrolls to bottom if Follow is set.
+
+    Cancel         Discard the changes; the viewer stays on the current
+                   data.
+
+  NOTES
+  -----
+
+  - Validation errors (e.g. Follow + Previous, non-numeric Tail) are
+    shown as a message dialog; the source-options dialog must be
+    re-opened to retry.
+  - On OK the dialog closes, the new pipeline starts, and the viewer
+    shows a header line "# k8s logs: <summary> ... waiting for first
+    output" until kubectl produces data.
+  - For the bigger picture of how the source-controller, F6 filter,
+    and pipe interact, see the main "POD LOGS" section in this help
+    file.
+
+  PIPE-THROUGH RECIPES
+  --------------------
+
+  Each recipe is a single line.  Paste it as-is into the dialog's
+  Pipe through field.  For streaming (Follow), every stage MUST
+  line-buffer: jq --unbuffered, grep --line-buffered, sed -u,
+  awk is line-buffered by default.
+
+  1) Format Serilog-style JSON the easy way -- the klog script.
+
+  klog
+
+  klog.sh ships with this plugin.  To make it available as just
+  "klog" in the Pipe through field, copy or symlink it to a PATH
+  location:
+
+    cp ~/.local/lib/mc/panel-plugins/k8s/klog.sh ~/.local/bin/klog
+    chmod +x ~/.local/bin/klog
+
+  (Or use the system path /usr/lib/mc/panel-plugins/k8s/klog.sh.)
+  Output:  14:30:45.123 [Error] db connection lost
+
+  2) Only the message field, drop everything else.
+
+  jq -rR --unbuffered '. as $l | try (fromjson | .message // .msg // $l) catch $l'
+
+  3) Format Serilog-style JSON without the klog script
+     (timestamp + level + message), tolerate non-JSON lines.
+
+  jq -rR --unbuffered '. as $l | try (fromjson | "\(."@timestamp"[11:23]) [\(.level)] \(.message)") catch $l'
+
+  Output:  14:30:45.123 [Error] db connection lost
+
+  4) Custom columns -- timestamp + UserId + message.
+
+  jq -rR --unbuffered '. as $l | try (fromjson | "\(."@timestamp"[11:19]) user=\(.UserId // "-") \(.message)") catch $l'
+
+  5) Keep only Errors and Warnings, server-side.
+
+  jq -rR --unbuffered '. as $l | try (fromjson | select(.level=="Error" or .level=="Warning") | "\(."@timestamp"[11:19]) [\(.level)] \(.message)") catch empty'
+
+  "catch empty" drops non-JSON lines.  Use "catch $l" to keep them.
+
+  6) Drop noisy categories (health-checks, heartbeats).
+
+  grep --line-buffered -vE 'health-check|heartbeat'
+
+  7) Plain-text logs -- pass through, filter inside mcview (F6).
+
+  cat
+
+  Or leave Pipe through empty; both behave the same.
+
+  8) Flatten JSON to "key=value" pairs for grep-ability.
+
+  jq -rR --unbuffered '. as $l | try (fromjson | to_entries | map("\(.key)=\(.value|tostring)") | join(" ")) catch $l'
+
+  Output:  @timestamp=2026-06-14T14:30:45 level=Error message=db lost
+
+  9) Pretty-print JSON across multiple lines (inspect one record).
+     Don't use with Follow on a busy pod -- output multiplies.
+
+  jq --unbuffered '.'
+
+  10) Chain: format with klog, then drop debug.
+
+  klog | grep --line-buffered -v '\[Debug\]'
+
+  Discovering the schema: set Pipe through to empty, OK, look at one
+  raw JSON line in the viewer, copy the keys you want, open Alt-S
+  again, and write your jq.

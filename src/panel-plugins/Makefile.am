@@ -28,6 +28,7 @@ endif
 
 SUBDIRS += docker
 SUBDIRS += git
+SUBDIRS += k8s
 SUBDIRS += shell-link
 
-DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 mongo docker git shell-link
+DIST_SUBDIRS = systemd hello panelize sftp samba ftp arcmc s3 mongo docker git k8s shell-link
