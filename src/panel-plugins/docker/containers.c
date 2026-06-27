@@ -28,7 +28,10 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "lib/tty/key.h"  // ALT
+
 #include "src/panel-plugins/docker/docker-internal.h"
+#include "src/panel-plugins/docker/docker-logs.h"
 
 static const mc_panel_column_t docker_columns[] = {
     { "status", "Status", 12, FALSE, J_LEFT_FIT, TRUE },
@@ -720,14 +723,16 @@ docker_containers_view_logs (docker_data_t *data, const char *fname)
 {
     if (strcmp (fname, docker_logs_entry) == 0 && data->current_container_id != NULL)
     {
-        char *quoted = g_shell_quote (data->current_container_id);
-        char *docker_args = g_strdup_printf ("logs --tail 1000 %s 2>&1", quoted);
-        char *cmd = docker_conn_build_pipe_cmd (data->active_conn, docker_args);
+        docker_logs_identity_t id = { 0 };
 
-        (void) docker_ui_viewer_command (cmd);
-        g_free (docker_args);
-        g_free (cmd);
-        g_free (quoted);
+        id.conn = data->active_conn;
+        id.container_id = data->current_container_id;
+        id.container_name = data->current_container_name;
+        id.help_file = data->help_filename;
+        id.options_key = ALT ('s');
+        id.initial_tail = 1000; /* preserve the previous default amount */
+
+        (void) docker_logs_open (&id);
         return TRUE;
     }
 

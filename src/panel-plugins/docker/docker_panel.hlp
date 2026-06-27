@@ -41,7 +41,27 @@
 
       exec           Open an interactive shell in the container.
       files/         Browse the container filesystem.
-      logs           View the last 1000 lines of container logs.
+      logs           View container logs (last 1000 lines by default).
+                     In the log viewer, Alt-s opens a dialog to change how
+                     much is fetched: tail [n] / head [n] / a time window
+                     (30s, 5m, 1h), Follow for live streaming, and an
+                     optional formatter to pipe the output through.
+
+                     For .NET / Serilog console logs, the dlog formatter
+                     ships with this plugin and strips the trailing
+                     "<s:Namespace.Class>" SourceContext noise.  Type
+
+                         dlog
+
+                     in the Pipe through field.  To make it available as
+                     just "dlog", copy or symlink it to a PATH directory:
+
+                         cp ~/.local/lib/mc/panel-plugins/docker/dlog.sh \
+                            ~/.local/bin/dlog
+                         chmod +x ~/.local/bin/dlog
+
+                     (Or use /usr/lib/mc/panel-plugins/docker/dlog.sh.)
+                     Chain it, e.g.  dlog | grep -v Diagnostics
       mounts/        Browse container bind mounts (local profiles only).
       inspect.json   Full container inspect output (read-only).
 
@@ -136,3 +156,49 @@
     - The remote user must have access to the Docker daemon.
     - Container file browsing (files/) works for SSH connections.
     - Mount browsing (mounts/) is local-only.
+
+[Container logs source]
+
+  Container logs source dialog (Alt-s in the log viewer)
+
+  Controls the "docker logs" invocation that feeds the viewer.  Closing
+  the dialog with OK triggers a re-fetch with the new parameters; the
+  filter (F6) and viewing position are preserved across the swap.  This
+  dialog does NOT filter what is already displayed -- use F6 inside the
+  viewer for line filtering.
+
+  FIELDS
+  ------
+
+    Follow         docker logs --follow.  Stream new lines as they
+                   arrive; the viewer auto-scrolls to the bottom.
+
+    Show           How much to fetch.  Accepts one of:
+
+                     tail        last 100 lines
+                     tail <N>    last N lines (docker logs --tail=N)
+                     head        first 20 available lines
+                     head <N>    first N available lines (piped through
+                                 head -n N on the host)
+                     30s 5m 1h   a time window (docker logs --since=...)
+                     <empty>     no limit (all logs docker still has)
+
+                   Note: "head" can only show the earliest lines docker
+                   still retains.  If the container's json-file log has
+                   rotated (--log-opt max-size/max-file), the true start
+                   is gone and cannot be recovered.
+
+    Pipe through   A shell command applied to the output before it
+                   reaches the viewer.  Empty = raw.  For .NET / Serilog
+                   console logs, "dlog" strips the trailing
+                   "<s:Namespace.Class>" SourceContext tag.
+
+  BUTTONS
+  -------
+
+    OK             Validate the input, re-fetch with the new parameters
+                   and swap the viewer's data source.  The filter (F6)
+                   and viewing position carry over.
+
+    Cancel         Discard the changes; the viewer stays on the current
+                   data.

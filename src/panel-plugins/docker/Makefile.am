@@ -1,10 +1,12 @@
 dockerdir = $(panel_plugins_dir)/docker
 docker_LTLIBRARIES = mc-panel-docker.la
-docker_DATA = docker_panel.hlp
+docker_DATA = docker_panel.hlp dlog.sh
+EXTRA_DIST = dlog.sh
 
 mc_panel_docker_la_SOURCES = \
 	docker.c \
 	docker-ui.c \
+	docker-logs.c \
 	containers.c \
 	container-files.c \
 	images.c \
