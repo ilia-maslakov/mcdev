@@ -790,6 +790,7 @@ src/panel-plugins/systemd/Makefile
 src/panel-plugins/sftp/Makefile
 src/panel-plugins/docker/Makefile
 src/panel-plugins/git/Makefile
+src/panel-plugins/k8s/Makefile
 src/panel-plugins/shell-link/Makefile
 src/panel-plugins/arcmc/Makefile
 src/panel-plugins/s3/Makefile
