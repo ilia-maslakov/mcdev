@@ -159,7 +159,7 @@ mcview_ansi_apply_one_sgr_param (mcview_ansi_state_t *state, int idx)
     else if (code == 7)
         state->reverse = TRUE;
     else if (code == 21)
-        // double underline — map to regular underline (ncurses/slang limitation)
+        // double underline - map to regular underline (ncurses/slang limitation)
         state->underline = TRUE;
     else if (code == 22)
         state->bold = FALSE;
@@ -180,9 +180,9 @@ mcview_ansi_apply_one_sgr_param (mcview_ansi_state_t *state, int idx)
             state->fg = state->params[idx + 2];
         else if (idx + 4 < state->param_count && state->params[idx + 1] == 2)
         {
-            // truecolor foreground → approximate to 256-color
+            // truecolor foreground -> approximate to 256-color
             if (idx + 5 < state->param_count && state->is_colon_sep[idx + 1])
-                // de jure colon notation: 38:2:CS:R:G:B — skip color space
+                // de jure colon notation: 38:2:CS:R:G:B - skip color space
                 state->fg = mcview_ansi_rgb_to_256 (state->params[idx + 3], state->params[idx + 4],
                                                     state->params[idx + 5]);
             else
@@ -202,9 +202,9 @@ mcview_ansi_apply_one_sgr_param (mcview_ansi_state_t *state, int idx)
             state->bg = state->params[idx + 2];
         else if (idx + 4 < state->param_count && state->params[idx + 1] == 2)
         {
-            // truecolor background → approximate to 256-color
+            // truecolor background -> approximate to 256-color
             if (idx + 5 < state->param_count && state->is_colon_sep[idx + 1])
-                // de jure colon notation: 48:2:CS:R:G:B — skip color space
+                // de jure colon notation: 48:2:CS:R:G:B - skip color space
                 state->bg = mcview_ansi_rgb_to_256 (state->params[idx + 3], state->params[idx + 4],
                                                     state->params[idx + 5]);
             else
@@ -267,9 +267,9 @@ mcview_ansi_apply_sgr (mcview_ansi_state_t *state)
                     i++;
             }
             else if (i + 2 < state->param_count && state->params[i + 1] == 5)
-                i += 2;  // 256-color: 38;5;N — skip 2
+                i += 2;  // 256-color: 38;5;N - skip 2
             else if (i + 4 < state->param_count && state->params[i + 1] == 2)
-                i += 4;  // truecolor: 38;2;R;G;B — skip 4
+                i += 4;  // truecolor: 38;2;R;G;B - skip 4
         }
         else
             mcview_ansi_apply_one_sgr_param (state, i);

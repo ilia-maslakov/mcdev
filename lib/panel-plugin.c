@@ -189,9 +189,7 @@ mc_panel_plugin_add (const mc_panel_plugin_t *plugin)
     if (mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_PANEL, plugin->name))
         return FALSE;
 
-    // Re-registration is silent: editor_plugins_register_all() is called
-    // again from Manage Plugins, so duplicates are a normal idempotent path
-    // and we must not bleed stderr through the curses screen.
+    /* Manage Plugins may register already-loaded plugins again. */
     if (mc_panel_plugin_find_by_name (plugin->name) != NULL)
         return FALSE;
 

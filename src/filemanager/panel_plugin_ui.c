@@ -400,9 +400,8 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
     panel->is_panelized = TRUE;
     panel->plugin_base_list_format = panel->list_format;
 
-    // populate dir list
     panel_clean_dir (panel);
-    // panel_clean_dir resets flags - restore them
+    /* panel_clean_dir() resets these flags. */
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
 
@@ -898,7 +897,6 @@ panel_plugin_select_and_activate (WPanel *panel)
 
     if (count == 0)
     {
-        // shouldn't happen since we checked above, but be safe
         widget_destroy (WIDGET (listbox->dlg));
         return;
     }

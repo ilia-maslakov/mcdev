@@ -41,4 +41,3 @@ Samba connection settings
   Password          - authentication password (stored encoded)
 
 Config file: ~/.config/mc/smb-connections.ini
-

@@ -126,7 +126,6 @@ make_opts (mc_search_type_t type, gboolean case_sens, gboolean whole_words, gboo
 
 /*** tests ***********************************************************************************/
 
-/* @Test: valid normal pattern activates filter */
 START_TEST (test_activate_valid_normal)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -140,7 +139,6 @@ START_TEST (test_activate_valid_normal)
 }
 END_TEST
 
-/* @Test: valid regex pattern activates filter with correct search type */
 START_TEST (test_activate_valid_regex)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
@@ -153,7 +151,6 @@ START_TEST (test_activate_valid_regex)
 }
 END_TEST
 
-/* @Test: invalid regex returns FALSE, sets err_msg, leaves view unchanged */
 START_TEST (test_activate_invalid_regex_preserves_state)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
@@ -174,7 +171,6 @@ START_TEST (test_activate_invalid_regex_preserves_state)
 }
 END_TEST
 
-/* @Test: invalid regex with NULL err_msg does not crash */
 START_TEST (test_activate_invalid_regex_null_errmsg)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
@@ -184,7 +180,6 @@ START_TEST (test_activate_invalid_regex_null_errmsg)
 }
 END_TEST
 
-/* @Test: case_sens option is propagated to the engine */
 START_TEST (test_activate_case_sens_propagated)
 {
     mcview_filter_options_t opts;
@@ -204,7 +199,6 @@ START_TEST (test_activate_case_sens_propagated)
 }
 END_TEST
 
-/* @Test: whole_words option is propagated to the engine */
 START_TEST (test_activate_whole_words_propagated)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, TRUE, FALSE);
@@ -216,7 +210,6 @@ START_TEST (test_activate_whole_words_propagated)
 }
 END_TEST
 
-/* @Test: deactivate clears all filter state */
 START_TEST (test_deactivate_clears_state)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -233,7 +226,6 @@ START_TEST (test_deactivate_clears_state)
 }
 END_TEST
 
-/* @Test: hex mode activates filter engine with correct search type */
 START_TEST (test_activate_hex_type_propagated)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_HEX, FALSE, FALSE, FALSE);
@@ -244,7 +236,6 @@ START_TEST (test_activate_hex_type_propagated)
 }
 END_TEST
 
-/* @Test: invalid hex pattern (non-hex digits) returns FALSE, leaves view clean */
 START_TEST (test_activate_hex_invalid_pattern)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_HEX, FALSE, FALSE, FALSE);
@@ -257,7 +248,6 @@ START_TEST (test_activate_hex_invalid_pattern)
 }
 END_TEST
 
-/* @Test: invalid pattern error message is non-empty */
 START_TEST (test_activate_invalid_regex_errmsg_nonempty)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
@@ -270,7 +260,6 @@ START_TEST (test_activate_invalid_regex_errmsg_nonempty)
 }
 END_TEST
 
-/* @Test: glob mode activates filter engine with correct search type */
 START_TEST (test_activate_glob_type_propagated)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_GLOB, FALSE, FALSE, FALSE);
@@ -281,7 +270,6 @@ START_TEST (test_activate_glob_type_propagated)
 }
 END_TEST
 
-/* @Test: second activate replaces first after deactivating old state */
 START_TEST (test_activate_replaces_previous)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -311,7 +299,6 @@ scan_teardown (void)
     mcview_close_datasource (&test_view);
 }
 
-/* @Test: single normal match returns correct text and offsets */
 START_TEST (test_scan_normal_match)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -332,7 +319,6 @@ START_TEST (test_scan_normal_match)
 }
 END_TEST
 
-/* @Test: file without trailing newline -- last line is still matched */
 START_TEST (test_scan_no_trailing_newline)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -351,7 +337,6 @@ START_TEST (test_scan_no_trailing_newline)
 }
 END_TEST
 
-/* @Test: invalid regex returns -1 and non-empty error string */
 START_TEST (test_scan_invalid_pattern)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);
@@ -370,7 +355,6 @@ START_TEST (test_scan_invalid_pattern)
 }
 END_TEST
 
-/* @Test: pattern that matches nothing returns 0 */
 START_TEST (test_scan_no_match)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -387,7 +371,6 @@ START_TEST (test_scan_no_match)
 }
 END_TEST
 
-/* @Test: max_matches limits results */
 START_TEST (test_scan_max_matches_limit)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_NORMAL, FALSE, FALSE, FALSE);
@@ -406,7 +389,6 @@ START_TEST (test_scan_max_matches_limit)
 }
 END_TEST
 
-/* @Test: regex match offset is correct for mid-line match */
 START_TEST (test_scan_regex_match_offset)
 {
     mcview_filter_options_t opts = make_opts (MC_SEARCH_T_REGEX, FALSE, FALSE, FALSE);

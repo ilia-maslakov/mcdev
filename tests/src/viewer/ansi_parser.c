@@ -50,8 +50,6 @@ parse_and_collect (mcview_ansi_state_t *state, const char *input)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: init sets default state */
-
 START_TEST (test_ansi_init_defaults)
 {
     // given
@@ -74,8 +72,6 @@ START_TEST (test_ansi_init_defaults)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: plain text passes through unchanged */
-
 START_TEST (test_ansi_plain_text_passthrough)
 {
     // given
@@ -94,8 +90,6 @@ START_TEST (test_ansi_plain_text_passthrough)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: ESC[ m (reset) is consumed, no visible output */
-
 START_TEST (test_ansi_reset_consumed)
 {
     // given
@@ -104,18 +98,16 @@ START_TEST (test_ansi_reset_consumed)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[m between text
+    // when - ESC[m between text
     result = parse_and_collect (&state, "ab\033[mcd");
 
-    // then — only "abcd" visible
+    // then - only "abcd" visible
     mctest_assert_str_eq (result->str, "abcd");
     g_string_free (result, TRUE);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: ESC[0m explicit reset restores defaults */
-
 START_TEST (test_ansi_explicit_reset)
 {
     // given
@@ -123,13 +115,13 @@ START_TEST (test_ansi_explicit_reset)
 
     mcview_ansi_state_init (&state);
 
-    // when — set red, then reset
+    // when - set red, then reset
     g_string_free (parse_and_collect (&state, "\033[31m"), TRUE);
     ck_assert_int_eq (state.fg, 1);
 
     g_string_free (parse_and_collect (&state, "\033[0m"), TRUE);
 
-    // then — back to defaults
+    // then - back to defaults
     ck_assert_int_eq (state.fg, MCVIEW_ANSI_COLOR_DEFAULT);
     ck_assert_int_eq (state.bg, MCVIEW_ANSI_COLOR_DEFAULT);
     mctest_assert_false (state.bold);
@@ -141,8 +133,6 @@ START_TEST (test_ansi_explicit_reset)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: foreground color SGR codes 30-37 */
-
 START_TEST (test_ansi_foreground_colors)
 {
     // given
@@ -150,14 +140,14 @@ START_TEST (test_ansi_foreground_colors)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[31m = red foreground
+    // when - ESC[31m = red foreground
     g_string_free (parse_and_collect (&state, "\033[31m"), TRUE);
 
     // then
     ck_assert_int_eq (state.fg, 1);
     ck_assert_int_eq (state.bg, MCVIEW_ANSI_COLOR_DEFAULT);
 
-    // when — ESC[34m = blue foreground
+    // when - ESC[34m = blue foreground
     g_string_free (parse_and_collect (&state, "\033[34m"), TRUE);
 
     // then
@@ -166,8 +156,6 @@ START_TEST (test_ansi_foreground_colors)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: background color SGR codes 40-47 */
-
 START_TEST (test_ansi_background_colors)
 {
     // given
@@ -175,7 +163,7 @@ START_TEST (test_ansi_background_colors)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[42m = green background
+    // when - ESC[42m = green background
     g_string_free (parse_and_collect (&state, "\033[42m"), TRUE);
 
     // then
@@ -185,8 +173,6 @@ START_TEST (test_ansi_background_colors)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: bold SGR code 1 */
-
 START_TEST (test_ansi_bold)
 {
     // given
@@ -194,7 +180,7 @@ START_TEST (test_ansi_bold)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[1m = bold
+    // when - ESC[1m = bold
     g_string_free (parse_and_collect (&state, "\033[1m"), TRUE);
 
     // then
@@ -204,8 +190,6 @@ START_TEST (test_ansi_bold)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: underline SGR code 4 */
-
 START_TEST (test_ansi_underline)
 {
     // given
@@ -213,7 +197,7 @@ START_TEST (test_ansi_underline)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[4m = underline
+    // when - ESC[4m = underline
     g_string_free (parse_and_collect (&state, "\033[4m"), TRUE);
 
     // then
@@ -223,8 +207,6 @@ START_TEST (test_ansi_underline)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: combined parameters ESC[01;34m = bold + blue */
-
 START_TEST (test_ansi_combined_params)
 {
     // given
@@ -232,7 +214,7 @@ START_TEST (test_ansi_combined_params)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[01;34m = bold blue (source-highlight typical output)
+    // when - ESC[01;34m = bold blue (source-highlight typical output)
     g_string_free (parse_and_collect (&state, "\033[01;34m"), TRUE);
 
     // then
@@ -242,8 +224,6 @@ START_TEST (test_ansi_combined_params)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: bright foreground colors 90-97 */
-
 START_TEST (test_ansi_bright_foreground)
 {
     // given
@@ -251,17 +231,15 @@ START_TEST (test_ansi_bright_foreground)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[91m = bright red
+    // when - ESC[91m = bright red
     g_string_free (parse_and_collect (&state, "\033[91m"), TRUE);
 
-    // then — bright colors map to 8-15
+    // then - bright colors map to 8-15
     ck_assert_int_eq (state.fg, 9);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: bright background colors 100-107 */
-
 START_TEST (test_ansi_bright_background)
 {
     // given
@@ -269,17 +247,15 @@ START_TEST (test_ansi_bright_background)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[101m = bright red background
+    // when - ESC[101m = bright red background
     g_string_free (parse_and_collect (&state, "\033[101m"), TRUE);
 
-    // then — bright bg colors map to 8-15
+    // then - bright bg colors map to 8-15
     ck_assert_int_eq (state.bg, 9);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: color change without reset — state accumulates */
-
 START_TEST (test_ansi_color_change_without_reset)
 {
     // given
@@ -287,19 +263,17 @@ START_TEST (test_ansi_color_change_without_reset)
 
     mcview_ansi_state_init (&state);
 
-    // when — set red, then set bold without resetting red
+    // when - set red, then set bold without resetting red
     g_string_free (parse_and_collect (&state, "\033[31m"), TRUE);
     g_string_free (parse_and_collect (&state, "\033[1m"), TRUE);
 
-    // then — both red and bold active
+    // then - both red and bold active
     ck_assert_int_eq (state.fg, 1);
     mctest_assert_true (state.bold);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: default foreground SGR 39, default background SGR 49 */
-
 START_TEST (test_ansi_default_color_codes)
 {
     // given
@@ -307,18 +281,18 @@ START_TEST (test_ansi_default_color_codes)
 
     mcview_ansi_state_init (&state);
 
-    // when — set colors then reset individually
+    // when - set colors then reset individually
     g_string_free (parse_and_collect (&state, "\033[31;42m"), TRUE);
     ck_assert_int_eq (state.fg, 1);
     ck_assert_int_eq (state.bg, 2);
 
     g_string_free (parse_and_collect (&state, "\033[39m"), TRUE);
 
-    // then — fg reset, bg preserved
+    // then - fg reset, bg preserved
     ck_assert_int_eq (state.fg, MCVIEW_ANSI_COLOR_DEFAULT);
     ck_assert_int_eq (state.bg, 2);
 
-    // when — reset bg
+    // when - reset bg
     g_string_free (parse_and_collect (&state, "\033[49m"), TRUE);
 
     // then
@@ -327,8 +301,6 @@ START_TEST (test_ansi_default_color_codes)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: non-SGR CSI sequence (e.g., cursor movement) is consumed but doesn't affect colors */
-
 START_TEST (test_ansi_non_sgr_csi_ignored)
 {
     // given
@@ -340,17 +312,15 @@ START_TEST (test_ansi_non_sgr_csi_ignored)
     g_string_free (parse_and_collect (&state, "\033[31m"), TRUE);
     ck_assert_int_eq (state.fg, 1);
 
-    // when — ESC[2J = clear screen (not SGR)
+    // when - ESC[2J = clear screen (not SGR)
     g_string_free (parse_and_collect (&state, "\033[2J"), TRUE);
 
-    // then — color unchanged, sequence consumed
+    // then - color unchanged, sequence consumed
     ck_assert_int_eq (state.fg, 1);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: incomplete escape at end of input — chars consumed, no crash */
-
 START_TEST (test_ansi_incomplete_escape)
 {
     // given
@@ -359,7 +329,7 @@ START_TEST (test_ansi_incomplete_escape)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[ without terminator, then normal text in next call
+    // when - ESC[ without terminator, then normal text in next call
     result = parse_and_collect (&state, "ab\033[");
     mctest_assert_str_eq (result->str, "ab");
     g_string_free (result, TRUE);
@@ -367,10 +337,10 @@ START_TEST (test_ansi_incomplete_escape)
     // parser should be in CSI state
     mctest_assert_true (state.in_csi);
 
-    // when — continue with normal text (CSI aborted by non-param/non-terminator)
+    // when - continue with normal text (CSI aborted by non-param/non-terminator)
     result = parse_and_collect (&state, "31mX");
 
-    // then — the "31m" completes the CSI, "X" is displayable
+    // then - the "31m" completes the CSI, "X" is displayable
     mctest_assert_str_eq (result->str, "X");
     ck_assert_int_eq (state.fg, 1);
     g_string_free (result, TRUE);
@@ -378,8 +348,6 @@ START_TEST (test_ansi_incomplete_escape)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: 256-color foreground ESC[38;5;Nm */
-
 START_TEST (test_ansi_256_color_foreground)
 {
     // given
@@ -387,17 +355,15 @@ START_TEST (test_ansi_256_color_foreground)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[38;5;196m = 256-color red
+    // when - ESC[38;5;196m = 256-color red
     g_string_free (parse_and_collect (&state, "\033[38;5;196m"), TRUE);
 
-    // then — fg set to 196
+    // then - fg set to 196
     ck_assert_int_eq (state.fg, 196);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: 256-color background ESC[48;5;Nm */
-
 START_TEST (test_ansi_256_color_background)
 {
     // given
@@ -405,17 +371,15 @@ START_TEST (test_ansi_256_color_background)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[48;5;82m = 256-color green bg
+    // when - ESC[48;5;82m = 256-color green bg
     g_string_free (parse_and_collect (&state, "\033[48;5;82m"), TRUE);
 
-    // then — bg set to 82
+    // then - bg set to 82
     ck_assert_int_eq (state.bg, 82);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: real source-highlight output pattern */
-
 START_TEST (test_ansi_source_highlight_pattern)
 {
     // given
@@ -424,10 +388,10 @@ START_TEST (test_ansi_source_highlight_pattern)
 
     mcview_ansi_state_init (&state);
 
-    // when — typical source-highlight output: ESC[01;34m keyword ESC[m
+    // when - typical source-highlight output: ESC[01;34m keyword ESC[m
     result = parse_and_collect (&state, "\033[01;34mif\033[m (x)");
 
-    // then — visible text is "if (x)"
+    // then - visible text is "if (x)"
     mctest_assert_str_eq (result->str, "if (x)");
     // after reset, colors should be defaults
     ck_assert_int_eq (state.fg, MCVIEW_ANSI_COLOR_DEFAULT);
@@ -437,8 +401,6 @@ START_TEST (test_ansi_source_highlight_pattern)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: ESC followed by non-'[' is consumed (not CSI, just ESC + char) */
-
 START_TEST (test_ansi_esc_non_csi)
 {
     // given
@@ -447,18 +409,16 @@ START_TEST (test_ansi_esc_non_csi)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC followed by 'c' (not '[') — this is "RIS" reset
+    // when - ESC followed by 'c' (not '[') - this is "RIS" reset
     result = parse_and_collect (&state, "a\033cb");
 
-    // then — ESC and 'c' consumed, only 'a' and 'b' visible
+    // then - ESC and 'c' consumed, only 'a' and 'b' visible
     mctest_assert_str_eq (result->str, "ab");
     g_string_free (result, TRUE);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: truecolor foreground ESC[38;2;R;G;Bm → approximate to 256-color */
-
 START_TEST (test_ansi_truecolor_foreground)
 {
     // given
@@ -466,8 +426,8 @@ START_TEST (test_ansi_truecolor_foreground)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[38;2;255;0;0m = truecolor red → should map to 196
-    // cube: r=5 g=0 b=0 → 16 + 180 + 0 + 0 = 196
+    // when - ESC[38;2;255;0;0m = truecolor red -> should map to 196
+    // cube: r=5 g=0 b=0 -> 16 + 180 + 0 + 0 = 196
     g_string_free (parse_and_collect (&state, "\033[38;2;255;0;0m"), TRUE);
 
     // then
@@ -476,8 +436,6 @@ START_TEST (test_ansi_truecolor_foreground)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: truecolor background ESC[48;2;R;G;Bm */
-
 START_TEST (test_ansi_truecolor_background)
 {
     // given
@@ -485,8 +443,8 @@ START_TEST (test_ansi_truecolor_background)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[48;2;0;0;255m = truecolor blue bg → should map to 21
-    // cube: r=0 g=0 b=5 → 16 + 0 + 0 + 5 = 21
+    // when - ESC[48;2;0;0;255m = truecolor blue bg -> should map to 21
+    // cube: r=0 g=0 b=5 -> 16 + 0 + 0 + 5 = 21
     g_string_free (parse_and_collect (&state, "\033[48;2;0;0;255m"), TRUE);
 
     // then
@@ -495,8 +453,6 @@ START_TEST (test_ansi_truecolor_background)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: truecolor combined with bold in one sequence */
-
 START_TEST (test_ansi_truecolor_combined)
 {
     // given
@@ -504,8 +460,8 @@ START_TEST (test_ansi_truecolor_combined)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[1;38;2;255;128;0m = bold + truecolor orange fg
-    // cube: r=5 g=2 b=0 → 16 + 180 + 12 + 0 = 208
+    // when - ESC[1;38;2;255;128;0m = bold + truecolor orange fg
+    // cube: r=5 g=2 b=0 -> 16 + 180 + 12 + 0 = 208
     g_string_free (parse_and_collect (&state, "\033[1;38;2;255;128;0m"), TRUE);
 
     // then
@@ -515,8 +471,6 @@ START_TEST (test_ansi_truecolor_combined)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: truecolor R;G;B values not misinterpreted as SGR codes */
-
 START_TEST (test_ansi_truecolor_no_misparse)
 {
     // given
@@ -524,19 +478,17 @@ START_TEST (test_ansi_truecolor_no_misparse)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[38;2;100;150;200m — R=100 must NOT trigger bright-bg (100-107)
-    // cube: r=1 g=2 b=4 → 16 + 36 + 12 + 4 = 68
+    // when - ESC[38;2;100;150;200m - R=100 must NOT trigger bright-bg (100-107)
+    // cube: r=1 g=2 b=4 -> 16 + 36 + 12 + 4 = 68
     g_string_free (parse_and_collect (&state, "\033[38;2;100;150;200m"), TRUE);
 
-    // then — bg must stay default (not affected by R=100)
+    // then - bg must stay default (not affected by R=100)
     ck_assert_int_eq (state.bg, MCVIEW_ANSI_COLOR_DEFAULT);
     ck_assert_int_eq (state.fg, 68);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: italic SGR code 3 */
-
 START_TEST (test_ansi_italic)
 {
     // given
@@ -544,7 +496,7 @@ START_TEST (test_ansi_italic)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[3m = italic
+    // when - ESC[3m = italic
     g_string_free (parse_and_collect (&state, "\033[3m"), TRUE);
 
     // then
@@ -554,8 +506,6 @@ START_TEST (test_ansi_italic)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: blink SGR code 5 */
-
 START_TEST (test_ansi_blink)
 {
     // given
@@ -563,7 +513,7 @@ START_TEST (test_ansi_blink)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[5m = blink
+    // when - ESC[5m = blink
     g_string_free (parse_and_collect (&state, "\033[5m"), TRUE);
 
     // then
@@ -572,8 +522,6 @@ START_TEST (test_ansi_blink)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: reverse SGR code 7 */
-
 START_TEST (test_ansi_reverse)
 {
     // given
@@ -581,7 +529,7 @@ START_TEST (test_ansi_reverse)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[7m = reverse
+    // when - ESC[7m = reverse
     g_string_free (parse_and_collect (&state, "\033[7m"), TRUE);
 
     // then
@@ -590,8 +538,6 @@ START_TEST (test_ansi_reverse)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: individual off codes 23, 25, 27 */
-
 START_TEST (test_ansi_individual_off_codes)
 {
     // given
@@ -599,7 +545,7 @@ START_TEST (test_ansi_individual_off_codes)
 
     mcview_ansi_state_init (&state);
 
-    // when — enable italic, blink, reverse then disable each individually
+    // when - enable italic, blink, reverse then disable each individually
     g_string_free (parse_and_collect (&state, "\033[3;5;7m"), TRUE);
     mctest_assert_true (state.italic);
     mctest_assert_true (state.blink);
@@ -619,8 +565,6 @@ START_TEST (test_ansi_individual_off_codes)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: SGR 21 = double underline → mapped to regular underline */
-
 START_TEST (test_ansi_double_underline)
 {
     // given
@@ -628,17 +572,15 @@ START_TEST (test_ansi_double_underline)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[21m = double underline
+    // when - ESC[21m = double underline
     g_string_free (parse_and_collect (&state, "\033[21m"), TRUE);
 
-    // then — mapped to regular underline
+    // then - mapped to regular underline
     mctest_assert_true (state.underline);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: empty parameter treated as 0 (reset): ESC[1;;3m = bold, reset, italic */
-
 START_TEST (test_ansi_empty_param_is_zero)
 {
     // given
@@ -646,18 +588,16 @@ START_TEST (test_ansi_empty_param_is_zero)
 
     mcview_ansi_state_init (&state);
 
-    // when — ESC[1;;3m → 1=bold, empty=0=reset all, 3=italic
+    // when - ESC[1;;3m -> 1=bold, empty=0=reset all, 3=italic
     g_string_free (parse_and_collect (&state, "\033[1;;3m"), TRUE);
 
-    // then — bold was reset by the 0, italic is on
+    // then - bold was reset by the 0, italic is on
     mctest_assert_false (state.bold);
     mctest_assert_true (state.italic);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: colon notation for 256-color: ESC[38:5:196m */
-
 START_TEST (test_ansi_colon_256_color)
 {
     // given
@@ -665,17 +605,15 @@ START_TEST (test_ansi_colon_256_color)
 
     mcview_ansi_state_init (&state);
 
-    // when — colon notation
+    // when - colon notation
     g_string_free (parse_and_collect (&state, "\033[38:5:196m"), TRUE);
 
-    // then — fg = 196
+    // then - fg = 196
     ck_assert_int_eq (state.fg, 196);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: colon notation does NOT leak into SGR: ESC[38:5:4:7m → 7 is NOT reverse */
-
 START_TEST (test_ansi_colon_nested_no_leak)
 {
     // given
@@ -683,18 +621,16 @@ START_TEST (test_ansi_colon_nested_no_leak)
 
     mcview_ansi_state_init (&state);
 
-    // when — all colon-separated, 7 belongs to the color group
+    // when - all colon-separated, 7 belongs to the color group
     g_string_free (parse_and_collect (&state, "\033[38:5:4:7m"), TRUE);
 
-    // then — fg = 4 (from 38:5:4), reverse must NOT be set
+    // then - fg = 4 (from 38:5:4), reverse must NOT be set
     ck_assert_int_eq (state.fg, 4);
     mctest_assert_false (state.reverse);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: semicolon flat notation: ESC[38;5;4;7m → color 4 + reverse */
-
 START_TEST (test_ansi_semicolon_flat_with_reverse)
 {
     // given
@@ -702,18 +638,16 @@ START_TEST (test_ansi_semicolon_flat_with_reverse)
 
     mcview_ansi_state_init (&state);
 
-    // when — semicolon notation, 7 is a separate SGR param
+    // when - semicolon notation, 7 is a separate SGR param
     g_string_free (parse_and_collect (&state, "\033[38;5;4;7m"), TRUE);
 
-    // then — fg = 4, reverse IS set
+    // then - fg = 4, reverse IS set
     ck_assert_int_eq (state.fg, 4);
     mctest_assert_true (state.reverse);
 }
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: de jure truecolor with colon and color space: ESC[38:2::255:0:0m */
-
 START_TEST (test_ansi_colon_truecolor_with_colorspace)
 {
     // given
@@ -721,8 +655,8 @@ START_TEST (test_ansi_colon_truecolor_with_colorspace)
 
     mcview_ansi_state_init (&state);
 
-    // when — de jure: 38:2:CS:R:G:B with empty CS (=0)
-    // cube: r=5 g=0 b=0 → 16 + 180 + 0 + 0 = 196
+    // when - de jure: 38:2:CS:R:G:B with empty CS (=0)
+    // cube: r=5 g=0 b=0 -> 16 + 180 + 0 + 0 = 196
     g_string_free (parse_and_collect (&state, "\033[38:2::255:0:0m"), TRUE);
 
     // then
@@ -731,8 +665,6 @@ START_TEST (test_ansi_colon_truecolor_with_colorspace)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: reset clears all new attributes (italic, blink, reverse) */
-
 START_TEST (test_ansi_reset_clears_all_attrs)
 {
     // given
@@ -740,7 +672,7 @@ START_TEST (test_ansi_reset_clears_all_attrs)
 
     mcview_ansi_state_init (&state);
 
-    // when — set everything, then reset
+    // when - set everything, then reset
     g_string_free (parse_and_collect (&state, "\033[1;3;4;5;7;31;42m"), TRUE);
     mctest_assert_true (state.bold);
     mctest_assert_true (state.italic);
@@ -750,7 +682,7 @@ START_TEST (test_ansi_reset_clears_all_attrs)
 
     g_string_free (parse_and_collect (&state, "\033[0m"), TRUE);
 
-    // then — all cleared
+    // then - all cleared
     mctest_assert_false (state.bold);
     mctest_assert_false (state.italic);
     mctest_assert_false (state.underline);
@@ -762,8 +694,6 @@ START_TEST (test_ansi_reset_clears_all_attrs)
 END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
-/* Test: ANSI color state persists across a newline character */
-
 START_TEST (test_ansi_state_persists_across_newline)
 {
     // given
@@ -772,10 +702,10 @@ START_TEST (test_ansi_state_persists_across_newline)
 
     mcview_ansi_state_init (&state);
 
-    // when — set red fg, emit text, then a newline, then more text without reset
+    // when - set red fg, emit text, then a newline, then more text without reset
     result = parse_and_collect (&state, "\033[31mfoo\nbar");
 
-    // then — both segments are visible and fg is still red after the newline
+    // then - both segments are visible and fg is still red after the newline
     mctest_assert_str_eq (result->str, "foo\nbar");
     ck_assert_int_eq (state.fg, 1);
     g_string_free (result, TRUE);
