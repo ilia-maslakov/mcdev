@@ -32,7 +32,6 @@
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: after keymap_load, filemanager_map should contain default bindings */
 START_TEST (test_keymap_load_defaults)
 {
     const global_keymap_t *map;
@@ -64,7 +63,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: after keymap_free + keymap_load, filemanager_map pointer changes */
 START_TEST (test_keymap_reload_pointer_changes)
 {
     const global_keymap_t *old_map;
@@ -76,24 +74,15 @@ START_TEST (test_keymap_reload_pointer_changes)
     keymap_free ();
     keymap_load (FALSE);
 
-    /* filemanager_map should be valid but MAY point to different memory */
+    /* Valid after reload, but may point to different memory; a widget that
+       cached old_map would then hold a dangling pointer. */
     ck_assert_ptr_ne (filemanager_map, NULL);
 
-    /* verify bindings still work */
     {
         long cmd;
 
         cmd = keybind_lookup_keymap_command (filemanager_map, KEY_F (5));
         ck_assert_int_eq (cmd, CK_Copy);
-    }
-
-    /* if pointer changed, any widget holding old_map has dangling pointer */
-    if (filemanager_map != old_map)
-    {
-        /* This is the bug: widget->keymap would point to freed memory.
-           Mark test as passing but log the issue. */
-        fprintf (stderr, "WARNING: filemanager_map pointer changed after reload: %p -> %p\n",
-                 (const void *) old_map, (const void *) filemanager_map);
     }
 
     keymap_free ();
@@ -102,33 +91,16 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: keymap_load with stable GArray -- verify data pointer stability */
 START_TEST (test_keymap_data_pointer_stability)
 {
-    const global_keymap_t *map_after_first;
-    const global_keymap_t *map_after_second;
+    long cmd;
 
     keymap_load (FALSE);
-    map_after_first = filemanager_map;
-
     keymap_free ();
     keymap_load (FALSE);
-    map_after_second = filemanager_map;
 
-    /* Report whether pointer is stable */
-    if (map_after_first == map_after_second)
-        fprintf (stderr, "INFO: filemanager_map pointer STABLE after reload\n");
-    else
-        fprintf (stderr, "INFO: filemanager_map pointer CHANGED after reload: %p -> %p\n",
-                 (const void *) map_after_first, (const void *) map_after_second);
-
-    /* Either way, bindings should work */
-    {
-        long cmd;
-
-        cmd = keybind_lookup_keymap_command (filemanager_map, KEY_F (5));
-        ck_assert_int_eq (cmd, CK_Copy);
-    }
+    cmd = keybind_lookup_keymap_command (filemanager_map, KEY_F (5));
+    ck_assert_int_eq (cmd, CK_Copy);
 
     keymap_free ();
 }
@@ -136,9 +108,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* --------------------------------------------------------------------------------------------- */
-
-/* @Test: widget->keymap becomes dangling after reload */
 START_TEST (test_widget_keymap_dangling)
 {
     const global_keymap_t *widget_keymap;
@@ -146,34 +115,21 @@ START_TEST (test_widget_keymap_dangling)
 
     keymap_load (FALSE);
 
-    /* simulate what widget does: store pointer at init time */
+    /* A widget caches the keymap pointer at init time. */
     widget_keymap = filemanager_map;
     ck_assert_ptr_ne (widget_keymap, NULL);
 
-    /* verify it works before reload */
     cmd = keybind_lookup_keymap_command (widget_keymap, KEY_F (5));
     ck_assert_int_eq (cmd, CK_Copy);
 
-    /* reload */
     keymap_free ();
     keymap_load (FALSE);
 
-    /* filemanager_map is valid and updated */
+    /* filemanager_map is valid and updated after the reload. */
     cmd = keybind_lookup_keymap_command (filemanager_map, KEY_F (5));
     ck_assert_int_eq (cmd, CK_Copy);
 
-    /* but widget_keymap still points to old (freed) memory -- dangling!
-       We cannot safely dereference widget_keymap here.
-       Just verify the pointers differ to prove the bug exists. */
-    if (widget_keymap != filemanager_map)
-        fprintf (stderr, "CONFIRMED: widget_keymap is dangling after reload (%p != %p)\n",
-                 (const void *) widget_keymap, (const void *) filemanager_map);
-    else
-        fprintf (stderr, "INFO: pointers match -- no dangling issue\n");
-
-    /* This test passes either way -- it's diagnostic, not assertion.
-       The real fix is to update widget->keymap after reload or keep pointer stable. */
-
+    /* widget_keymap may now point to freed memory; do not dereference it. */
     keymap_free ();
 }
 END_TEST

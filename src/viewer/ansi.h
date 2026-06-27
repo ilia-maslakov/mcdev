@@ -20,8 +20,8 @@
 /** Result of feeding one byte to the ANSI parser */
 typedef enum
 {
-    ANSI_RESULT_CHAR,    /**< regular character — render with current color */
-    ANSI_RESULT_CONSUMED /**< escape sequence byte — skip, don't render */
+    ANSI_RESULT_CHAR,    /**< regular character - render with current color */
+    ANSI_RESULT_CONSUMED /**< escape sequence byte - skip, don't render */
 } mcview_ansi_result_t;
 
 /*** structures declarations (and typedefs of structures)*****************************************/

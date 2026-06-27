@@ -1259,7 +1259,7 @@ ctags_show_members (ctags_data_t *d, WEdit *edit)
     }
     else
     {
-        /* No direct hit — ask the user to enter a scope name. */
+        /* No direct hit - ask the user to enter a scope name. */
         g_ptr_array_free (copy, FALSE);
         copy = NULL;
         scope = ctags_ui_prompt_scope (cur_word);

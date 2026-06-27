@@ -52,4 +52,3 @@ S3 Connection settings
   Path-style URLs   - use path-style URLs (endpoint/bucket/key)
                       instead of virtual-hosted (bucket.endpoint/key).
                       Required for some MinIO/Ceph setups.
-

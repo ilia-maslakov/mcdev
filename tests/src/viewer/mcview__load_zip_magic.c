@@ -170,7 +170,6 @@ teardown (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: file with PK/ZIP magic bytes should load successfully as DS_FILE */
 START_TEST (test_zip_magic_file_loads_as_ds_file)
 {
     // given -- a file that starts with PK\x03\x04 (ZIP local file header)
@@ -198,7 +197,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: reloading ZIP-magic file should not crash (regression for segfault on second F3) */
 START_TEST (test_zip_magic_file_reload_no_crash)
 {
     // given -- a file with ZIP magic
@@ -242,7 +240,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: normal file (no magic) should load as DS_FILE */
 START_TEST (test_normal_file_loads_as_ds_file)
 {
     // given -- a plain text file
@@ -266,7 +263,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: nonexistent file should fail to load */
 START_TEST (test_nonexistent_file_fails)
 {
     // when
@@ -280,7 +276,6 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-/* @Test: gzip magic should also load successfully when VFS decompression fails */
 START_TEST (test_gzip_magic_file_loads_as_ds_file)
 {
     // given -- a file that starts with gzip magic (\x1f\x8b) but is not actually valid gzip

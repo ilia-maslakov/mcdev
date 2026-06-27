@@ -355,7 +355,7 @@ mcview_ansi_get_color (const mcview_ansi_state_t *ansi)
 
     has_attrs = ansi->bold || ansi->italic || ansi->underline || ansi->blink || ansi->reverse;
 
-    // all defaults → use the skin's normal viewer color
+    // all defaults -> use the skin's normal viewer color
     if (ansi->fg == MCVIEW_ANSI_COLOR_DEFAULT && ansi->bg == MCVIEW_ANSI_COLOR_DEFAULT
         && !has_attrs)
         return VIEWER_NORMAL_COLOR;
@@ -470,7 +470,7 @@ mcview_get_next_maybe_ansi_char (WView *view, mcview_state_machine_t *state, int
             return TRUE;
         }
 
-        // ANSI_RESULT_CONSUMED — escape sequence byte, skip and read next
+        // ANSI_RESULT_CONSUMED - escape sequence byte, skip and read next
     }
 }
 
