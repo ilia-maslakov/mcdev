@@ -468,7 +468,14 @@ mcview_stream_redraw_hook (void *v)
     delete_hook (&idle_hook, mcview_stream_redraw_hook);
 
     if (view->dirty > 0)
+    {
         mcview_update (view);
+        /* mcview_update writes directly into the viewer area. If a modal
+           dialog (filter, source-options, etc.) is open over the viewer,
+           the new bytes overwrite its frame. Refresh the dialog stack so
+           any covering dialog is repainted on top. */
+        do_refresh ();
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */

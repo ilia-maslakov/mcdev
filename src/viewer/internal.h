@@ -228,6 +228,11 @@ struct WView
     gboolean filter_active;         // TRUE while filter view is in effect
     gboolean filter_follow;         // Auto-scroll to new tail matches (like tail -f)
     gboolean filter_prev_wrap;      // Saved wrap state restored on deactivation
+
+    // Plugin source controller (NULL when viewer was opened by other means)
+    mcview_source_spec_t *source_spec;                    // current spec, owned
+    const mcview_source_controller_t *source_controller;  // not owned
+    void *source_ctx;                                     // opaque plugin state
 };
 
 typedef struct mcview_nroff_struct
@@ -405,6 +410,23 @@ off_t mcview_filter_offset (WView *view, guint idx);
 void mcview_filter_follow_toggle (WView *view);
 void mcview_filter_nav_next (WView *view);
 void mcview_filter_nav_prev (WView *view);
+
+/* source.c: */
+void mcview_source_options (WView *view);
+void mcview_reset_for_source_swap (WView *view);
+
+/* Filter snapshot (filter.c, used by source swap). */
+typedef struct
+{
+    gchar *pattern;
+    mcview_filter_options_t options;
+    gboolean active;
+    gboolean follow;
+} mcview_filter_snapshot_t;
+
+void mcview_filter_take_snapshot (const WView *view, mcview_filter_snapshot_t *out);
+gboolean mcview_filter_restore (WView *view, const mcview_filter_snapshot_t *snap);
+void mcview_filter_snapshot_clear (mcview_filter_snapshot_t *s);
 
 /* search.c: */
 gboolean mcview_search_init (WView *view);

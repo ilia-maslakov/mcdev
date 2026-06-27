@@ -848,6 +848,74 @@ mcview_filter_deactivate (WView *view)
 /* --------------------------------------------------------------------------------------------- */
 
 /**
+ * Save the active filter state so the buffer can be swapped out and the
+ * filter then re-applied to the new buffer.  Used by the source-controller
+ * swap path.  If no filter is active, snap->active is FALSE and other
+ * fields are zeroed.
+ */
+void
+mcview_filter_take_snapshot (const WView *view, mcview_filter_snapshot_t *snap)
+{
+    if (snap == NULL)
+        return;
+    memset (snap, 0, sizeof (*snap));
+    if (!view->filter_active)
+        return;
+    snap->active = TRUE;
+    snap->follow = view->filter_follow;
+    snap->pattern = g_strdup (view->filter_pattern);
+    if (view->filter_engine != NULL)
+    {
+        snap->options.type = view->filter_engine->search_type;
+        snap->options.case_sens = view->filter_engine->is_case_sensitive;
+        snap->options.whole_words = view->filter_engine->whole_words;
+        snap->options.all_codepages = view->filter_engine->is_all_charsets;
+    }
+    else
+        snap->options = mcview_filter_options;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
+ * Re-apply a previously snapshot'd filter to the current buffer.  Returns
+ * TRUE if the filter was successfully restored, FALSE if no snapshot or
+ * the pattern failed to compile against the new buffer.  Caller must still
+ * call mcview_filter_snapshot_clear() to free the snapshot's pattern.
+ */
+gboolean
+mcview_filter_restore (WView *view, const mcview_filter_snapshot_t *snap)
+{
+    gchar *err = NULL;
+
+    if (snap == NULL || !snap->active || snap->pattern == NULL)
+        return FALSE;
+    if (!mcview_filter_activate (view, snap->pattern, &snap->options, &err))
+    {
+        g_free (err);
+        return FALSE;
+    }
+    /* mcview_filter_activate does not preserve follow flag. */
+    view->filter_follow = snap->follow;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mcview_filter_snapshot_clear (mcview_filter_snapshot_t *snap)
+{
+    if (snap == NULL)
+        return;
+    g_free (snap->pattern);
+    snap->pattern = NULL;
+    snap->active = FALSE;
+    snap->follow = FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/**
  * Scan a budget-limited chunk of the datasource and append matching line
  * offsets to filter_offsets.  Called from the redraw tick so the UI stays
  * responsive even during log bursts.
