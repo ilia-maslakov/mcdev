@@ -19,6 +19,7 @@ libmcviewer_la_SOURCES = \
 	move.c \
 	nroff.c \
 	search.c \
+	source.c \
 	terminal_buffer.c terminal_buffer.h \
 	vterm.c vterm.h
 

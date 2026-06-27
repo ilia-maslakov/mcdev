@@ -469,7 +469,14 @@ mcview_get_title (const WDialog *h, const ssize_t width)
 
     const ssize_t width1 = width - 4;
 
-    file_label = view_filename != NULL ? view_filename : view->command != NULL ? view->command : "";
+    /* Source-controller title takes precedence; falls back to filename/command. */
+    if (view->source_spec != NULL && view->source_spec->title != NULL
+        && view->source_spec->title[0] != '\0')
+        file_label = view->source_spec->title;
+    else
+        file_label = view_filename != NULL ? view_filename
+            : view->command != NULL        ? view->command
+                                           : "";
     file_label = str_term_trim (file_label, width1 - str_term_width1 (_ ("View: ")));
 
     return g_strconcat (_ ("View: "), modified, file_label, (char *) NULL);

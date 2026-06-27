@@ -695,6 +695,20 @@ mcview_handle_key (WView *view, int key)
     if (command != CK_IgnoreKey && mcview_execute_cmd (view, command) == MSG_HANDLED)
         return MSG_HANDLED;
 
+    /* Key not bound to a viewer command: offer it to the source controller,
+       which owns its own hotkeys (mirrors the panel-plugin handle_key path). */
+    if (view->source_controller != NULL && view->source_controller->handle_key != NULL)
+        switch (view->source_controller->handle_key (view->source_ctx, key))
+        {
+        case MCV_KEY_OPEN_OPTIONS:
+            mcview_source_options (view);
+            return MSG_HANDLED;
+        case MCV_KEY_HANDLED:
+            return MSG_HANDLED;
+        default:
+            break;
+        }
+
 #ifdef MC_ENABLE_DEBUGGING_CODE
     if (key == 't')
     {  // mnemonic: "test"

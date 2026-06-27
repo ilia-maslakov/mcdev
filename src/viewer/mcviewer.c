@@ -388,6 +388,112 @@ mcview_viewer_stream (const char *command)
     return TRUE;
 }
 
+/* --------------------------------------------------------------------------------------------- */
+
+/* Open the viewer driven by a plugin source controller. This function owns
+ * initial_spec and ctx once called. */
+gboolean
+mcview_viewer_with_controller (mcview_source_spec_t *initial_spec,
+                               const mcview_source_controller_t *controller, void *ctx,
+                               int start_line)
+{
+    WView *lc_mcview;
+    WDialog *view_dlg;
+    Widget *vw, *b;
+    WGroup *g;
+    WRect r;
+    GError *error = NULL;
+
+    if (initial_spec == NULL || controller == NULL
+        || (initial_spec->command == NULL && initial_spec->file == NULL))
+    {
+        if (controller != NULL && controller->free != NULL)
+            controller->free (ctx);
+        mcview_source_spec_free (initial_spec);
+        return FALSE;
+    }
+    if (controller->open_options == NULL || controller->prepare == NULL
+        || controller->commit == NULL || controller->rollback == NULL || controller->free == NULL)
+    {
+        if (controller->free != NULL)
+            controller->free (ctx);
+        mcview_source_spec_free (initial_spec);
+        return FALSE;
+    }
+
+    view_dlg = dlg_create (FALSE, 0, 0, 1, 1, WPOS_FULLSCREEN, FALSE, NULL, mcview_dialog_callback,
+                           NULL, "[Internal File Viewer]", NULL);
+    vw = WIDGET (view_dlg);
+    widget_want_tab (vw, TRUE);
+
+    g = GROUP (view_dlg);
+
+    r = vw->rect;
+    r.lines--;
+    lc_mcview = mcview_new (&r, FALSE);
+    group_add_widget_autopos (g, lc_mcview, WPOS_KEEP_ALL, NULL);
+
+    b = WIDGET (buttonbar_new ());
+    group_add_widget_autopos (g, b, b->pos_flags, NULL);
+
+    view_dlg->get_title = mcview_get_title;
+
+    lc_mcview->source_controller = controller;
+    lc_mcview->source_ctx = ctx;
+    lc_mcview->source_spec = initial_spec;
+
+    if (initial_spec->command != NULL)
+    {
+        mc_pipe_t *p;
+
+        p = mc_popen (initial_spec->command, TRUE, FALSE, &error);
+        if (p == NULL)
+        {
+            message (D_ERROR, MSG_ERROR, "%s", error->message);
+            g_error_free (error);
+            controller->free (ctx);
+            lc_mcview->source_spec = NULL;
+            lc_mcview->source_controller = NULL;
+            lc_mcview->source_ctx = NULL;
+            mcview_source_spec_free (initial_spec);
+            widget_destroy (vw);
+            return FALSE;
+        }
+        lc_mcview->command = g_strdup (initial_spec->command);
+        mcview_set_datasource_stdio_pipe (lc_mcview, p);
+        mcview_stream_start (lc_mcview);
+    }
+    else
+    {
+        if (!mcview_load (lc_mcview, NULL, initial_spec->file, start_line, 0, 0))
+        {
+            controller->free (ctx);
+            lc_mcview->source_spec = NULL;
+            lc_mcview->source_controller = NULL;
+            lc_mcview->source_ctx = NULL;
+            mcview_source_spec_free (initial_spec);
+            widget_destroy (vw);
+            return FALSE;
+        }
+    }
+
+    if (initial_spec->auto_scroll_bottom)
+        mcview_moveto_bottom (lc_mcview);
+
+    dlg_run (view_dlg);
+
+    controller->free (ctx);
+    mcview_source_spec_free (lc_mcview->source_spec);
+    lc_mcview->source_spec = NULL;
+    lc_mcview->source_controller = NULL;
+    lc_mcview->source_ctx = NULL;
+
+    if (widget_get_state (vw, WST_CLOSED))
+        widget_destroy (vw);
+
+    return TRUE;
+}
+
 /* {{{ Miscellaneous functions }}} */
 
 /* --------------------------------------------------------------------------------------------- */
