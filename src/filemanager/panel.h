@@ -101,6 +101,7 @@ typedef struct
     vfs_path_t *lwd_vpath;  // Last Working Directory
 
     list_format_t list_format;  // Listing type
+    guint view_mode_id;         // Selected panel view mode (0 = none); see panel_modes.c
     GSList *format;             // Display format
     char *user_format;          // User format
     int list_cols;              // Number of file list columns

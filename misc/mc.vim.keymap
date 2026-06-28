@@ -79,7 +79,7 @@ Jobs = j
 # PutOtherLink =
 
 [panel]
-CycleListingFormat = alt-t
+PanelModes = alt-t
 Search = ctrl-s; alt-s
 Mark = insert; ctrl-t; shift-m
 MarkUp = shift-k
