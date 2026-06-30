@@ -79,7 +79,7 @@ PutCurrentLink = r
 PutOtherLink = ctrl-r
 
 [panel]
-CycleListingFormat = alt-t
+PanelModes = alt-t
 Search = ctrl-s; alt-s
 Mark = insert; ctrl-t
 MarkUp = shift-up
