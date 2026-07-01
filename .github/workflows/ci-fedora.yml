@@ -35,7 +35,7 @@ jobs:
 
             pip install clang-format==${{ env.CLANG_FORMAT_VERSION }}
 
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
 
       - name: Lint documentation
