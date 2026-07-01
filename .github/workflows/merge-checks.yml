@@ -20,7 +20,7 @@ jobs:
       statuses: write
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - uses: actions/github-script@v9
         id: get-head-hash
