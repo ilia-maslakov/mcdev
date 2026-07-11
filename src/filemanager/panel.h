@@ -164,6 +164,8 @@ vfs_path_t *remove_encoding_from_path (const vfs_path_t *vpath);
 
 void update_panels (panel_update_flags_t flags, const char *current_file);
 int set_panel_formats (WPanel *p);
+void panel_scroll_marker_pos (int list_cols, int name_col, gboolean blank_before, int fln,
+                              int *offset, int *width);
 
 void panel_set_filter (WPanel *panel, const file_filter_t *filter);
 
