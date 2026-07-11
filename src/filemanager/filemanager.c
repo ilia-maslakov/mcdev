@@ -90,6 +90,7 @@
 #include "src/file_history.h"         // show_file_history()
 
 #include "filemanager.h"
+#include "panel_modes.h"  // panel_modes_cmd
 #include "mcterm_overlay.h"
 
 /*** global variables ****************************************************************************/
@@ -195,6 +196,7 @@ create_panel_menu (gboolean is_right)
     }
 
     entries = g_list_prepend (entries, menu_separator_new ());
+    entries = g_list_prepend (entries, menu_entry_new (_ ("Panel &modes..."), CK_PanelModes));
     entries =
         g_list_prepend (entries, menu_entry_new (_ ("&Listing format..."), CK_SetupListingFormat));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Sort order..."), CK_Sort));
@@ -320,6 +322,8 @@ create_options_menu (void)
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Configuration..."), CK_Options));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Layout..."), CK_OptionsLayout));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Panel options..."), CK_OptionsPanel));
+    entries =
+        g_list_prepend (entries, menu_entry_new (_ ("File panel m&odes..."), CK_PanelModesManage));
     entries = g_list_prepend (entries, menu_entry_new (_ ("C&onfirmation..."), CK_OptionsConfirm));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Appearance..."), CK_OptionsAppearance));
     entries = g_list_prepend (entries, menu_entry_new (_ ("Learn &keys..."), CK_LearnKeys));
@@ -1215,6 +1219,14 @@ midnight_execute_cmd (Widget *sender, long command)
         break;
     case CK_SetupListingFormat:
         setup_listing_format_cmd ();
+        break;
+    case CK_PanelModes:
+        // target the menu's panel (Left/Right), like Sort order does
+        if (SELECTED_IS_PANEL)
+            panel_modes_cmd (MENU_PANEL);
+        break;
+    case CK_PanelModesManage:
+        panel_modes_manage_cmd ();
         break;
     case CK_ChangeMode:
         chmod_cmd (current_panel);

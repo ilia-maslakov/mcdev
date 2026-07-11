@@ -78,6 +78,7 @@
 #include "cd.h"         // cd_error_message()
 
 #include "panel.h"
+#include "panel_modes.h"
 
 /*** global variables ****************************************************************************/
 
@@ -3521,6 +3522,7 @@ static void
 panel_cycle_listing_format (WPanel *panel)
 {
     panel->list_format = (panel->list_format + 1) % LIST_FORMATS;
+    panel->view_mode_id = 0;  // no longer showing a named mode
 
     if (set_panel_formats (panel) == 0)
         do_refresh ();
@@ -4116,6 +4118,9 @@ panel_execute_cmd (WPanel *panel, long command)
     {
     case CK_CycleListingFormat:
         panel_cycle_listing_format (panel);
+        break;
+    case CK_PanelModes:
+        panel_modes_cmd (panel);
         break;
     case CK_PanelOtherCd:
         chdir_other_panel (panel);
@@ -5887,6 +5892,8 @@ panel_init (void)
         mc_skin_get ("widget-panel", "filename-scroll-right-char", "}");
 
     string_file_name_buffer = g_string_sized_new (MC_MAXFILENAMELEN);
+
+    panel_modes_init ();
 
     mc_event_add (MCEVENT_GROUP_FILEMANAGER, "update_panels", event_update_panels, NULL, NULL);
     mc_event_add (MCEVENT_GROUP_FILEMANAGER, "panel_save_current_file_to_clip_file",

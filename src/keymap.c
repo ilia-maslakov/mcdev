@@ -203,7 +203,7 @@ static const global_keymap_ini_t default_filemanager_x_keymap[] = {
 
 /* panel */
 static const global_keymap_ini_t default_panel_keymap[] = {
-    { "CycleListingFormat", "alt-t" },
+    { "PanelModes", "alt-t" },
     { "PanelOtherCd", "alt-o" },
     { "PanelOtherCdLink", "alt-l" },
     { "CopySingle", "f15" },
