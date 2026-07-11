@@ -53,6 +53,7 @@
 #include "filemanager/hotlist.h"  // load/save/done hotlist
 #include "filemanager/layout.h"
 #include "filemanager/cmd.h"
+#include "filemanager/panel_modes.h"  // panel_modes_save
 
 #include "args.h"
 #include "execute.h"  // pause_after_run
@@ -986,6 +987,7 @@ save_setup (gboolean save_options, gboolean save_panel_options)
         save_config ();
         save_layout ();
         panels_save_options ();
+        panel_modes_save ();
         // directory_history_save ();
 
         mc_config_set_string (mc_global.main_config, CONFIG_MISC_SECTION, "display_codepage",
@@ -1030,6 +1032,9 @@ done_setup (void)
     g_free (mc_global.tty.setup_color_string);
     g_free (profile_name);
     g_free (panels_profile_name);
+    /* Panel modes live for the whole session (not tied to panel_init/deinit,
+       which also run on skin reload); free them once here, at program exit. */
+    panel_modes_deinit ();
     mc_config_deinit (mc_global.main_config);
     mc_config_deinit (mc_global.panels_config);
 
@@ -1330,6 +1335,9 @@ panel_load_setup (WPanel *panel, const char *section)
     panel->user_mini_status =
         mc_config_get_bool (mc_global.panels_config, section, "user_mini_status", FALSE);
 
+    panel->view_mode_id =
+        (guint) mc_config_get_int (mc_global.panels_config, section, "view_mode_id", 0);
+
     panel->filter.value =
         mc_config_get_string (mc_global.panels_config, section, "filter_value", NULL);
     panel->filter.flags = mc_config_get_int (mc_global.panels_config, section, "filter_flags",
@@ -1373,6 +1381,8 @@ panel_save_setup (WPanel *panel, const char *section)
 
     mc_config_set_bool (mc_global.panels_config, section, "user_mini_status",
                         panel->user_mini_status);
+
+    mc_config_set_int (mc_global.panels_config, section, "view_mode_id", (int) panel->view_mode_id);
 
     // do not save the default filter
     if (panel->filter.handler != NULL)

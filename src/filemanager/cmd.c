@@ -532,6 +532,7 @@ configure_panel_listing (WPanel *p, int list_format, int brief_cols, gboolean us
 {
     p->user_mini_status = use_msformat;
     p->list_format = list_format;
+    p->view_mode_id = 0;  // the format is hand-picked now, not a named mode
 
     if (list_format == list_brief)
         p->brief_cols = brief_cols;

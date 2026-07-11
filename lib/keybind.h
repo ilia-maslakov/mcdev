@@ -145,6 +145,8 @@ enum
     CK_DirSize,
     CK_HotListAdd,
     CK_SetupListingFormat,
+    CK_PanelModes,
+    CK_PanelModesManage,
     CK_CompareDirs,
     CK_OptionsVfs,
     CK_OptionsConfirm,

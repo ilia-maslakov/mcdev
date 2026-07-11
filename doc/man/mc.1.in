@@ -931,6 +931,65 @@ or
 Find file
 .\"Find File"
 commands.
+.\"NODE "Panel modes"
+.SH "Panel modes"
+A panel mode is a named, reusable listing format. The list of modes is
+shared between both panels and is edited and applied through two dialogs.
+.PP
+.B Alt\-t
+(also the
+.B "Panel modes..."
+entry of the Left and Right menus) opens the
+.B switcher:
+a plain list of the defined modes. Press
+.B Enter
+on a mode to apply it to the panel (the menu's panel, or the active panel
+for
+.BR Alt\-t ),
+or
+.B Esc
+to leave the panel unchanged.
+.PP
+The
+.B "File panel modes..."
+entry of the
+.B Options
+menu opens the
+.B manager:
+the same list, edited with keys.
+.B Insert
+creates a new mode,
+.B F4
+(or
+.BR Enter )
+edits the selected one,
+.B F5
+duplicates it, and
+.B Delete
+(or
+.BR F8 )
+removes it. The
+.B Defaults
+button replaces the list with the built\-in modes.
+.B Ok
+saves the list;
+.B Cancel
+(or
+.BR Esc )
+discards every change made in the dialog.
+The manager edits the global list of modes; it does not switch any panel.
+.PP
+The mode editor has separate inputs for the column field types and their
+widths, and for the mini\-status line, using the field names described under
+.\"LINK2"
+Listing Format...
+.\"Listing Format..."
+\&. A field type list is comma\-separated, one entry per column; a column may
+contain several space\-separated fields (for example
+.BR "type name" ).
+A width of 0 (or empty) leaves the field at its automatic width.
+.PP
+The defined modes and each panel's selected mode are saved across sessions.
 .\"NODE "    Sort Order..."
 .SH "    Sort Order..."
 The eight sort orders are by name (alphabetical sort or version sort,
