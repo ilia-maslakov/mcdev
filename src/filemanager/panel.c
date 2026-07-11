@@ -733,17 +733,44 @@ panel_plugin_get_column_value (const WPanel *panel, const file_entry_t *fe, cons
 /* --------------------------------------------------------------------------------------------- */
 /** Formats the file number file_index of panel in the buffer dest */
 
+/* Adjust the scroll marker span to the filename column. */
+void
+panel_scroll_marker_pos (int list_cols, int name_col, gboolean blank_before, int fln, int *offset,
+                         int *width)
+{
+    if (list_cols != 1 || fln <= 0)
+        return;
+
+    if (name_col > 0 && blank_before)
+    {
+        *offset = name_col;
+        *width = fln - 1;
+    }
+    else
+        *width = name_col + fln - 1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* name_col/blank_before (both optional) report where the name field starts
+   and whether the cell just left of it is blank (a "space" field), for the
+   scroll marker placement. */
 static filename_scroll_flag_t
 format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolean isstatus,
-             int *field_length)
+             int *field_length, int *name_col, gboolean *blank_before)
 {
     int color = CORE_NORMAL_COLOR;
     int length = 0;
     GSList *format, *home;
     file_entry_t *fe = NULL;
     filename_scroll_flag_t res = FILENAME_NOSCROLL;
+    gboolean prev_blank = FALSE;
 
     *field_length = 0;
+    if (name_col != NULL)
+        *name_col = 0;
+    if (blank_before != NULL)
+        *blank_before = FALSE;
 
     if (panel->dir.len != 0 && file_index < panel->dir.len)
     {
@@ -787,6 +814,10 @@ format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolea
                 const unsigned int len_diff = (unsigned int) DOZ (str_len, len);
 
                 *field_length = len + 1;
+                if (name_col != NULL)
+                    *name_col = length;
+                if (blank_before != NULL)
+                    *blank_before = prev_blank;
 
                 panel->max_shift = MAX (panel->max_shift, len_diff);
 
@@ -827,6 +858,7 @@ format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolea
                 tty_print_string (prepared_text);
 
             length += len;
+            prev_blank = strcmp (fi->id, "space") == 0;
         }
         else
         {
@@ -838,6 +870,7 @@ format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolea
                     tty_setcolor (CORE_FRAME_COLOR);
                 tty_print_one_vline (TRUE);
                 length++;
+                prev_blank = FALSE;
             }
         }
     }
@@ -866,6 +899,8 @@ repaint_file (WPanel *panel, int file_index, file_attr_t attr)
     filename_scroll_flag_t ret_frm;
     int ypos = 0;
     int fln = 0;
+    int name_off = 0;
+    gboolean name_blank_before = FALSE;
 
     // Divide into panel->list_cols equally wide columns, plus maybe some leftover space: #4906
     width = w->rect.cols - 1;
@@ -890,7 +925,8 @@ repaint_file (WPanel *panel, int file_index, file_attr_t attr)
     ypos += 2;  // top frame and header
     widget_gotoyx (w, ypos, offset + 1);
 
-    ret_frm = format_file (panel, file_index, width, attr, FALSE, &fln);
+    ret_frm =
+        format_file (panel, file_index, width, attr, FALSE, &fln, &name_off, &name_blank_before);
 
     if (nth_column + 1 < panel->list_cols)
     {
@@ -900,16 +936,11 @@ repaint_file (WPanel *panel, int file_index, file_attr_t attr)
 
     if (ret_frm != FILENAME_NOSCROLL)
     {
-        if (panel->list_cols == 1 && fln > 0)
-        {
-            if (panel->list_format != list_long)
-                width = fln;
-            else
-            {
-                offset = width - fln + 1;
-                width = fln - 1;
-            }
-        }
+        const int col_offset = offset;
+        const int col_width = width;
+
+        panel_scroll_marker_pos (panel->list_cols, name_off, name_blank_before, fln, &offset,
+                                 &width);
 
         const int file_color = attr == FATTR_CURRENT || attr == FATTR_MARKED_CURRENT
             ? CORE_SELECTED_COLOR
@@ -917,8 +948,7 @@ repaint_file (WPanel *panel, int file_index, file_attr_t attr)
 
         if ((ret_frm & FILENAME_SCROLL_LEFT) != 0)
         {
-            const int scroll_left_char_color =
-                panel->list_format == list_long ? file_color : CORE_NORMAL_COLOR;
+            const int scroll_left_char_color = offset > col_offset ? file_color : CORE_NORMAL_COLOR;
 
             widget_gotoyx (w, ypos, offset);
             tty_setcolor (scroll_left_char_color);
@@ -930,9 +960,7 @@ repaint_file (WPanel *panel, int file_index, file_attr_t attr)
             offset += width + 1;
 
             const int scroll_right_char_color =
-                panel->list_format != list_long && g_slist_length (panel->format) > 2
-                ? file_color
-                : CORE_NORMAL_COLOR;
+                offset <= col_offset + col_width ? file_color : CORE_NORMAL_COLOR;
 
             widget_gotoyx (w, ypos, offset);
             tty_setcolor (scroll_right_char_color);
@@ -953,7 +981,7 @@ repaint_status (WPanel *panel)
     {
         int fln = 0;
 
-        (void) format_file (panel, panel->current, width, FATTR_STATUS, TRUE, &fln);
+        (void) format_file (panel, panel->current, width, FATTR_STATUS, TRUE, &fln, NULL, NULL);
     }
 }
 

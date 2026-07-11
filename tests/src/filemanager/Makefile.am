@@ -21,6 +21,7 @@ TESTS = \
 	exec_get_export_variables_ext \
 	filegui_is_wildcarded \
 	get_random_hint \
+	panel_scroll_marker_pos \
 	panel_plugin_close
 
 check_PROGRAMS = $(TESTS)
@@ -39,6 +40,9 @@ get_random_hint_SOURCES = \
 
 filegui_is_wildcarded_SOURCES = \
 	filegui_is_wildcarded.c
+
+panel_scroll_marker_pos_SOURCES = \
+	panel_scroll_marker_pos.c
 
 panel_plugin_close_SOURCES = \
 	panel_plugin_close.c
