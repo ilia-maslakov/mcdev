@@ -74,6 +74,13 @@ void panel_mode_set (panel_mode_t *mode, const char *name, const char *types, co
  * line definition instead of the columns. Caller frees the result. */
 char *panel_mode_to_format (const panel_mode_t *mode, gboolean status);
 
+/* Normalize user input into the editor's comma lists: accepts a pasted
+ * listing format string too (optional "half"/"full" prefix, "|" column
+ * separators, a leading flowed-column count and ":width" field suffixes,
+ * which move into the widths list). Both results are newly allocated. */
+void panel_mode_normalize (const char *types, const char *widths, char **norm_types,
+                           char **norm_widths);
+
 /* Validate comma lists of field types and widths. Returns TRUE if every type
  * is a known field id and every width is a non-negative integer; otherwise
  * FALSE and *error (caller frees) describes the problem. */

@@ -187,6 +187,63 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* A pasted listing format is split into the types and widths lists. */
+START_TEST (test_normalize_pasted_format_string)
+{
+    char *nt = NULL;
+    char *nw = NULL;
+
+    panel_mode_normalize ("half name | size:7 | type mode:3", "", &nt, &nw);
+    ck_assert_str_eq (nt, "name,size,type mode");
+    ck_assert_str_eq (nw, "0,7,3");
+    g_free (nt);
+    g_free (nw);
+}
+END_TEST
+
+START_TEST (test_normalize_flowed_format_string)
+{
+    char *nt = NULL;
+    char *nw = NULL;
+
+    panel_mode_normalize ("half 2 type name", "", &nt, &nw);
+    ck_assert_str_eq (nt, "type name,type name");
+    ck_assert_str_eq (nw, "");
+    g_free (nt);
+    g_free (nw);
+}
+END_TEST
+
+/* Plain editor input passes through untouched. */
+START_TEST (test_normalize_plain_lists_unchanged)
+{
+    char *nt = NULL;
+    char *nw = NULL;
+
+    panel_mode_normalize ("name,size", "0,4", &nt, &nw);
+    ck_assert_str_eq (nt, "name,size");
+    ck_assert_str_eq (nw, "0,4");
+    g_free (nt);
+    g_free (nw);
+}
+END_TEST
+
+/* A ":width" suffix wins over the widths entry for that column. */
+START_TEST (test_normalize_suffix_overrides_width_entry)
+{
+    char *nt = NULL;
+    char *nw = NULL;
+
+    panel_mode_normalize ("name,size:9", "5,4", &nt, &nw);
+    ck_assert_str_eq (nt, "name,size");
+    ck_assert_str_eq (nw, "5,9");
+    g_free (nt);
+    g_free (nw);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* panel_mode_validate() accepts known field ids and non-negative widths. */
 START_TEST (test_validate_accepts_known_fields)
 {
@@ -424,6 +481,10 @@ main (void)
     tcase_add_test (tc_core, test_to_format_empty_falls_back_to_name);
     tcase_add_test (tc_core, test_to_format_status_line);
     tcase_add_test (tc_core, test_to_format_widths_shorter_than_types);
+    tcase_add_test (tc_core, test_normalize_pasted_format_string);
+    tcase_add_test (tc_core, test_normalize_flowed_format_string);
+    tcase_add_test (tc_core, test_normalize_plain_lists_unchanged);
+    tcase_add_test (tc_core, test_normalize_suffix_overrides_width_entry);
     tcase_add_test (tc_core, test_validate_accepts_known_fields);
     tcase_add_test (tc_core, test_validate_accepts_multifield_column);
     tcase_add_test (tc_core, test_validate_rejects_unknown_field);
