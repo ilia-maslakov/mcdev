@@ -520,6 +520,147 @@ panel_mode_to_format (const panel_mode_t *mode, gboolean status)
 
 /* --------------------------------------------------------------------------------------------- */
 
+void
+panel_mode_normalize (const char *types, const char *widths, char **norm_types,
+                      char **norm_widths)
+{
+    char *t;
+    char **cols;
+    char **uw;
+    guint uwlen;
+    guint repeat = 1;
+    guint r;
+    guint ci;
+    guint i;
+    GPtrArray *ncols;
+    GArray *ncolw;
+    gboolean any_width = FALSE;
+    GString *nt;
+
+    t = g_strdup (types != NULL ? types : "");
+    g_strstrip (t);
+
+    /* A pasted listing format starts with the panel width keyword; modes are
+       always half-width, so both are just dropped. */
+    if (g_str_has_prefix (t, "half ") || g_str_has_prefix (t, "full "))
+        memmove (t, t + 5, strlen (t + 5) + 1);
+    g_strchug (t);
+
+    /* "N fields": one column set flowed over N columns -> N repeated columns
+       (only when the rest holds no column separator of its own). */
+    if (g_ascii_isdigit (t[0]) && t[1] == ' ' && strchr (t, ',') == NULL
+        && strchr (t, '|') == NULL)
+    {
+        repeat = (guint) (t[0] - '0');
+        if (repeat == 0)
+            repeat = 1;
+        memmove (t, t + 1, strlen (t + 1) + 1);
+    }
+
+    /* The listing format separates columns with "|", the editor with ",". */
+    g_strdelimit (t, "|", ',');
+
+    uw = (widths != NULL && widths[0] != '\0') ? g_strsplit (widths, ",", -1) : NULL;
+    uwlen = uw != NULL ? g_strv_length (uw) : 0;
+
+    ncols = g_ptr_array_new_with_free_func (g_free);
+    ncolw = g_array_new (FALSE, FALSE, sizeof (long));
+
+    cols = g_strsplit (t, ",", -1);
+    for (i = 0; cols[i] != NULL; i++)
+    {
+        char **fields;
+        GString *col = g_string_new (NULL);
+        long cw = -1;
+        guint j;
+
+        fields = g_strsplit_set (cols[i], " \t", -1);
+        for (j = 0; fields[j] != NULL; j++)
+        {
+            char *colon;
+
+            if (fields[j][0] == '\0')
+                continue;
+
+            /* "field:width" -> strip the suffix into the column width. */
+            colon = strchr (fields[j], ':');
+            if (colon != NULL)
+            {
+                long n;
+
+                if (panel_mode_parse_width_str (colon + 1, &n))
+                {
+                    *colon = '\0';
+                    cw = n;
+                    any_width = TRUE;
+                }
+            }
+            if (fields[j][0] == '\0')
+                continue;
+
+            if (col->len != 0)
+                g_string_append_c (col, ' ');
+            g_string_append (col, fields[j]);
+        }
+        g_strfreev (fields);
+
+        if (col->len == 0)
+            g_string_free (col, TRUE);
+        else
+        {
+            g_ptr_array_add (ncols, g_string_free (col, FALSE));
+            g_array_append_val (ncolw, cw);
+        }
+    }
+    g_strfreev (cols);
+    g_free (t);
+
+    /* Columns without a ":width" suffix keep the entered width (by position). */
+    for (ci = 0; ci < ncolw->len; ci++)
+        if (g_array_index (ncolw, long, ci) < 0)
+        {
+            long n = 0;
+
+            if (ci < uwlen)
+                (void) panel_mode_parse_width_str (g_strstrip (uw[ci]), &n);
+            g_array_index (ncolw, long, ci) = n;
+        }
+
+    nt = g_string_new (NULL);
+    for (r = 0; r < repeat; r++)
+        for (ci = 0; ci < ncols->len; ci++)
+        {
+            if (nt->len != 0)
+                g_string_append_c (nt, ',');
+            g_string_append (nt, (const char *) g_ptr_array_index (ncols, ci));
+        }
+    *norm_types = g_string_free (nt, FALSE);
+
+    if (!any_width)
+        // no suffixes anywhere: leave the widths input exactly as entered
+        *norm_widths = g_strdup (widths != NULL ? widths : "");
+    else
+    {
+        GString *nw = g_string_new (NULL);
+
+        for (r = 0; r < repeat; r++)
+            for (ci = 0; ci < ncolw->len; ci++)
+            {
+                if (nw->len != 0)
+                    g_string_append_c (nw, ',');
+                g_string_append_printf (nw, "%ld", g_array_index (ncolw, long, ci));
+            }
+        *norm_widths = g_string_free (nw, FALSE);
+    }
+
+    g_ptr_array_free (ncols, TRUE);
+    g_array_free (ncolw, TRUE);
+    if (uw != NULL)
+        g_strfreev (uw);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 gboolean
 panel_mode_validate (const char *types, const char *widths, char **error)
 {
@@ -714,13 +855,16 @@ panel_mode_edit_dialog (panel_mode_t *mode)
         g_free (name);
         name = new_name;
         g_free (types);
-        types = new_types;
         g_free (widths);
-        widths = new_widths;
+        // accept a pasted listing format ("half name | size:7 | type mode:3")
+        panel_mode_normalize (new_types, new_widths, &types, &widths);
+        g_free (new_types);
+        g_free (new_widths);
         g_free (stypes);
-        stypes = new_stypes;
         g_free (swidths);
-        swidths = new_swidths;
+        panel_mode_normalize (new_stypes, new_swidths, &stypes, &swidths);
+        g_free (new_stypes);
+        g_free (new_swidths);
 
         if (panel_mode_validate (types, widths, &err)
             && panel_mode_validate (stypes, swidths, &err))

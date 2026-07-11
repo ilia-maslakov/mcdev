@@ -988,6 +988,13 @@ Listing Format...
 contain several space\-separated fields (for example
 .BR "type name" ).
 A width of 0 (or empty) leaves the field at its automatic width.
+A complete format string (for example
+.BR "half name | size:7" )
+may also be pasted into a types input: the
+.B |
+separators and
+.B :width
+suffixes are converted into the two lists.
 .PP
 The defined modes and each panel's selected mode are saved across sessions.
 .\"NODE "    Sort Order..."
