@@ -521,8 +521,7 @@ panel_mode_to_format (const panel_mode_t *mode, gboolean status)
 /* --------------------------------------------------------------------------------------------- */
 
 void
-panel_mode_normalize (const char *types, const char *widths, char **norm_types,
-                      char **norm_widths)
+panel_mode_normalize (const char *types, const char *widths, char **norm_types, char **norm_widths)
 {
     char *t;
     char **cols;
@@ -548,8 +547,7 @@ panel_mode_normalize (const char *types, const char *widths, char **norm_types,
 
     /* "N fields": one column set flowed over N columns -> N repeated columns
        (only when the rest holds no column separator of its own). */
-    if (g_ascii_isdigit (t[0]) && t[1] == ' ' && strchr (t, ',') == NULL
-        && strchr (t, '|') == NULL)
+    if (g_ascii_isdigit (t[0]) && t[1] == ' ' && strchr (t, ',') == NULL && strchr (t, '|') == NULL)
     {
         repeat = (guint) (t[0] - '0');
         if (repeat == 0)
