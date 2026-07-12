@@ -546,6 +546,33 @@ mcterm_overlay_show_panel_if_hidden (int idx)
 gboolean
 mcterm_overlay_toggle_panel_command (gboolean right_panel_command)
 {
+    const int panel_idx = right_panel_command ? 1 : 0;
+
+    /* A non-listing panel (quick view, info, tree) is first switched back
+       to the file listing; only a listing panel toggles its visibility. */
+    if (get_panel_type (panel_idx) != view_listing)
+    {
+        create_panel (panel_idx, view_listing);
+
+        if (mcterm_mode)
+        {
+            Widget *pw = get_panel_widget (panel_idx);
+
+            if (pw != NULL)
+            {
+                widget_show (pw);
+                if (current_panel == NULL
+                    || !widget_get_state (WIDGET (current_panel), WST_VISIBLE))
+                    current_panel = PANEL (pw);
+            }
+
+            mcterm_overlay_draw_visible_panels ();
+            tty_refresh ();
+        }
+
+        return TRUE;
+    }
+
     if (!mcterm_mode)
     {
         mcterm_overlay_toggle ();
