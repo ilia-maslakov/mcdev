@@ -510,6 +510,7 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
     int brace_depth = 0;
     long fold_line_count = 0;
     char line_stat[LINE_STATE_WIDTH + 1] = "\0";
+    edit_line_local_syntax_state_t line_syntax_state;
 
     if (row > w->rect.lines - 1 - EDIT_TEXT_VERTICAL_OFFSET - 2 * (edit->fullscreen != 0 ? 0 : 1))
         return;
@@ -535,6 +536,11 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
     q = edit_move_forward3 (edit, b, start_col - edit->start_col, 0);
     col = (int) edit_move_forward3 (edit, b, 0, q);
     start_col_real = col + edit->start_col;
+
+    if (book_mark == 0 && edit->syntax_line_local && edit_options.syntax_highlighting)
+    {
+        edit_line_local_syntax_reset (&line_syntax_state, q);
+    }
 
     if (edit_options.line_state)
     {
@@ -639,7 +645,9 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
                 {
                     int color;
 
-                    color = edit_get_syntax_color (edit, q);
+                    color = edit->syntax_line_local && edit_options.syntax_highlighting
+                        ? edit_get_line_local_syntax_color (edit, &line_syntax_state, q)
+                        : edit_get_syntax_color (edit, q);
                     p->style |= color << 16;
                 }
 

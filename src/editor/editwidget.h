@@ -49,6 +49,15 @@ struct edit_syntax_rule_t
     unsigned char border;
 };
 
+typedef struct edit_line_local_syntax_state_t edit_line_local_syntax_state_t;
+struct edit_line_local_syntax_state_t
+{
+    off_t number_end;
+    unsigned char quote;
+    unsigned char quote_escaped;
+    unsigned char number_overflow;
+};
+
 /*
  * State of WEdit window
  * MCEDIT_DRAG_NONE   - window is in normal mode
@@ -167,6 +176,13 @@ struct WEdit
     char *syntax_type;             // description of syntax highlighting type being used
     GTree *defines;                // List of defines
     gboolean is_case_insensitive;  // selects language case sensitivity
+    unsigned int syntax_line_local : 1;
+    unsigned int syntax_line_local_number_max;
+    int syntax_line_local_number_color;
+    int syntax_line_local_single_quote_color;
+    int syntax_line_local_double_quote_color;
+    char *syntax_line_local_symbols;
+    int syntax_line_local_symbols_color;
 
     // line break
     LineBreaks lb;

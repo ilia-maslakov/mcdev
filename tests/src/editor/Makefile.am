@@ -21,6 +21,7 @@ TESTS = \
 	edit_complete_word_cmd \
 	edit_fold \
 	edit_insert_column_of_text \
+	edit_line_local_syntax \
 	edit_plugin_etags \
 	edit_undo_history \
 	edit_undo_modified \
@@ -40,6 +41,9 @@ edit_fold_SOURCES = \
 
 edit_insert_column_of_text_SOURCES = \
 	edit_insert_column_of_text.c
+
+edit_line_local_syntax_SOURCES = \
+	edit_line_local_syntax.c
 
 edit_plugin_etags_SOURCES = \
 	edit_plugin_etags.c

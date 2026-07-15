@@ -1,2 +1,6 @@
-context default
-    spellcheck
+# Fast fallback highlighting. It never carries state across a newline or screen boundary.
+line-local
+number 16 brightcyan
+string " brightgreen
+string ' brightgreen
+symbols {}[]()/;,. yellow

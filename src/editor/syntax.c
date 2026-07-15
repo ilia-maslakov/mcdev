@@ -911,6 +911,29 @@ this_try_alloc_color_pair (tty_color_pair_t *color)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static int
+read_line_local_color (char ***args)
+{
+    tty_color_pair_t color;
+    char **a = *args;
+
+    if (*a == NULL)
+        return -1;
+
+    color.fg = *a++;
+    color.bg = *a;
+    if (*a != NULL)
+        a++;
+    color.attrs = *a;
+    if (*a != NULL)
+        a++;
+    *args = a;
+
+    return this_try_alloc_color_pair (&color);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static FILE *
 open_include_file (const char *filename)
 {
@@ -970,6 +993,13 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
 
     args[0] = NULL;
     edit->is_case_insensitive = FALSE;
+    edit->syntax_line_local = FALSE;
+    edit->syntax_line_local_number_max = 0;
+    edit->syntax_line_local_number_color = EDITOR_NORMAL_COLOR;
+    edit->syntax_line_local_single_quote_color = EDITOR_NORMAL_COLOR;
+    edit->syntax_line_local_double_quote_color = EDITOR_NORMAL_COLOR;
+    MC_PTR_FREE (edit->syntax_line_local_symbols);
+    edit->syntax_line_local_symbols_color = EDITOR_NORMAL_COLOR;
 
     strcpy (whole_left, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_01234567890");
     strcpy (whole_right, "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ_01234567890");
@@ -1012,6 +1042,72 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
         if (args[0] == NULL)
         {
             // do nothing
+        }
+        else if (strcmp (args[0], "line-local") == 0)
+        {
+            if (argc != 1 || edit->rules->len != 0)
+                break_a;
+            edit->syntax_line_local = TRUE;
+        }
+        else if (strcmp (args[0], "number") == 0)
+        {
+            char *end;
+            guint64 max;
+            int syntax_color;
+
+            if (!edit->syntax_line_local || *a == NULL)
+                break_a;
+
+            errno = 0;
+            max = g_ascii_strtoull (*a++, &end, 10);
+            if (errno != 0 || *end != '\0' || max == 0 || max > G_MAXUINT)
+                break_a;
+
+            syntax_color = read_line_local_color (&a);
+            if (syntax_color < 0)
+                break_a;
+
+            edit->syntax_line_local_number_max = (guint) max;
+            edit->syntax_line_local_number_color = syntax_color;
+            check_not_a;
+        }
+        else if (strcmp (args[0], "string") == 0)
+        {
+            char quote_char;
+            int syntax_color;
+
+            if (!edit->syntax_line_local || *a == NULL || (*a)[1] != '\0')
+                break_a;
+            quote_char = **a;
+            if (quote_char != '\'' && quote_char != '"')
+                break_a;
+            a++;
+
+            syntax_color = read_line_local_color (&a);
+            if (syntax_color < 0)
+                break_a;
+
+            if (quote_char == '\'')
+                edit->syntax_line_local_single_quote_color = syntax_color;
+            else
+                edit->syntax_line_local_double_quote_color = syntax_color;
+            check_not_a;
+        }
+        else if (strcmp (args[0], "symbols") == 0)
+        {
+            int syntax_color;
+
+            if (!edit->syntax_line_local || *a == NULL || **a == '\0')
+                break_a;
+            MC_PTR_FREE (edit->syntax_line_local_symbols);
+            edit->syntax_line_local_symbols = g_strdup (*a++);
+
+            syntax_color = read_line_local_color (&a);
+            if (syntax_color < 0)
+                break_a;
+
+            edit->syntax_line_local_symbols_color = syntax_color;
+            check_not_a;
         }
         else if (strcmp (args[0], "include") == 0)
         {
@@ -1060,6 +1156,8 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
         {
             syntax_keyword_t *k;
 
+            if (edit->syntax_line_local)
+                break_a;
             check_a;
             if (edit->rules->len == 0)
             {
@@ -1142,6 +1240,8 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
         }
         else if (strcmp (args[0], "spellcheck") == 0)
         {
+            if (edit->syntax_line_local)
+                break_a;
             if (c == NULL)
             {
                 result = line;
@@ -1154,6 +1254,8 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
             context_rule_t *last_rule;
             syntax_keyword_t *k;
 
+            if (edit->syntax_line_local)
+                break_a;
             if (no_words)
                 break_a;
             check_a;
@@ -1254,7 +1356,7 @@ edit_read_syntax_rules (WEdit *edit, FILE *f, char **args, int args_size)
         GString *first_chars;
 
         if (edit->rules == NULL)
-            return line;
+            return edit->syntax_line_local ? 0 : line;
 
         first_chars = g_string_sized_new (32);
 
@@ -1388,7 +1490,7 @@ edit_read_syntax_file (WEdit *edit, GPtrArray *pnames, const char *syntax_file,
                     g_free (edit->syntax_type);
                     edit->syntax_type = g_strdup (syntax_type);
                     // if there are no rules then turn off syntax highlighting for speed
-                    if (g == NULL && edit->rules->len == 1)
+                    if (g == NULL && edit->rules != NULL && edit->rules->len == 1)
                     {
                         context_rule_t *r0;
 
@@ -1499,24 +1601,129 @@ edit_get_syntax_color (WEdit *edit, off_t byte_index)
 /* --------------------------------------------------------------------------------------------- */
 
 void
+edit_line_local_syntax_reset (edit_line_local_syntax_state_t *state, off_t line_start)
+{
+    state->number_end = line_start;
+    state->quote = '\0';
+    state->quote_escaped = FALSE;
+    state->number_overflow = FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+int
+edit_get_line_local_syntax_color (const WEdit *edit, edit_line_local_syntax_state_t *state,
+                                  off_t byte_index)
+{
+    const int c = edit_buffer_get_byte (&edit->buffer, byte_index);
+
+    if (c == '\n')
+    {
+        state->quote = '\0';
+        state->quote_escaped = FALSE;
+        state->number_end = byte_index;
+        state->number_overflow = FALSE;
+        return EDITOR_NORMAL_COLOR;
+    }
+
+    if (state->number_overflow)
+    {
+        if (g_ascii_isdigit (c))
+            return EDITOR_NORMAL_COLOR;
+        state->number_overflow = FALSE;
+    }
+
+    if (state->quote != '\0')
+    {
+        const int color = state->quote == '\'' ? edit->syntax_line_local_single_quote_color
+                                               : edit->syntax_line_local_double_quote_color;
+
+        if (c == '\\' && !state->quote_escaped)
+            state->quote_escaped = TRUE;
+        else
+        {
+            if (c == state->quote && !state->quote_escaped)
+                state->quote = '\0';
+            state->quote_escaped = FALSE;
+        }
+
+        return color;
+    }
+
+    if (c == '\'' || c == '"')
+    {
+        state->quote = (unsigned char) c;
+        state->quote_escaped = FALSE;
+        return c == '\'' ? edit->syntax_line_local_single_quote_color
+                         : edit->syntax_line_local_double_quote_color;
+    }
+
+    if (byte_index < state->number_end)
+        return edit->syntax_line_local_number_color;
+
+    if (g_ascii_isdigit (c))
+    {
+        off_t end = byte_index;
+        guint count = 0;
+
+        do
+        {
+            end++;
+            count++;
+        }
+        while (g_ascii_isdigit (edit_buffer_get_byte (&edit->buffer, end))
+               && count <= edit->syntax_line_local_number_max);
+
+        if (count <= edit->syntax_line_local_number_max)
+        {
+            state->number_end = end;
+            return edit->syntax_line_local_number_color;
+        }
+
+        state->number_overflow = TRUE;
+    }
+
+    if (edit->syntax_line_local_symbols != NULL
+        && strchr (edit->syntax_line_local_symbols, c) != NULL)
+        return edit->syntax_line_local_symbols_color;
+
+    return EDITOR_NORMAL_COLOR;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 edit_free_syntax_rules (WEdit *edit)
 {
+    gboolean has_syntax;
+
     if (edit == NULL)
         return;
 
     if (edit->defines != NULL)
         destroy_defines (&edit->defines);
 
-    if (edit->rules == NULL)
-        return;
+    has_syntax = edit->rules != NULL || edit->syntax_line_local;
 
-    edit_get_rule (edit, -1);
+    if (edit->rules != NULL)
+    {
+        edit_get_rule (edit, -1);
+        g_ptr_array_free (edit->rules, TRUE);
+        edit->rules = NULL;
+    }
+
     MC_PTR_FREE (edit->syntax_type);
-
-    g_ptr_array_free (edit->rules, TRUE);
-    edit->rules = NULL;
     g_clear_slist (&edit->syntax_marker, g_free);
-    tty_color_free_temp ();
+    edit->syntax_line_local = FALSE;
+    edit->syntax_line_local_number_max = 0;
+    edit->syntax_line_local_number_color = EDITOR_NORMAL_COLOR;
+    edit->syntax_line_local_single_quote_color = EDITOR_NORMAL_COLOR;
+    edit->syntax_line_local_double_quote_color = EDITOR_NORMAL_COLOR;
+    MC_PTR_FREE (edit->syntax_line_local_symbols);
+    edit->syntax_line_local_symbols_color = EDITOR_NORMAL_COLOR;
+
+    if (has_syntax)
+        tty_color_free_temp ();
 }
 
 /* --------------------------------------------------------------------------------------------- */
