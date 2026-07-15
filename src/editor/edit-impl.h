@@ -21,6 +21,8 @@
 
 #include "edit.h"
 
+struct edit_line_local_syntax_state_t;
+
 /*** typedefs(not structures) and defined constants **********************************************/
 
 #define REDRAW_LINE                 (1 << 0)
@@ -221,6 +223,10 @@ void edit_set_filename (WEdit *edit, const vfs_path_t *name_vpath);
 MC_MOCKABLE void edit_load_syntax (WEdit *edit, GPtrArray *pnames, const char *type);
 void edit_free_syntax_rules (WEdit *edit);
 MC_MOCKABLE int edit_get_syntax_color (WEdit *edit, off_t byte_index);
+void edit_line_local_syntax_reset (struct edit_line_local_syntax_state_t *state, off_t line_start);
+int edit_get_line_local_syntax_color (const WEdit *edit,
+                                      struct edit_line_local_syntax_state_t *state,
+                                      off_t byte_index);
 void edit_syntax_dialog (WEdit *edit);
 
 void book_mark_insert (WEdit *edit, long line, int c);
