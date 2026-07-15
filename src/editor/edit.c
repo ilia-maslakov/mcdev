@@ -2027,63 +2027,82 @@ edit_insert_column_from_file (WEdit *edit, int file, off_t *start_pos, off_t *en
 {
     off_t cursor;
     long col;
-    off_t blocklen = -1, width = 0;
+    off_t blocklen = -1;
+    long width = 0;
+    GString *block;
     unsigned char *data;
 
     cursor = edit->buffer.curs1;
     col = edit_get_col (edit);
-    data = g_malloc0 (TEMP_BUF_LEN);
 
+    // Read the whole block first.  The clip file stores only the raw column text, not
+    // the column width, so the width for padding short lines must be reconstructed as
+    // the widest line - using the first line's width pads every other line to it.
+    block = g_string_sized_new (TEMP_BUF_LEN);
+    data = g_malloc (TEMP_BUF_LEN);
     while ((blocklen = mc_read (file, (char *) data, TEMP_BUF_LEN)) > 0)
+        g_string_append_len (block, (const gchar *) data, blocklen);
+    g_free (data);
+
     {
-        off_t i;
-        char *pn;
+        long line_width = 0;
 
-        pn = strchr ((char *) data, '\n');
-        width = pn == NULL ? blocklen : pn - (char *) data;
-
-        for (i = 0; i < blocklen; i++)
+        for (gsize i = 0; i < block->len; i++)
         {
-            if (data[i] != '\n')
-                edit_insert (edit, data[i]);
-            else
-            {  // fill in and move to next line
-                long l;
-                off_t p;
-
-                if (edit_buffer_get_current_byte (&edit->buffer) != '\n')
-                    for (l = width - (edit_get_col (edit) - col); l > 0; l -= space_width)
-                        edit_insert (edit, ' ');
-
-                for (p = edit->buffer.curs1;; p++)
-                {
-                    if (p == edit->buffer.size)
-                    {
-                        edit_cursor_move (edit, edit->buffer.size - edit->buffer.curs1);
-                        edit_insert_ahead (edit, '\n');
-                        p++;
-                        break;
-                    }
-                    if (edit_buffer_get_byte (&edit->buffer, p) == '\n')
-                    {
-                        p++;
-                        break;
-                    }
-                }
-
-                edit_cursor_move (edit, edit_move_forward3 (edit, p, col, 0) - edit->buffer.curs1);
-
-                for (l = col - edit_get_col (edit); l >= space_width; l -= space_width)
-                    edit_insert (edit, ' ');
+            if (block->str[i] == '\n')
+            {
+                width = MAX (width, line_width);
+                line_width = 0;
             }
+            else
+                line_width++;
+        }
+        width = MAX (width, line_width);
+    }
+
+    for (gsize i = 0; i < block->len; i++)
+    {
+        if (block->str[i] != '\n')
+            edit_insert (edit, block->str[i]);
+        else
+        {  // fill in and move to next line
+            long l;
+            off_t p;
+
+            if (edit_buffer_get_current_byte (&edit->buffer) != '\n')
+                for (l = width - (edit_get_col (edit) - col); l > 0; l -= space_width)
+                    edit_insert (edit, ' ');
+
+            for (p = edit->buffer.curs1;; p++)
+            {
+                if (p == edit->buffer.size)
+                {
+                    edit_cursor_move (edit, edit->buffer.size - edit->buffer.curs1);
+                    edit_insert_ahead (edit, '\n');
+                    p++;
+                    break;
+                }
+                if (edit_buffer_get_byte (&edit->buffer, p) == '\n')
+                {
+                    p++;
+                    break;
+                }
+            }
+
+            edit_cursor_move (edit, edit_move_forward3 (edit, p, col, 0) - edit->buffer.curs1);
+
+            for (l = col - edit_get_col (edit); l >= space_width; l -= space_width)
+                edit_insert (edit, ' ');
         }
     }
+
+    g_string_free (block, TRUE);
+
     *col1 = col;
     *col2 = col + width;
     *start_pos = cursor;
     *end_pos = edit->buffer.curs1;
     edit_cursor_move (edit, cursor - edit->buffer.curs1);
-    g_free (data);
 
     return blocklen;
 }

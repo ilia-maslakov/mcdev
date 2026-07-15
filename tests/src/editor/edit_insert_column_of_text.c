@@ -28,6 +28,7 @@
 #include "tests/mctest.h"
 
 #include "lib/charsets.h"
+#include "src/vfs/local/local.c"
 #include "src/selcodepage.h"
 
 #include "src/editor/editwidget.h"
@@ -68,6 +69,10 @@ setup (void)
     WRect r;
 
     str_init_strings (NULL);
+
+    vfs_init ();
+    vfs_init_localfs ();
+    vfs_setup_work_dir ();
 
     mc_global.sysconfig_dir = (char *) TEST_SHARE_DIR;
     load_codepages_list ();
@@ -221,6 +226,59 @@ END_PARAMETRIZED_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* @Test */
+/* A ragged vertical block copied to the clip file and pasted back must keep its rectangular
+ * shape.  The clip file stores only the raw column text (after the VERTICAL_MAGIC signature),
+ * so edit_insert_column_from_file() must reconstruct the column width as the widest line, not
+ * as the first line's width. */
+START_TEST (test_insert_column_from_clip_width)
+{
+    const char *clip = "/tmp/mc-test-column.clip";
+    off_t start_mark, end_mark;
+    vfs_path_t *vp;
+    GString *actual;
+
+    for (const char *ti = "1\n22\n333\nWWWW\nWWWW\nWWWW\n"; *ti != '\0'; ti++)
+    {
+        edit_buffer_insert (&test_edit->buffer, *ti);
+        if (*ti == '\n')
+            test_edit->buffer.lines++;
+    }
+
+    // vertical block: columns [0, 3) over the first three (ragged) lines
+    test_edit->column_highlight = 1;
+    test_edit->column1 = 0;
+    test_edit->column2 = 3;
+    test_edit->mark1 = 0;
+    test_edit->mark2 = 8;
+    test_edit->end_mark_curs = -1;
+    edit_update_curs_col (test_edit);
+
+    eval_marks (test_edit, &start_mark, &end_mark);
+    edit_save_block (test_edit, clip, start_mark, end_mark);
+
+    // paste at the start of the first "WWWW" line (offset 9)
+    edit_cursor_move (test_edit, 9 - test_edit->buffer.curs1);
+    vp = vfs_path_from_str (clip);
+    edit_insert_file (test_edit, vp);
+    vfs_path_free (vp, TRUE);
+
+    actual = g_string_new ("");
+    for (off_t i = 0; i < test_edit->buffer.size; i++)
+        g_string_append_c (actual, (gchar) edit_buffer_get_byte (&test_edit->buffer, i));
+
+    mctest_assert_str_eq (actual->str,
+                          "1\n22\n333\n"
+                          "1  WWWW\n"
+                          "22 WWWW\n"
+                          "333WWWW\n");
+    g_string_free (actual, TRUE);
+    unlink (clip);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -232,6 +290,7 @@ main (void)
 
     // Add new tests here: ***************
     mctest_add_parameterized_test (tc_core, test_insert_column, test_insert_column_ds);
+    tcase_add_test (tc_core, test_insert_column_from_clip_width);
     // ***********************************
 
     return mctest_run_all (tc_core);
