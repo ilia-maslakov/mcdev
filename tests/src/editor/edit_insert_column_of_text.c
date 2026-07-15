@@ -334,6 +334,52 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* @Test */
+/* When the vertical selection is wider than the longest line, the extra (empty) columns must
+ * survive the round-trip through the clip file: edit_save_block() pads every line to the
+ * selected width, so the block keeps its full rectangular width on paste. */
+START_TEST (test_save_block_pads_to_selection_width)
+{
+    const char *clip = "/tmp/mc-test-column-wide.clip";
+    off_t start_mark, end_mark;
+    int fd;
+    char buf[64];
+    ssize_t n;
+
+    for (const char *ti = "1\n123\n5555\n"; *ti != '\0'; ti++)
+    {
+        edit_buffer_insert (&test_edit->buffer, *ti);
+        if (*ti == '\n')
+            test_edit->buffer.lines++;
+    }
+
+    // select columns [0, 6): two columns wider than the longest line ("5555")
+    test_edit->column_highlight = 1;
+    test_edit->column1 = 0;
+    test_edit->column2 = 6;
+    test_edit->mark1 = 0;
+    test_edit->mark2 = 10;
+    test_edit->end_mark_curs = -1;
+    edit_update_curs_col (test_edit);
+
+    eval_marks (test_edit, &start_mark, &end_mark);
+    edit_save_block (test_edit, clip, start_mark, end_mark);
+
+    // clip content after the 5-byte VERTICAL_MAGIC must be padded to width 6
+    fd = open (clip, O_RDONLY);
+    n = read (fd, buf, sizeof (buf) - 1);
+    close (fd);
+    buf[n < 0 ? 0 : n] = '\0';
+    mctest_assert_str_eq (buf + 5,  // skip VERTICAL_MAGIC {\1\1\1\1\n}
+                          "1     \n"
+                          "123   \n"
+                          "5555  ");
+    unlink (clip);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -347,6 +393,7 @@ main (void)
     mctest_add_parameterized_test (tc_core, test_insert_column, test_insert_column_ds);
     tcase_add_test (tc_core, test_insert_column_from_clip_width);
     tcase_add_test (tc_core, test_insert_column_from_clip_utf8);
+    tcase_add_test (tc_core, test_save_block_pads_to_selection_width);
     // ***********************************
 
     return mctest_run_all (tc_core);

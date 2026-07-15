@@ -1799,6 +1799,34 @@ edit_save_block (WEdit *edit, const char *filename, off_t start, off_t finish)
             char *p;
 
             block = edit_get_block (edit, start, finish);
+
+            // Pad every line to the selected column width so that an over-wide selection
+            // (columns past the longest line) survives the round-trip through the clip file;
+            // edit_get_block() only stores the actual characters, losing the extra width.
+            {
+                const long width = labs (edit->column2 - edit->column1);
+                GString *padded;
+                gsize ls = 0;
+
+                padded = g_string_sized_new (block->len);
+                for (gsize i = 0; i <= block->len; i++)
+                    if (i == block->len || block->str[i] == '\n')
+                    {
+                        long cols;
+
+                        g_string_append_len (padded, block->str + ls, i - ls);
+                        for (cols = edit_block_line_columns (edit, block->str + ls, i - ls);
+                             cols < width; cols++)
+                            g_string_append_c (padded, ' ');
+                        if (i < block->len)
+                            g_string_append_c (padded, '\n');
+                        ls = i + 1;
+                    }
+
+                g_string_free (block, TRUE);
+                block = padded;
+            }
+
             p = block->str;
             len = block->len;
 

@@ -2026,7 +2026,7 @@ edit_print_string (WEdit *e, const char *s)
  * bytes, so a multibyte (UTF-8) character must count as a single column, not as its byte
  * length - otherwise short lines get over-padded when a vertical block is pasted back.
  */
-static long
+long
 edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
 {
     long cols = 0;
