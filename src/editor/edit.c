@@ -2021,6 +2021,47 @@ edit_print_string (WEdit *e, const char *s)
 
 /* --------------------------------------------------------------------------------------------- */
 
+/*
+ * Display width, in columns, of one raw block line.  The clip file holds the column text as
+ * bytes, so a multibyte (UTF-8) character must count as a single column, not as its byte
+ * length - otherwise short lines get over-padded when a vertical block is pasted back.
+ */
+static long
+edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
+{
+    long cols = 0;
+    gsize i = 0;
+
+    while (i < len)
+    {
+        if (edit->utf8 && ((unsigned char) line[i] & 0x80) != 0)
+        {
+            gunichar uc;
+
+            uc = g_utf8_get_char_validated (line + i, len - i);
+            if (uc == (gunichar) (-1) || uc == (gunichar) (-2))
+            {
+                cols++;
+                i++;
+            }
+            else
+            {
+                cols += (mc_global.utf8_display && g_unichar_iswide (uc)) ? 2 : 1;
+                i = (gsize) (g_utf8_next_char (line + i) - line);
+            }
+        }
+        else
+        {
+            cols++;
+            i++;
+        }
+    }
+
+    return cols;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static off_t
 edit_insert_column_from_file (WEdit *edit, int file, off_t *start_pos, off_t *end_pos, long *col1,
                               long *col2)
@@ -2045,19 +2086,14 @@ edit_insert_column_from_file (WEdit *edit, int file, off_t *start_pos, off_t *en
     g_free (data);
 
     {
-        long line_width = 0;
+        gsize start = 0;
 
-        for (gsize i = 0; i < block->len; i++)
-        {
-            if (block->str[i] == '\n')
+        for (gsize i = 0; i <= block->len; i++)
+            if (i == block->len || block->str[i] == '\n')
             {
-                width = MAX (width, line_width);
-                line_width = 0;
+                width = MAX (width, edit_block_line_columns (edit, block->str + start, i - start));
+                start = i + 1;
             }
-            else
-                line_width++;
-        }
-        width = MAX (width, line_width);
     }
 
     for (gsize i = 0; i < block->len; i++)

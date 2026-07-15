@@ -279,6 +279,61 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* @Test */
+/* A vertical block of multibyte (UTF-8) characters must paste without spurious padding:
+ * the column width has to be measured in display columns, not bytes.  A 1-char Cyrillic
+ * column (2 bytes each) must not be padded to 2 columns. */
+START_TEST (test_insert_column_from_clip_utf8)
+{
+    const char *clip = "/tmp/mc-test-column-utf8.clip";
+    off_t start_mark, end_mark;
+    vfs_path_t *vp;
+    GString *actual;
+    gboolean old_disp;
+
+    test_edit->utf8 = TRUE;
+    old_disp = mc_global.utf8_display;
+    mc_global.utf8_display = TRUE;
+
+    // buffer "цук\nцуж\nцул\n"; the 3rd column is к / ж / л (one Cyrillic char per line)
+    for (const char *ti = "цук\nцуж\nцул\n"; *ti != '\0'; ti++)
+    {
+        edit_buffer_insert (&test_edit->buffer, *ti);
+        if (*ti == '\n')
+            test_edit->buffer.lines++;
+    }
+
+    test_edit->column_highlight = 1;
+    test_edit->column1 = 2;
+    test_edit->column2 = 3;
+    test_edit->mark1 = 4;    // (line0, col2) byte offset
+    test_edit->mark2 = 20;   // (line2, col2) byte offset
+    test_edit->end_mark_curs = -1;
+    edit_update_curs_col (test_edit);
+
+    eval_marks (test_edit, &start_mark, &end_mark);
+    edit_save_block (test_edit, clip, start_mark, end_mark);
+
+    // paste at column 0 of the first line
+    edit_cursor_move (test_edit, 0 - test_edit->buffer.curs1);
+    vp = vfs_path_from_str (clip);
+    edit_insert_file (test_edit, vp);
+    vfs_path_free (vp, TRUE);
+
+    actual = g_string_new ("");
+    for (off_t i = 0; i < test_edit->buffer.size; i++)
+        g_string_append_c (actual, (gchar) edit_buffer_get_byte (&test_edit->buffer, i));
+
+    // no spaces inserted: each column char just prepends to its line
+    mctest_assert_str_eq (actual->str, "кцук\nжцуж\nлцул\n");
+    g_string_free (actual, TRUE);
+    unlink (clip);
+    mc_global.utf8_display = old_disp;
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -291,6 +346,7 @@ main (void)
     // Add new tests here: ***************
     mctest_add_parameterized_test (tc_core, test_insert_column, test_insert_column_ds);
     tcase_add_test (tc_core, test_insert_column_from_clip_width);
+    tcase_add_test (tc_core, test_insert_column_from_clip_utf8);
     // ***********************************
 
     return mctest_run_all (tc_core);
