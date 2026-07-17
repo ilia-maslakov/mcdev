@@ -27,6 +27,7 @@ TESTS = \
 	edit_undo_modified \
 	edit_save_sudo \
 	edit_replace_cmd \
+	nav_probe \
 	ctags_parser_tests \
 	ctags_index_tests \
 	ctags_fuzzy_tests
@@ -59,6 +60,9 @@ edit_save_sudo_SOURCES = \
 
 edit_replace_cmd_SOURCES = \
 	edit_replace_cmd.c
+
+nav_probe_SOURCES = \
+	nav_probe.c
 
 ctags_parser_tests_SOURCES = \
 	ctags_parser_tests.c
