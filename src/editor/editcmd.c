@@ -798,8 +798,8 @@ edit_get_block (WEdit *edit, const off_t start, const off_t finish)
             long col;
             off_t i;
 
-            for (i = edit_get_line_offset (edit, bol, col1, &col); i < eol && i < finish && col < col2;
-                 i++)
+            for (i = edit_get_line_offset (edit, bol, col1, &col);
+                 i < eol && i < finish && col < col2; i++)
             {
                 if (col >= col1 && i >= start)
                     g_string_append_c (r, (gchar) edit_buffer_get_byte (&edit->buffer, i));

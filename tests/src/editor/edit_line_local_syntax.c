@@ -139,7 +139,8 @@ END_TEST
 
 START_TEST (test_single_line_utf8_layout)
 {
-    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c" "B";
+    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c"
+                               "B";
     gboolean old_utf8_display;
     long expected_column;
     long column;
@@ -165,8 +166,7 @@ START_TEST (test_single_line_utf8_layout)
         offset = edit_get_line_offset (test_edit, 0, column, &actual_column);
         expected_offset = edit_move_forward3 (test_edit, 0, column, 0);
         ck_assert_int_eq (offset, expected_offset);
-        ck_assert_int_eq (actual_column,
-                          edit_move_forward3 (test_edit, 0, 0, expected_offset));
+        ck_assert_int_eq (actual_column, edit_move_forward3 (test_edit, 0, 0, expected_offset));
     }
 
     edit_cursor_move (test_edit, -1);
@@ -182,7 +182,8 @@ END_TEST
 
 START_TEST (test_single_line_utf8_layout_checkpoints)
 {
-    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c" "B";
+    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c"
+                               "B";
     gboolean old_utf8_display;
     long expected_column;
     long actual_column;
@@ -205,8 +206,7 @@ START_TEST (test_single_line_utf8_layout_checkpoints)
     offset = edit_get_line_offset (test_edit, 0, target_column, &actual_column);
 
     ck_assert_int_eq (offset, expected_offset);
-    ck_assert_int_eq (actual_column,
-                      edit_move_forward3 (test_edit, 0, 0, expected_offset));
+    ck_assert_int_eq (actual_column, edit_move_forward3 (test_edit, 0, 0, expected_offset));
 
     mc_global.utf8_display = old_utf8_display;
 }
@@ -216,7 +216,8 @@ END_TEST
 
 START_TEST (test_multiline_utf8_layout_cache)
 {
-    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c" "B";
+    static const char text[] = "A\t\xe2\x82\xac\xe7\x95\x8c"
+                               "B";
     gboolean old_utf8_display;
     const off_t line_size = sizeof (text) - 1;
     off_t bol[3];
@@ -247,15 +248,15 @@ START_TEST (test_multiline_utf8_layout_cache)
     expected_column = (long) edit_move_forward3 (test_edit, bol[2], 0, test_edit->buffer.size);
     ck_assert_int_eq (test_edit->curs_col, expected_column);
 
-    edit_buffer_move_cursor_fast (&test_edit->buffer, bol[1] + 12000 * line_size -
-                                                          test_edit->buffer.curs1);
+    edit_buffer_move_cursor_fast (&test_edit->buffer,
+                                  bol[1] + 12000 * line_size - test_edit->buffer.curs1);
     test_edit->buffer.curs_line = 1;
     test_edit->curs_bol = bol[1];
     edit_update_curs_col (test_edit);
     ck_assert_int_eq (test_edit->line_layout_caches->len, 2);
 
-    edit_buffer_move_cursor_fast (&test_edit->buffer, test_edit->buffer.size -
-                                                          test_edit->buffer.curs1);
+    edit_buffer_move_cursor_fast (&test_edit->buffer,
+                                  test_edit->buffer.size - test_edit->buffer.curs1);
     test_edit->buffer.curs_line = 2;
     test_edit->curs_bol = bol[2];
     edit_update_curs_col (test_edit);
@@ -264,8 +265,7 @@ START_TEST (test_multiline_utf8_layout_cache)
     expected_offset = edit_move_forward3 (test_edit, bol[2], target_column, 0);
     offset = edit_get_line_offset (test_edit, bol[2], target_column, &actual_column);
     ck_assert_int_eq (offset, expected_offset);
-    ck_assert_int_eq (actual_column,
-                      edit_move_forward3 (test_edit, bol[2], 0, expected_offset));
+    ck_assert_int_eq (actual_column, edit_move_forward3 (test_edit, bol[2], 0, expected_offset));
 
     mc_global.utf8_display = old_utf8_display;
 }
@@ -356,8 +356,7 @@ START_TEST (test_perf_long_utf8_line)
     printf ("[perf] typing 2000 utf8 chars at the end of a long line (per-byte redraw): %.1f ms\n",
             ms);
     // final column must be exactly one per euro sign
-    ck_assert_int_eq (test_edit->curs_col,
-                      (long) edit_move_forward3 (test_edit, 0, 0, curs));
+    ck_assert_int_eq (test_edit->curs_col, (long) edit_move_forward3 (test_edit, 0, 0, curs));
     ck_assert (ms < 1000.0);  // stale-cache corruption makes this O(col) per key -> seconds
 
     mc_global.utf8_display = old_utf8_display;
@@ -432,7 +431,8 @@ main (void)
     TCase *tc_core;
 
     tc_core = tcase_create ("Core");
-    tcase_set_timeout (tc_core, 30);  // the long-line tests build large buffers; avoid wall-clock flakiness
+    tcase_set_timeout (tc_core,
+                       30);  // the long-line tests build large buffers; avoid wall-clock flakiness
     tcase_add_checked_fixture (tc_core, setup, teardown);
     tcase_add_test (tc_core, test_line_local_syntax);
     tcase_add_test (tc_core, test_fast_ascii_layout);
