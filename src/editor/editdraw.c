@@ -667,6 +667,20 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
                 switch (c)
                 {
                 case '\n':
+                    // draw a column block as a full rectangle past the end of a short line
+                    if (edit->column_highlight != 0 && b < m2 && q >= m1)
+                    {
+                        const long cl1 = MIN (edit->column1, edit->column2);
+                        const long cl2 = MAX (edit->column1, edit->column2);
+
+                        while (col < cl2 && col <= end_col - edit->start_col)
+                        {
+                            p->ch = ' ';
+                            p->style = col >= cl1 ? MOD_MARKED : 0;
+                            p++;
+                            col++;
+                        }
+                    }
                     col = end_col - edit->start_col + 1;  // quit
                     break;
 
