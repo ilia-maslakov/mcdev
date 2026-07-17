@@ -13,13 +13,14 @@
 
 typedef struct edit_buffer_struct
 {
-    off_t curs1;     // position of the cursor from the beginning of the file.
-    off_t curs2;     // position from the end of the file
-    GPtrArray *b1;   // all data up to curs1
-    GPtrArray *b2;   // all data from end of file down to curs2
-    off_t size;      // file size
-    long lines;      // total lines in the file
-    long curs_line;  // line number of the cursor.
+    off_t curs1;                   // position of the cursor from the beginning of the file.
+    off_t curs2;                   // position from the end of the file
+    GPtrArray *b1;                 // all data up to curs1
+    GPtrArray *b2;                 // all data from end of file down to curs2
+    off_t size;                    // file size
+    long lines;                    // total lines in the file
+    long curs_line;                // line number of the cursor.
+    gboolean one_byte_per_column;  // all bytes are printable ASCII
 } edit_buffer_t;
 
 typedef struct edit_buffer_read_file_status_msg_struct
@@ -52,6 +53,7 @@ void edit_buffer_insert (edit_buffer_t *buf, int c);
 void edit_buffer_insert_ahead (edit_buffer_t *buf, int c);
 int edit_buffer_delete (edit_buffer_t *buf);
 int edit_buffer_backspace (edit_buffer_t *buf);
+void edit_buffer_move_cursor_fast (edit_buffer_t *buf, off_t increment);
 
 off_t edit_buffer_get_forward_offset (const edit_buffer_t *buf, off_t current, long lines,
                                       off_t upto);

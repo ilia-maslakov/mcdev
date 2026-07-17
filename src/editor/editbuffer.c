@@ -154,6 +154,7 @@ edit_buffer_init (edit_buffer_t *buf, off_t size)
 
     buf->size = size;
     buf->lines = 0;
+    buf->one_byte_per_column = TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -348,7 +349,7 @@ edit_buffer_count_lines (const edit_buffer_t *buf, off_t first, off_t last)
 off_t
 edit_buffer_get_bol (const edit_buffer_t *buf, off_t current)
 {
-    if (current <= 0)
+    if (current <= 0 || buf->lines == 0)
         return 0;
 
     for (; edit_buffer_get_byte (buf, current - 1) != '\n'; current--)
@@ -370,7 +371,7 @@ edit_buffer_get_bol (const edit_buffer_t *buf, off_t current)
 off_t
 edit_buffer_get_eol (const edit_buffer_t *buf, off_t current)
 {
-    if (current >= buf->size)
+    if (current >= buf->size || buf->lines == 0)
         return buf->size;
 
     for (; edit_buffer_get_byte (buf, current) != '\n'; current++)
@@ -506,6 +507,8 @@ edit_buffer_insert (edit_buffer_t *buf, int c)
 
     // update file length
     buf->size++;
+    if (c < ' ' || c > '~')
+        buf->one_byte_per_column = FALSE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -538,6 +541,8 @@ edit_buffer_insert_ahead (edit_buffer_t *buf, int c)
 
     // update file length
     buf->size++;
+    if (c < ' ' || c > '~')
+        buf->one_byte_per_column = FALSE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -618,6 +623,76 @@ edit_buffer_backspace (edit_buffer_t *buf)
     buf->size--;
 
     return c;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+edit_buffer_move_cursor_fast (edit_buffer_t *buf, off_t increment)
+{
+    off_t moved;
+
+    if (increment < 0)
+    {
+        moved = MIN (-increment, buf->curs1);
+
+        while (moved > 0)
+        {
+            const off_t source_bytes =
+                (buf->curs1 & M_EDIT_BUF_SIZE) != 0 ? buf->curs1 & M_EDIT_BUF_SIZE : EDIT_BUF_SIZE;
+            const off_t destination_bytes = EDIT_BUF_SIZE - (buf->curs2 & M_EDIT_BUF_SIZE);
+            const off_t count = MIN (moved, MIN (source_bytes, destination_bytes));
+            const off_t source_offset = (buf->curs1 - 1) & M_EDIT_BUF_SIZE;
+            const off_t destination_offset = buf->curs2 & M_EDIT_BUF_SIZE;
+            void *source;
+            void *destination;
+
+            if (destination_offset == 0)
+                g_ptr_array_add (buf->b2, g_malloc0 (EDIT_BUF_SIZE));
+
+            source = g_ptr_array_index (buf->b1, (buf->curs1 - 1) >> S_EDIT_BUF_SIZE);
+            destination = g_ptr_array_index (buf->b2, buf->curs2 >> S_EDIT_BUF_SIZE);
+            memcpy ((char *) destination + EDIT_BUF_SIZE - destination_offset - count,
+                    (char *) source + source_offset + 1 - count, count);
+
+            buf->curs1 -= count;
+            buf->curs2 += count;
+            moved -= count;
+
+            if ((buf->curs1 & M_EDIT_BUF_SIZE) == 0)
+                g_ptr_array_remove_index (buf->b1, buf->b1->len - 1);
+        }
+    }
+    else
+    {
+        moved = MIN (increment, buf->curs2);
+
+        while (moved > 0)
+        {
+            const off_t source_bytes = ((buf->curs2 - 1) & M_EDIT_BUF_SIZE) + 1;
+            const off_t destination_bytes = EDIT_BUF_SIZE - (buf->curs1 & M_EDIT_BUF_SIZE);
+            const off_t count = MIN (moved, MIN (source_bytes, destination_bytes));
+            const off_t source_offset = (buf->curs2 - 1) & M_EDIT_BUF_SIZE;
+            const off_t destination_offset = buf->curs1 & M_EDIT_BUF_SIZE;
+            void *source;
+            void *destination;
+
+            if (destination_offset == 0)
+                g_ptr_array_add (buf->b1, g_malloc0 (EDIT_BUF_SIZE));
+
+            source = g_ptr_array_index (buf->b2, (buf->curs2 - 1) >> S_EDIT_BUF_SIZE);
+            destination = g_ptr_array_index (buf->b1, buf->curs1 >> S_EDIT_BUF_SIZE);
+            memcpy ((char *) destination + destination_offset,
+                    (char *) source + EDIT_BUF_SIZE - source_offset - 1, count);
+
+            buf->curs1 += count;
+            buf->curs2 -= count;
+            moved -= count;
+
+            if ((buf->curs2 & M_EDIT_BUF_SIZE) == 0)
+                g_ptr_array_remove_index (buf->b2, buf->b2->len - 1);
+        }
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -703,6 +778,7 @@ edit_buffer_read_file (edit_buffer_t *buf, int fd, off_t size,
     *aborted = FALSE;
 
     buf->lines = 0;
+    buf->one_byte_per_column = TRUE;
     buf->curs2 = size;
     i = buf->curs2 >> S_EDIT_BUF_SIZE;
 
@@ -717,8 +793,14 @@ edit_buffer_read_file (edit_buffer_t *buf, int fd, off_t size,
 
         // count lines
         for (j = 0; j < ret; j++)
-            if (*((char *) b + j) == '\n')
+        {
+            const unsigned char c = *((unsigned char *) b + j);
+
+            if (c == '\n')
                 buf->lines++;
+            if (c < ' ' || c > '~')
+                buf->one_byte_per_column = FALSE;
+        }
 
         if (ret < 0 || ret != data_size)
             return ret;
@@ -738,8 +820,14 @@ edit_buffer_read_file (edit_buffer_t *buf, int fd, off_t size,
 
         // count lines
         for (j = 0; j < sz; j++)
-            if (*((char *) b + j) == '\n')
+        {
+            const unsigned char c = *((unsigned char *) b + j);
+
+            if (c == '\n')
                 buf->lines++;
+            if (c < ' ' || c > '~')
+                buf->one_byte_per_column = FALSE;
+        }
 
         if (s != NULL && s->update != NULL)
         {

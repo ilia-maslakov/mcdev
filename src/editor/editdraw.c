@@ -504,7 +504,9 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
     line_s line[MAX_LINE_LEN];
     line_s *p = line;
     off_t q;
-    int col, start_col_real;
+    off_t first_visible;
+    off_t col;
+    long start_col_real;
     int abn_style;
     int book_mark = 0;
     int brace_depth = 0;
@@ -533,9 +535,19 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
             end_col--;
     }
 
-    q = edit_move_forward3 (edit, b, start_col - edit->start_col, 0);
-    col = (int) edit_move_forward3 (edit, b, 0, q);
+    if (edit_has_fast_ascii_layout (edit))
+    {
+        const long target_col = MAX (0, start_col - edit->start_col);
+
+        q = MIN (edit->buffer.size, b + (off_t) target_col);
+        col = q - b;
+    }
+    else
+    {
+        q = edit_get_line_offset (edit, b, MAX (0, start_col - edit->start_col), &col);
+    }
     start_col_real = col + edit->start_col;
+    first_visible = q;
 
     if (book_mark == 0 && edit->syntax_line_local && edit_options.syntax_highlighting)
     {
@@ -584,7 +596,7 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
             off_t tws = 0;
 
             if (edit_options.visible_tws && tty_use_colors ())
-                for (tws = edit_buffer_get_eol (&edit->buffer, b); tws > b; tws--)
+                for (tws = edit_get_line_eol (edit, b); tws > first_visible; tws--)
                 {
                     unsigned int c;
 
@@ -610,9 +622,10 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
                         p->style |= MOD_MARKED;
                     else
                     {
-                        long x, cl;
+                        // col is this cell's absolute visual column
+                        const long x = (long) col;
+                        long cl;
 
-                        x = (long) edit_move_forward3 (edit, b, 0, q);
                         cl = MIN (edit->column1, edit->column2);
                         if (x >= cl)
                         {
@@ -662,7 +675,7 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
                     int tab_over;
                     int i;
 
-                    i = TAB_SIZE - ((int) col % TAB_SIZE);
+                    i = TAB_SIZE - (int) (col % TAB_SIZE);
                     tab_over = (end_col - edit->start_col) - (col + i - 1);
                     if (tab_over < 0)
                         i += tab_over;
@@ -892,9 +905,11 @@ edit_draw_this_line (WEdit *edit, off_t b, long row, long start_col, long end_co
 static inline void
 edit_draw_this_char (WEdit *edit, off_t curs, long row, long start_column, long end_column)
 {
-    off_t b;
+    // use the cached line start on the cursor's own line, else look it up
+    off_t b = edit_get_current_bol (edit);
 
-    b = edit_buffer_get_bol (&edit->buffer, curs);
+    if (curs < b || curs > edit_get_current_eol (edit))
+        b = edit_line_bol (edit, curs);
     edit_draw_this_line (edit, b, row, start_column, end_column);
 }
 
@@ -1018,7 +1033,7 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
                     edit_draw_this_line (edit, b, row, start_column, end_column);
                     edit->start_line = saved_start_line;
 
-                    b = edit_buffer_get_forward_offset (&edit->buffer, b, 1, 0);
+                    b = edit_line_next_offset (edit, b);
                     current_line++;
                 }
             }
@@ -1038,12 +1053,12 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
                     if (key_pending (edit))
                         return;
                     edit_draw_this_line (edit, b, row, start_column, end_column);
-                    b = edit_buffer_get_forward_offset (&edit->buffer, b, 1, 0);
+                    b = edit_line_next_offset (edit, b);
                 }
             }
 
             //          if (force & REDRAW_LINE)          ---> default
-            b = edit_buffer_get_current_bol (&edit->buffer);
+            b = edit_get_current_bol (edit);
             if (curs_row >= start_row && curs_row <= end_row)
             {
                 if (key_pending (edit))
@@ -1053,20 +1068,20 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
 
             if ((force & REDRAW_AFTER_CURSOR) != 0 && end_row > curs_row)
             {
-                b = edit_buffer_get_forward_offset (&edit->buffer, b, 1, 0);
+                b = edit_line_next_offset (edit, b);
                 for (row = MAX (curs_row + 1, start_row); row <= end_row; row++)
                 {
                     if (key_pending (edit))
                         return;
                     edit_draw_this_line (edit, b, row, start_column, end_column);
-                    b = edit_buffer_get_forward_offset (&edit->buffer, b, 1, 0);
+                    b = edit_line_next_offset (edit, b);
                 }
             }
 
             if ((force & REDRAW_LINE_ABOVE) != 0 && curs_row >= 1)
             {
                 row = curs_row - 1;
-                b = edit_buffer_get_current_bol (&edit->buffer);
+                b = edit_get_current_bol (edit);
                 b = edit_buffer_get_backward_offset (&edit->buffer, b, 1);
                 if (row >= start_row && row <= end_row)
                 {
@@ -1079,8 +1094,8 @@ render_edit_text (WEdit *edit, long start_row, long start_column, long end_row, 
             if ((force & REDRAW_LINE_BELOW) != 0 && row < w->lines - 1)
             {
                 row = curs_row + 1;
-                b = edit_buffer_get_current_bol (&edit->buffer);
-                b = edit_buffer_get_forward_offset (&edit->buffer, b, 1, 0);
+                b = edit_get_current_bol (edit);
+                b = edit_line_next_offset (edit, b);
                 if (row >= start_row && row <= end_row)
                 {
                     if (key_pending (edit))

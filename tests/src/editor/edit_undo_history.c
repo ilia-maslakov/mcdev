@@ -220,6 +220,26 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+START_TEST (test_fast_ascii_cursor_move_undo)
+{
+    const off_t size = 4099;
+    off_t i;
+
+    for (i = 0; i < size; i++)
+        edit_buffer_insert (&test_edit->buffer, 'a');
+
+    edit_push_key_press (test_edit);
+    edit_cursor_move (test_edit, -size);
+    ck_assert_int_eq (test_edit->buffer.curs1, 0);
+    ck_assert_uint_lt (test_edit->undo_stack_pointer, 8);
+
+    edit_execute_key_command (test_edit, CK_Undo, -1);
+    ck_assert_int_eq (test_edit->buffer.curs1, size);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -228,6 +248,7 @@ main (void)
     tc_core = tcase_create ("Core");
     tcase_add_checked_fixture (tc_core, setup, teardown);
     tcase_add_test (tc_core, test_ascii_coalesce);
+    tcase_add_test (tc_core, test_fast_ascii_cursor_move_undo);
     tcase_add_test (tc_core, test_space_breaks_coalesce);
     tcase_add_test (tc_core, test_redo_entry_after_undo);
     tcase_add_test (tc_core, test_delete_entry);
