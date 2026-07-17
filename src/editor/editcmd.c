@@ -785,19 +785,29 @@ edit_get_block (WEdit *edit, const off_t start, const off_t finish)
 
     if (edit->column_highlight)
     {
-        // copy from buffer, excluding chars that are out of the column 'margins'
-        for (off_t i = start; i < finish; i++)
+        const long col1 = MIN (edit->column1, edit->column2);
+        const long col2 = MAX (edit->column1, edit->column2);
+        off_t bol;
+
+        // per line, keep the bytes in columns [col1, col2) plus the newline; jump to the margins
+        // through the cached column<->offset lookups rather than scanning every spanned byte
+        for (bol = edit_buffer_get_bol (&edit->buffer, start); bol < finish;
+             bol = edit_get_line_eol (edit, bol) + 1)
         {
-            off_t x;
+            const off_t eol = edit_get_line_eol (edit, bol);
+            long col;
+            off_t i;
 
-            x = edit_buffer_get_bol (&edit->buffer, i);
-            x = edit_move_forward3 (edit, x, 0, i);
+            for (i = edit_get_line_offset (edit, bol, col1, &col); i < eol && i < finish && col < col2;
+                 i++)
+            {
+                if (col >= col1 && i >= start)
+                    g_string_append_c (r, (gchar) edit_buffer_get_byte (&edit->buffer, i));
+                col = edit_layout_advance_byte (edit, i, col);
+            }
 
-            const int c = edit_buffer_get_byte (&edit->buffer, i);
-
-            if ((x >= edit->column1 && x < edit->column2)
-                || (x >= edit->column2 && x < edit->column1) || c == '\n')
-                g_string_append_c (r, (gchar) c);
+            if (eol >= start && eol < finish)
+                g_string_append_c (r, '\n');
         }
     }
     else

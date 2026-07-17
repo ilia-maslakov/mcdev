@@ -118,9 +118,38 @@ const char VERTICAL_MAGIC[] = { '\1', '\1', '\1', '\1', '\n' };
 
 #define space_width  1
 
+#define EDIT_LAYOUT_CACHE_STEP       (2 * 1024)
+#define EDIT_LAYOUT_CACHE_MAX_LINES  64
+#define EDIT_LAYOUT_CACHE_MAX_POINTS 256
+#define EDIT_CURSOR_FAST_MOVE_MIN    64
+
 /*** file scope type declarations ****************************************************************/
 
+typedef struct
+{
+    off_t offset;
+    long column;
+} edit_layout_cache_entry_t;
+
+typedef struct
+{
+    off_t bol;
+    off_t eol;
+    GArray *entries;
+    guint64 serial;
+    unsigned int eol_valid : 1;
+} edit_layout_line_cache_t;
+
 /*** forward declarations (file scope functions) *************************************************/
+
+static void edit_layout_cache_invalidate (WEdit *edit);
+static void edit_layout_cache_prepare_edit (WEdit *edit, off_t offset);
+static void edit_layout_after_edit (WEdit *edit, off_t at, off_t old_eol, gboolean old_valid,
+                                    off_t delta);
+static void edit_layout_cache_store_position (WEdit *edit, off_t bol, off_t offset, long column);
+static long edit_layout_cache_column_at (WEdit *edit, off_t bol, off_t offset);
+static off_t edit_line_offset_cached (WEdit *edit, off_t bol, long lines, gboolean backward);
+static void edit_cursor_jump_to_bol (WEdit *edit, off_t target, long line_delta);
 
 /*** file scope variables ************************************************************************/
 
@@ -478,20 +507,49 @@ edit_load_position (WEdit *edit, gboolean load_position)
     if (!load_position)
         return;
 
-    if (line > 0)
+    if (edit_has_single_line_layout (edit) && line > 0 && offset >= 0
+        && offset <= edit->buffer.size)
     {
-        edit_move_to_line (edit, line - 1);
-        edit->prev_col = column;
+        edit_buffer_move_cursor_fast (&edit->buffer, offset - edit->buffer.curs1);
+        edit->curs_bol = 0;
+        edit->curs_bol_valid = TRUE;
+        edit_layout_cache_store_position (edit, 0, offset, MAX (column, 0));
+        edit->curs_col = edit->prev_col = MAX (column, 0);
+        edit->over_col = 0;
     }
-    else if (offset > 0)
+    else
     {
-        edit_cursor_move (edit, offset);
-        line = edit->buffer.curs_line;
-        edit->search_start = edit->buffer.curs1;
-    }
+        if (line > 0)
+        {
+            edit_move_to_line (edit, line - 1);
+            edit->prev_col = column;
+        }
+        else if (offset > 0)
+        {
+            if (edit_has_fast_ascii_layout (edit))
+                edit_buffer_move_cursor_fast (&edit->buffer, offset);
+            else
+                edit_cursor_move (edit, offset);
+            line = edit->buffer.curs_line;
+            edit->search_start = edit->buffer.curs1;
+        }
 
-    b = edit_buffer_get_current_bol (&edit->buffer);
-    edit_move_to_prev_col (edit, b);
+        if (edit_has_fast_ascii_layout (edit))
+        {
+            off_t target;
+
+            target = line > 0 ? MIN (edit->buffer.size, (off_t) MAX (column, 0))
+                              : edit->buffer.curs1;
+            edit_buffer_move_cursor_fast (&edit->buffer, target - edit->buffer.curs1);
+            edit->curs_col = edit->prev_col = (long) target;
+            edit->over_col = 0;
+        }
+        else
+        {
+            b = edit_buffer_get_current_bol (&edit->buffer);
+            edit_move_to_prev_col (edit, b);
+        }
+    }
     edit_move_display (edit, line - (WIDGET (edit)->rect.lines / 2));
 }
 
@@ -519,6 +577,8 @@ edit_purge_widget (WEdit *edit)
 {
     size_t len = sizeof (WEdit) - sizeof (Widget);
     char *start = (char *) edit + sizeof (Widget);
+
+    edit_layout_cache_invalidate (edit);
     memset (start, 0, len);
 }
 
@@ -618,6 +678,9 @@ static void
 edit_modification (WEdit *edit)
 {
     edit->caches_valid = FALSE;
+    // an edit may move the line end and the indent boundary
+    edit->curs_eol_valid = FALSE;
+    edit->curs_indent_end_valid = FALSE;
 
     // raise lock when file modified
     if (edit->modified == 0 && edit->delete_file == 0)
@@ -636,15 +699,26 @@ edit_modification (WEdit *edit)
  */
 
 static gboolean
-is_in_indent (const edit_buffer_t *buf)
+is_in_indent (WEdit *edit)
 {
-    off_t p;
+    // cached end of the leading blanks, keyed on the line start
+    const off_t bol = edit_get_current_bol (edit);
 
-    for (p = edit_buffer_get_current_bol (buf); p < buf->curs1; p++)
-        if (strchr (" \t", edit_buffer_get_byte (buf, p)) == NULL)
-            return FALSE;
+    if (!edit->curs_indent_end_valid || edit->curs_indent_end_bol != bol)
+    {
+        const off_t eol = edit_get_current_eol (edit);
+        off_t p;
 
-    return TRUE;
+        for (p = bol; p < eol && strchr (" \t", edit_buffer_get_byte (&edit->buffer, p)) != NULL;
+             p++)
+            ;
+
+        edit->curs_indent_end = p;
+        edit->curs_indent_end_bol = bol;
+        edit->curs_indent_end_valid = TRUE;
+    }
+
+    return edit->buffer.curs1 <= edit->curs_indent_end;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -873,7 +947,7 @@ edit_cursor_to_eol (WEdit *edit)
 {
     off_t b;
 
-    b = edit_buffer_get_current_eol (&edit->buffer);
+    b = edit_get_current_eol (edit);
     edit_cursor_move (edit, b - edit->buffer.curs1);
     edit->search_start = edit->buffer.curs1;
     edit->prev_col = edit_get_col (edit);
@@ -1257,10 +1331,9 @@ edit_move_updown (WEdit *edit, long lines, gboolean do_scroll, gboolean directio
         else
             edit_scroll_downward (edit, lines);
     }
-    p = edit_buffer_get_current_bol (&edit->buffer);
-    p = direction ? edit_buffer_get_backward_offset (&edit->buffer, p, lines)
-                  : edit_buffer_get_forward_offset (&edit->buffer, p, lines, 0);
-    edit_cursor_move (edit, p - edit->buffer.curs1);
+    p = edit_get_current_bol (edit);
+    p = edit_line_offset_cached (edit, p, lines, direction);
+    edit_cursor_jump_to_bol (edit, p, direction ? -lines : lines);
     edit_move_to_prev_col (edit, p);
 
     /* skip over folded (hidden) lines */
@@ -1696,7 +1769,7 @@ insert_spaces_tab (WEdit *edit, gboolean half)
 static inline void
 edit_tab_cmd (WEdit *edit)
 {
-    if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer))
+    if (edit_options.fake_half_tabs && is_in_indent (edit))
     {
         /* insert a half tab (usually four spaces) unless there is a
            half tab already behind, then delete it and insert a
@@ -2542,6 +2615,8 @@ edit_set_codeset (WEdit *edit)
 {
     const char *cp_id;
 
+    edit_layout_cache_invalidate (edit);
+
     cp_id = get_codepage_id (mc_global.source_codepage >= 0 ? mc_global.source_codepage
                                                             : mc_global.display_codepage);
 
@@ -2819,6 +2894,12 @@ redo_check_bottom:
 void
 edit_insert (WEdit *edit, int c)
 {
+    const off_t at = edit->buffer.curs1;
+    const off_t old_eol = edit->curs_eol;
+    const gboolean old_eol_valid = edit->curs_eol_valid;
+
+    edit_layout_cache_prepare_edit (edit, edit->buffer.curs1);
+
     // first we must update the position of the display window
     if (edit->buffer.curs1 < edit->start_display)
     {
@@ -2853,6 +2934,15 @@ edit_insert (WEdit *edit, int c)
     edit->last_get_rule += (edit->last_get_rule > edit->buffer.curs1) ? 1 : 0;
 
     edit_buffer_insert (&edit->buffer, c);
+    if (c == '\n')
+    {
+        edit_layout_cache_invalidate (edit);
+        edit->curs_bol = edit->buffer.curs1;
+        edit->curs_bol_valid = TRUE;
+        edit->curs_eol_valid = FALSE;
+    }
+    else
+        edit_layout_after_edit (edit, at, old_eol, old_eol_valid, 1);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2861,6 +2951,12 @@ edit_insert (WEdit *edit, int c)
 void
 edit_insert_ahead (WEdit *edit, int c)
 {
+    const off_t at = edit->buffer.curs1;
+    const off_t old_eol = edit->curs_eol;
+    const gboolean old_eol_valid = edit->curs_eol_valid;
+
+    edit_layout_cache_prepare_edit (edit, edit->buffer.curs1);
+
     if (edit->buffer.curs1 < edit->start_display)
     {
         edit->start_display++;
@@ -2886,6 +2982,13 @@ edit_insert_ahead (WEdit *edit, int c)
     edit->last_get_rule += (edit->last_get_rule >= edit->buffer.curs1) ? 1 : 0;
 
     edit_buffer_insert_ahead (&edit->buffer, c);
+    if (c == '\n')
+    {
+        edit_layout_cache_invalidate (edit);
+        edit->curs_eol_valid = FALSE;
+    }
+    else
+        edit_layout_after_edit (edit, at, old_eol, old_eol_valid, 1);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2921,6 +3024,12 @@ edit_delete (WEdit *edit, gboolean byte_delete)
             char_length = 1;
     }
 
+    const off_t at = edit->buffer.curs1;
+    const off_t old_eol = edit->curs_eol;
+    const gboolean old_eol_valid = edit->curs_eol_valid;
+
+    edit_layout_cache_prepare_edit (edit, edit->buffer.curs1);
+
     if (edit->mark2 != edit->mark1)
         edit_push_markers (edit);
 
@@ -2944,11 +3053,15 @@ edit_delete (WEdit *edit, gboolean byte_delete)
     edit_modification (edit);
     if (p == '\n')
     {
+        edit_layout_cache_invalidate (edit);
+        edit->curs_eol_valid = FALSE;
         book_mark_dec (edit, edit->buffer.curs_line);
         edit_fold_dec (edit, edit->buffer.curs_line);
         edit->buffer.lines--;
         edit->force |= REDRAW_AFTER_CURSOR;
     }
+    else
+        edit_layout_after_edit (edit, at, old_eol, old_eol_valid, -char_length);
     if (edit->buffer.curs1 < edit->start_display)
     {
         edit->start_display--;
@@ -2981,6 +3094,12 @@ edit_backspace (WEdit *edit, gboolean byte_delete)
             char_length = 1;
     }
 
+    const off_t at = edit->buffer.curs1 - char_length;
+    const off_t old_eol = edit->curs_eol;
+    const gboolean old_eol_valid = edit->curs_eol_valid;
+
+    edit_layout_cache_prepare_edit (edit, edit->buffer.curs1 - char_length);
+
     for (i = 1; i <= char_length; i++)
     {
         if (edit->mark1 >= edit->buffer.curs1)
@@ -3000,12 +3119,17 @@ edit_backspace (WEdit *edit, gboolean byte_delete)
     edit_modification (edit);
     if (p == '\n')
     {
+        edit_layout_cache_invalidate (edit);
+        edit->curs_bol_valid = FALSE;
+        edit->curs_eol_valid = FALSE;
         book_mark_dec (edit, edit->buffer.curs_line);
         edit_fold_dec (edit, edit->buffer.curs_line);
         edit->buffer.curs_line--;
         edit->buffer.lines--;
         edit->force |= REDRAW_AFTER_CURSOR;
     }
+    else
+        edit_layout_after_edit (edit, at, old_eol, old_eol_valid, -char_length);
 
     if (edit->buffer.curs1 < edit->start_display)
     {
@@ -3020,9 +3144,645 @@ edit_backspace (WEdit *edit, gboolean byte_delete)
 /* --------------------------------------------------------------------------------------------- */
 /** moves the cursor right or left: increment positive or negative respectively */
 
+static void
+edit_push_cursor_move_undo (WEdit *edit, long action, off_t count)
+{
+    unsigned long sp;
+
+    if (count <= 0)
+        return;
+
+    if (edit->undo_stack_disable)
+    {
+        while (count-- > 0)
+            edit_push_undo_action (edit, action);
+        return;
+    }
+
+    edit_push_undo_action (edit, action);
+    if (count == 1)
+        return;
+
+    edit_push_undo_action (edit, action);
+    sp = (edit->undo_stack_pointer - 1) & edit->undo_stack_size_mask;
+    if (edit->undo_stack[sp] < 0
+        && edit->undo_stack[(sp - 1) & edit->undo_stack_size_mask] == action)
+        edit->undo_stack[sp] -= (long) (count - 2);
+    else
+        while (--count > 1)
+            edit_push_undo_action (edit, action);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static guint
+edit_layout_cache_lower_bound_offset (const GArray *cache, off_t offset)
+{
+    guint first = 0;
+    guint last = cache->len;
+
+    while (first < last)
+    {
+        const guint middle = first + (last - first) / 2;
+        const edit_layout_cache_entry_t *entry =
+            &g_array_index (cache, edit_layout_cache_entry_t, middle);
+
+        if (entry->offset < offset)
+            first = middle + 1;
+        else
+            last = middle;
+    }
+
+    return first;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_line_cache_free (gpointer data)
+{
+    edit_layout_line_cache_t *cache = (edit_layout_line_cache_t *) data;
+
+    g_array_free (cache->entries, TRUE);
+    g_free (cache);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static edit_layout_line_cache_t *
+edit_layout_cache_find (const WEdit *edit, off_t bol)
+{
+    guint i;
+
+    if (edit->line_layout_caches == NULL)
+        return NULL;
+
+    for (i = 0; i < edit->line_layout_caches->len; i++)
+    {
+        edit_layout_line_cache_t *cache =
+            g_ptr_array_index (edit->line_layout_caches, i);
+
+        if (cache->bol == bol)
+            return cache;
+    }
+
+    return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static edit_layout_line_cache_t *
+edit_layout_cache_get (WEdit *edit, off_t bol)
+{
+    edit_layout_line_cache_t *cache;
+
+    cache = edit_layout_cache_find (edit, bol);
+    if (cache != NULL)
+    {
+        cache->serial = ++edit->line_layout_cache_serial;
+        return cache;
+    }
+
+    if (edit->line_layout_caches == NULL)
+        edit->line_layout_caches = g_ptr_array_new_with_free_func (edit_layout_line_cache_free);
+
+    if (edit->line_layout_caches->len >= EDIT_LAYOUT_CACHE_MAX_LINES)
+    {
+        guint i;
+        guint oldest = 0;
+
+        for (i = 1; i < edit->line_layout_caches->len; i++)
+        {
+            edit_layout_line_cache_t *candidate =
+                g_ptr_array_index (edit->line_layout_caches, i);
+            edit_layout_line_cache_t *oldest_cache =
+                g_ptr_array_index (edit->line_layout_caches, oldest);
+
+            if (candidate->serial < oldest_cache->serial)
+                oldest = i;
+        }
+        g_ptr_array_remove_index (edit->line_layout_caches, oldest);
+    }
+
+    cache = g_new0 (edit_layout_line_cache_t, 1);
+    cache->bol = bol;
+    cache->entries = g_array_new (FALSE, FALSE, sizeof (edit_layout_cache_entry_t));
+    cache->serial = ++edit->line_layout_cache_serial;
+    g_ptr_array_add (edit->line_layout_caches, cache);
+    return cache;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+off_t
+edit_get_line_eol (WEdit *edit, off_t bol)
+{
+    edit_layout_line_cache_t *cache = edit_layout_cache_get (edit, bol);
+
+    if (!cache->eol_valid)
+    {
+        cache->eol = edit_buffer_get_eol (&edit->buffer, bol);
+        cache->eol_valid = TRUE;
+    }
+
+    return cache->eol;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/*
+ * A cachable column boundary: a UTF-8 character start whose preceding character is complete.  A
+ * half-typed multibyte character parses with the wrong width, so caching there would corrupt the
+ * column and the offset->column ordering the lookups rely on.  bol and EOF are always clean.
+ */
+static gboolean
+edit_layout_offset_is_clean_boundary (const WEdit *edit, off_t offset)
+{
+    off_t start;
+    int char_length = 0;
+
+    if (!edit->utf8 || offset <= 0 || offset >= edit->buffer.size)
+        return TRUE;
+
+    if ((edit_buffer_get_byte (&edit->buffer, offset) & 0xC0) == 0x80)
+        return FALSE;
+
+    start = offset - 1;
+    while (start > 0 && offset - start < MB_LEN_MAX
+           && (edit_buffer_get_byte (&edit->buffer, start) & 0xC0) == 0x80)
+        start--;
+
+    (void) edit_buffer_get_utf (&edit->buffer, start, &char_length);
+    return char_length > 0 && start + char_length == offset;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_cache_store (WEdit *edit, edit_layout_line_cache_t *cache, off_t offset, long column)
+{
+    guint index;
+    edit_layout_cache_entry_t entry;
+
+    if (offset < cache->bol || offset > edit->buffer.size)
+        return;
+
+    if (offset != cache->bol && !edit_layout_offset_is_clean_boundary (edit, offset))
+        return;
+
+    index = edit_layout_cache_lower_bound_offset (cache->entries, offset);
+    if (index < cache->entries->len
+        && g_array_index (cache->entries, edit_layout_cache_entry_t, index).offset == offset)
+    {
+        g_array_index (cache->entries, edit_layout_cache_entry_t, index).column = column;
+        return;
+    }
+
+    entry.offset = offset;
+    entry.column = column;
+    g_array_insert_vals (cache->entries, index, &entry, 1);
+
+    if (cache->entries->len > EDIT_LAYOUT_CACHE_MAX_POINTS)
+    {
+        const guint last = cache->entries->len - 1;
+
+        g_array_remove_index (cache->entries, index <= last / 2 ? last : 1);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_cache_trim (edit_layout_line_cache_t *cache, off_t offset)
+{
+    guint index;
+
+    index = edit_layout_cache_lower_bound_offset (cache->entries, offset + 1);
+    if (index < cache->entries->len)
+        g_array_set_size (cache->entries, index);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_cache_invalidate (WEdit *edit)
+{
+    if (edit->line_layout_caches != NULL)
+    {
+        g_ptr_array_free (edit->line_layout_caches, TRUE);
+        edit->line_layout_caches = NULL;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Line start containing `pos`, from a cached line [bol, eol] if one holds it, else a backward scan. */
+off_t
+edit_line_bol (WEdit *edit, off_t pos)
+{
+    if (edit->line_layout_caches != NULL)
+    {
+        guint i;
+
+        for (i = 0; i < edit->line_layout_caches->len; i++)
+        {
+            const edit_layout_line_cache_t *cache =
+                g_ptr_array_index (edit->line_layout_caches, i);
+
+            if (cache->eol_valid && cache->bol <= pos && pos <= cache->eol)
+                return cache->bol;
+        }
+    }
+
+    return edit_buffer_get_bol (&edit->buffer, pos);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+off_t
+edit_get_current_bol (WEdit *edit)
+{
+    if (!edit->curs_bol_valid)
+    {
+        edit->curs_bol = edit_line_bol (edit, edit->buffer.curs1);
+        edit->curs_bol_valid = TRUE;
+    }
+
+    return edit->curs_bol;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/* End (newline offset, or EOF) of the cursor's line, cached; dropped on edit or line change. */
+off_t
+edit_get_current_eol (WEdit *edit)
+{
+    if (!edit->curs_eol_valid)
+    {
+        edit->curs_eol = edit_get_line_eol (edit, edit_get_current_bol (edit));
+        edit->curs_eol_valid = TRUE;
+    }
+
+    return edit->curs_eol;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/* Start of the line below the one starting at b, via the cached line end. */
+off_t
+edit_line_next_offset (WEdit *edit, off_t b)
+{
+    const off_t next = edit_get_line_eol (edit, b) + 1;
+
+    return next > edit->buffer.size ? b : next;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/* Start of the line `lines` steps forward (or backward) from `bol`, stepping through the cache. */
+static off_t
+edit_line_offset_cached (WEdit *edit, off_t bol, long lines, gboolean backward)
+{
+    for (; lines > 0; lines--)
+    {
+        if (backward)
+        {
+            if (bol == 0)
+                break;
+            bol = edit_line_bol (edit, bol - 1);
+        }
+        else
+        {
+            const off_t next = edit_line_next_offset (edit, bol);
+
+            if (next == bol)
+                break;
+            bol = next;
+        }
+    }
+
+    return bol;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_cache_prepare_edit (WEdit *edit, off_t offset)
+{
+    edit_layout_line_cache_t *cache;
+
+    edit->curs_eol_valid = FALSE;
+
+    // only the edited line's tail changes here; other lines are repositioned by edit_layout_after_edit()
+    cache = edit_layout_cache_find (edit, edit_get_current_bol (edit));
+    if (cache != NULL)
+    {
+        edit_layout_cache_trim (cache, offset);
+        cache->eol_valid = FALSE;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/*
+ * After a non-structural edit (no '\n' added or removed) of `delta` bytes at `at`, reposition the
+ * cached lines: lines below `at` shift by `delta`, lines above are untouched, and the current line's
+ * cached end shifts too.  old_eol/old_valid are the current line's eol state before the edit.
+ */
+static void
+edit_layout_after_edit (WEdit *edit, off_t at, off_t old_eol, gboolean old_valid, off_t delta)
+{
+    edit_layout_line_cache_t *cache;
+
+    if (edit->line_layout_caches != NULL)
+    {
+        guint i;
+
+        for (i = 0; i < edit->line_layout_caches->len; i++)
+        {
+            cache = g_ptr_array_index (edit->line_layout_caches, i);
+
+            // a line that starts past the edit point moves down (or up) by delta, content intact
+            if (cache->bol > at)
+            {
+                guint j;
+
+                cache->bol += delta;
+                if (cache->eol_valid)
+                    cache->eol += delta;
+                for (j = 0; j < cache->entries->len; j++)
+                    g_array_index (cache->entries, edit_layout_cache_entry_t, j).offset += delta;
+            }
+        }
+    }
+
+    if (!old_valid || at > old_eol)
+        return;
+
+    edit->curs_eol = old_eol + delta;
+    edit->curs_eol_valid = TRUE;
+
+    cache = edit_layout_cache_find (edit, edit_get_current_bol (edit));
+    if (cache != NULL)
+    {
+        cache->eol = old_eol + delta;
+        cache->eol_valid = TRUE;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_layout_cache_store_position (WEdit *edit, off_t bol, off_t offset, long column)
+{
+    edit_layout_line_cache_t *cache = edit_layout_cache_get (edit, bol);
+
+    edit_layout_cache_store (edit, cache, bol, 0);
+    edit_layout_cache_store (edit, cache, offset, column);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+long
+edit_layout_advance_byte (const WEdit *edit, off_t offset, long column)
+{
+    int c, orig_c;
+
+    orig_c = c = edit_buffer_get_byte (&edit->buffer, offset);
+
+    if (edit->utf8)
+    {
+        int utf_ch;
+        int char_length = 1;
+
+        utf_ch = edit_buffer_get_utf (&edit->buffer, offset, &char_length);
+        if (mc_global.utf8_display)
+        {
+            if (char_length > 1)
+                column -= char_length - 1;
+            if (g_unichar_iswide (utf_ch))
+                column++;
+        }
+        else if (char_length > 1 && g_unichar_isprint (utf_ch))
+            column -= char_length - 1;
+    }
+
+    c = convert_to_display_c (c);
+    if (c == '\t')
+        return column + TAB_SIZE - column % TAB_SIZE;
+    if ((c < 32 || c == 127) && (orig_c == c || (!mc_global.utf8_display && !edit->utf8)))
+        return column + 2;
+
+    return column + 1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static long
+edit_layout_advance (WEdit *edit, edit_layout_line_cache_t *cache, off_t offset, off_t upto,
+                     long column)
+{
+    off_t next_checkpoint;
+    const off_t cache_window =
+        (off_t) EDIT_LAYOUT_CACHE_STEP * (EDIT_LAYOUT_CACHE_MAX_POINTS - 2);
+
+    next_checkpoint = offset + EDIT_LAYOUT_CACHE_STEP;
+    if (upto > cache_window && upto - cache_window > next_checkpoint)
+        next_checkpoint = upto - cache_window;
+
+    for (; offset < upto; offset++)
+    {
+        if (edit_buffer_get_byte (&edit->buffer, offset) == '\n')
+        {
+            // reaching the newline also settles the line end
+            cache->eol = offset;
+            cache->eol_valid = TRUE;
+            break;
+        }
+
+        column = edit_layout_advance_byte (edit, offset, column);
+
+        if (offset + 1 >= next_checkpoint)
+        {
+            edit_layout_cache_store (edit, cache, offset + 1, column);
+            next_checkpoint += EDIT_LAYOUT_CACHE_STEP;
+        }
+    }
+
+    return column;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/*
+ * Whether `offset` is a UTF-8 character start, so a cached column there is a valid anchor to advance
+ * from.  A continuation byte (mid-character, e.g. after a byte-by-byte insert) has a stale column
+ * that would double-count the character.  bol is always a character start.
+ */
+static gboolean
+edit_layout_offset_is_char_start (const WEdit *edit, off_t offset)
+{
+    return !edit->utf8 || offset <= 0 || offset >= edit->buffer.size
+        || (edit_buffer_get_byte (&edit->buffer, offset) & 0xC0) != 0x80;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static long
+edit_layout_cache_column_at (WEdit *edit, off_t bol, off_t offset)
+{
+    edit_layout_line_cache_t *cache;
+    guint index;
+    off_t anchor_offset = bol;
+    long anchor_column = 0;
+    long column;
+
+    offset = CLAMP (offset, bol, edit->buffer.size);
+    cache = edit_layout_cache_get (edit, bol);
+    edit_layout_cache_store (edit, cache, bol, 0);
+    index = edit_layout_cache_lower_bound_offset (cache->entries, offset);
+
+    if (index < cache->entries->len
+        && g_array_index (cache->entries, edit_layout_cache_entry_t, index).offset == offset)
+        return g_array_index (cache->entries, edit_layout_cache_entry_t, index).column;
+
+    while (index > 1
+           && !edit_layout_offset_is_char_start (
+                  edit, g_array_index (cache->entries, edit_layout_cache_entry_t, index - 1).offset))
+        index--;
+
+    if (index > 0)
+    {
+        const edit_layout_cache_entry_t *entry =
+            &g_array_index (cache->entries, edit_layout_cache_entry_t, index - 1);
+
+        anchor_offset = entry->offset;
+        anchor_column = entry->column;
+    }
+
+    column = edit_layout_advance (edit, cache, anchor_offset, offset, anchor_column);
+    edit_layout_cache_store (edit, cache, offset, column);
+    return column;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+off_t
+edit_get_line_offset (WEdit *edit, off_t bol, long column, long *actual_column)
+{
+    edit_layout_line_cache_t *cache;
+    guint first = 0;
+    guint last;
+    off_t offset;
+    long current_column;
+
+    column = MAX (column, 0);
+    cache = edit_layout_cache_get (edit, bol);
+    edit_layout_cache_store (edit, cache, bol, 0);
+    last = cache->entries->len;
+
+    while (first < last)
+    {
+        const guint middle = first + (last - first) / 2;
+        const edit_layout_cache_entry_t *entry =
+            &g_array_index (cache->entries, edit_layout_cache_entry_t, middle);
+
+        if (entry->column <= column)
+            first = middle + 1;
+        else
+            last = middle;
+    }
+
+    while (first > 1
+           && !edit_layout_offset_is_char_start (
+                  edit, g_array_index (cache->entries, edit_layout_cache_entry_t, first - 1).offset))
+        first--;
+
+    if (first == 0)
+    {
+        offset = bol;
+        current_column = 0;
+    }
+    else
+    {
+        const edit_layout_cache_entry_t *entry =
+            &g_array_index (cache->entries, edit_layout_cache_entry_t, first - 1);
+
+        offset = entry->offset;
+        current_column = entry->column;
+    }
+
+    while (offset < edit->buffer.size)
+    {
+        long next_column;
+
+        if (edit_buffer_get_byte (&edit->buffer, offset) == '\n')
+        {
+            // walking up to the newline also settles the line end
+            cache->eol = offset;
+            cache->eol_valid = TRUE;
+            break;
+        }
+        if (current_column == column)
+            break;
+
+        next_column = edit_layout_advance_byte (edit, offset, current_column);
+        if (next_column > column)
+            break;
+
+        current_column = next_column;
+        offset++;
+    }
+
+    edit_layout_cache_store (edit, cache, offset, current_column);
+    if (actual_column != NULL)
+        *actual_column = current_column;
+    return offset;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+edit_cursor_move_stays_on_line (WEdit *edit, off_t increment)
+{
+    if (increment < 0)
+        return -increment <= edit->buffer.curs1 - edit_get_current_bol (edit);
+
+    // edit_get_current_eol() caches the line end, so a later move on the same line is O(1); the old
+    // fallback rescanned forward to the next '\n' each time the end was not already cached
+    return increment <= edit_get_current_eol (edit) - edit->buffer.curs1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 void
 edit_cursor_move (WEdit *edit, off_t increment)
 {
+    if (edit_has_single_line_layout (edit)
+        || ((increment >= EDIT_CURSOR_FAST_MOVE_MIN || increment <= -EDIT_CURSOR_FAST_MOVE_MIN)
+            && edit_cursor_move_stays_on_line (edit, increment)))
+    {
+        if (increment < 0)
+        {
+            const off_t count = MIN (-increment, edit->buffer.curs1);
+
+            edit_push_cursor_move_undo (edit, CURS_RIGHT, count);
+            edit_buffer_move_cursor_fast (&edit->buffer, -count);
+        }
+        else
+        {
+            const off_t count = MIN (increment, edit->buffer.curs2);
+
+            edit_push_cursor_move_undo (edit, CURS_LEFT, count);
+            edit_buffer_move_cursor_fast (&edit->buffer, count);
+        }
+        if (edit_has_single_line_layout (edit))
+        {
+            edit->curs_bol = 0;
+            edit->curs_bol_valid = TRUE;
+        }
+        (void) edit_layout_cache_column_at (edit, edit_get_current_bol (edit),
+                                             edit->buffer.curs1);
+        return;
+    }
+
     if (increment < 0)
     {
         for (; increment < 0 && edit->buffer.curs1 != 0; increment++)
@@ -3037,6 +3797,8 @@ edit_cursor_move (WEdit *edit, off_t increment)
             if (c == '\n')
             {
                 edit->buffer.curs_line--;
+                edit->curs_bol_valid = FALSE;
+                edit->curs_eol_valid = FALSE;
                 edit->force |= REDRAW_LINE_BELOW;
             }
         }
@@ -3055,10 +3817,48 @@ edit_cursor_move (WEdit *edit, off_t increment)
             if (c == '\n')
             {
                 edit->buffer.curs_line++;
+                edit->curs_bol = edit->buffer.curs1;
+                edit->curs_bol_valid = TRUE;
+                edit->curs_eol_valid = FALSE;
                 edit->force |= REDRAW_LINE_ABOVE;
             }
         }
     }
+
+    (void) edit_layout_cache_column_at (edit, edit_get_current_bol (edit), edit->buffer.curs1);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/*
+ * Move the cursor to `target`, the start of a line `line_delta` lines away (up is negative), with a
+ * single bulk gap move.  The line count is given rather than counted as edit_cursor_move() does.
+ */
+static void
+edit_cursor_jump_to_bol (WEdit *edit, off_t target, long line_delta)
+{
+    const off_t increment = target - edit->buffer.curs1;
+
+    if (increment < 0)
+    {
+        const off_t count = MIN (-increment, edit->buffer.curs1);
+
+        edit_push_cursor_move_undo (edit, CURS_RIGHT, count);
+        edit_buffer_move_cursor_fast (&edit->buffer, -count);
+    }
+    else if (increment > 0)
+    {
+        const off_t count = MIN (increment, edit->buffer.curs2);
+
+        edit_push_cursor_move_undo (edit, CURS_LEFT, count);
+        edit_buffer_move_cursor_fast (&edit->buffer, count);
+    }
+
+    edit->buffer.curs_line += line_delta;
+    edit->curs_bol = target;
+    edit->curs_bol_valid = TRUE;
+    edit->curs_eol_valid = FALSE;
+    edit->force |= line_delta < 0 ? REDRAW_LINE_BELOW : REDRAW_LINE_ABOVE;
+    (void) edit_layout_cache_column_at (edit, target, edit->buffer.curs1);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -3070,6 +3870,14 @@ edit_move_forward3 (const WEdit *edit, off_t current, long cols, off_t upto)
 {
     off_t p, q;
     long col;
+
+    if (edit_has_fast_ascii_layout (edit))
+    {
+        if (upto != 0 && current >= 0 && current <= upto)
+            return upto - current;
+        if (upto == 0 && cols >= 0 && current >= 0 && current <= edit->buffer.size)
+            return MIN (edit->buffer.size, current + (off_t) cols);
+    }
 
     if (upto != 0)
     {
@@ -3139,12 +3947,27 @@ edit_get_cursor_offset (const WEdit *edit)
 /** returns the current column position of the cursor */
 
 long
-edit_get_col (const WEdit *edit)
+edit_get_col (WEdit *edit)
 {
-    off_t b;
+    if (edit_has_fast_ascii_layout (edit))
+        return (long) edit->buffer.curs1;
 
-    b = edit_buffer_get_current_bol (&edit->buffer);
-    return (long) edit_move_forward3 (edit, b, 0, edit->buffer.curs1);
+    return edit_layout_cache_column_at (edit, edit_get_current_bol (edit), edit->buffer.curs1);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+gboolean
+edit_has_fast_ascii_layout (const WEdit *edit)
+{
+    return edit->buffer.lines == 0 && edit->buffer.one_byte_per_column;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_has_single_line_layout (const WEdit *edit)
+{
+    return edit->buffer.lines == 0;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -3186,10 +4009,7 @@ edit_update_curs_row (WEdit *edit)
 void
 edit_update_curs_col (WEdit *edit)
 {
-    off_t b;
-
-    b = edit_buffer_get_current_bol (&edit->buffer);
-    edit->curs_col = (long) edit_move_forward3 (edit, b, 0, edit->buffer.curs1);
+    edit->curs_col = edit_get_col (edit);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -3213,8 +4033,7 @@ edit_scroll_upward (WEdit *edit, long i)
     if (i != 0)
     {
         edit->start_line -= i;
-        edit->start_display =
-            edit_buffer_get_backward_offset (&edit->buffer, edit->start_display, i);
+        edit->start_display = edit_line_offset_cached (edit, edit->start_display, i, TRUE);
         edit->force |= REDRAW_PAGE;
         edit->force &= (0xfff - REDRAW_CHAR_ONLY);
     }
@@ -3265,8 +4084,7 @@ edit_scroll_downward (WEdit *edit, long i)
         if (i > lines_below)
             i = lines_below;
         edit->start_line += i;
-        edit->start_display =
-            edit_buffer_get_forward_offset (&edit->buffer, edit->start_display, i, 0);
+        edit->start_display = edit_line_offset_cached (edit, edit->start_display, i, FALSE);
         edit->force |= REDRAW_PAGE;
         edit->force &= (0xfff - REDRAW_CHAR_ONLY);
     }
@@ -3324,20 +4142,19 @@ edit_move_to_prev_col (WEdit *edit, off_t p)
 {
     long prev = edit->prev_col;
     long over = edit->over_col;
+    long reached = 0;
+    off_t target;
     off_t b;
 
-    edit_cursor_move (edit,
-                      edit_move_forward3 (edit, p, prev + edit->over_col, 0) - edit->buffer.curs1);
+    target = edit_get_line_offset (edit, p, prev + edit->over_col, &reached);
+    edit_cursor_move (edit, target - edit->buffer.curs1);
 
     if (edit_options.cursor_beyond_eol)
     {
-        off_t e;
-        long line_len;
+        // reached is the column the offset lookup stopped at; == line width when it hit the eol
+        const long line_len = reached;
 
-        b = edit_buffer_get_current_bol (&edit->buffer);
-        e = edit_buffer_get_current_eol (&edit->buffer);
-        line_len = (long) edit_move_forward3 (edit, b, 0, e);
-        if (line_len < prev + edit->over_col)
+        if (target >= edit_get_current_eol (edit) && line_len < prev + edit->over_col)
         {
             edit->over_col = prev + over - line_len;
             edit->prev_col = line_len;
@@ -3353,7 +4170,7 @@ edit_move_to_prev_col (WEdit *edit, off_t p)
     else
     {
         edit->over_col = 0;
-        if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer))
+        if (edit_options.fake_half_tabs && is_in_indent (edit))
         {
             long fake_half_tabs;
 
@@ -3486,17 +4303,19 @@ eval_marks (WEdit *edit, off_t *start_mark, off_t *end_mark)
         long col1, col2;
         off_t diff1, diff2;
 
-        start_bol = edit_buffer_get_bol (&edit->buffer, *start_mark);
-        start_eol = edit_buffer_get_eol (&edit->buffer, start_bol - 1) + 1;
-        end_bol = edit_buffer_get_bol (&edit->buffer, *end_mark);
-        end_eol = edit_buffer_get_eol (&edit->buffer, *end_mark);
+        // cached lookups: eval_marks runs on every redraw of a held column block
+        // start_eol is the start line's bol (edit_buffer_get_eol (start_bol - 1) + 1 == start_bol)
+        start_bol = edit_line_bol (edit, *start_mark);
+        start_eol = start_bol;
+        end_bol = edit_line_bol (edit, *end_mark);
+        end_eol = edit_get_line_eol (edit, end_bol);
         col1 = MIN (edit->column1, edit->column2);
         col2 = MAX (edit->column1, edit->column2);
 
-        diff1 = edit_move_forward3 (edit, start_bol, col2, 0)
-            - edit_move_forward3 (edit, start_bol, col1, 0);
-        diff2 = edit_move_forward3 (edit, end_bol, col2, 0)
-            - edit_move_forward3 (edit, end_bol, col1, 0);
+        diff1 = edit_get_line_offset (edit, start_bol, col2, NULL)
+            - edit_get_line_offset (edit, start_bol, col1, NULL);
+        diff2 = edit_get_line_offset (edit, end_bol, col2, NULL)
+            - edit_get_line_offset (edit, end_bol, col1, NULL);
 
         *start_mark -= diff1;
         *end_mark += diff2;
@@ -3949,12 +4768,12 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
             edit_block_delete_cmd (edit);
         else if (edit_options.cursor_beyond_eol && edit->over_col > 0)
             edit->over_col--;
-        else if (edit_options.backspace_through_tabs && is_in_indent (&edit->buffer))
+        else if (edit_options.backspace_through_tabs && is_in_indent (edit))
         {
             while (edit_buffer_get_previous_byte (&edit->buffer) != '\n' && edit->buffer.curs1 > 0)
                 edit_backspace (edit, TRUE);
         }
-        else if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer)
+        else if (edit_options.fake_half_tabs && is_in_indent (edit)
                  && right_of_four_spaces (edit))
         {
             int i;
@@ -3974,7 +4793,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
             if (edit_options.cursor_beyond_eol && edit->over_col > 0)
                 edit_insert_over (edit);
 
-            if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer)
+            if (edit_options.fake_half_tabs && is_in_indent (edit)
                 && left_of_four_spaces (edit))
             {
                 int i;
@@ -4044,7 +4863,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
         MC_FALLTHROUGH;
     case CK_Left:
     case CK_MarkLeft:
-        if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer)
+        if (edit_options.fake_half_tabs && is_in_indent (edit)
             && right_of_four_spaces (edit))
         {
             if (edit_options.cursor_beyond_eol && edit->over_col > 0)
@@ -4061,7 +4880,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
         MC_FALLTHROUGH;
     case CK_Right:
     case CK_MarkRight:
-        if (edit_options.fake_half_tabs && is_in_indent (&edit->buffer)
+        if (edit_options.fake_half_tabs && is_in_indent (edit)
             && left_of_four_spaces (edit))
         {
             edit_cursor_move (edit, HALF_TAB_SIZE);

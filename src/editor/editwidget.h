@@ -109,6 +109,15 @@ struct WEdit
     long curs_row;                  // row position of cursor on the screen
     long curs_col;                  // column position on screen
     long over_col;                  // pos after '\n'
+    off_t curs_bol;                 // beginning of the line containing the cursor
+    off_t curs_eol;                 // end (newline or EOF) of the line containing the cursor
+    off_t curs_indent_end;          // first non-blank byte on the cursor's line (or its eol)
+    off_t curs_indent_end_bol;      // bol that curs_indent_end was computed for
+    GPtrArray *line_layout_caches;  // recently used byte offset to visual column indexes
+    guint64 line_layout_cache_serial;
+    unsigned int curs_bol_valid : 1;
+    unsigned int curs_eol_valid : 1;
+    unsigned int curs_indent_end_valid : 1;
     int force;                      // how much of the screen do we redraw?
     unsigned int overwrite : 1;     // Overwrite on type mode (as opposed to insert)
     unsigned int modified : 1;      // File has been modified and needs saving

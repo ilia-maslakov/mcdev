@@ -108,7 +108,11 @@ static void
 test_load_text (void)
 {
     for (const char *ti = test_text_in; *ti != '\0'; ti++)
+    {
         edit_buffer_insert (&test_edit->buffer, *ti);
+        if (*ti == '\n')
+            test_edit->buffer.lines++;
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
