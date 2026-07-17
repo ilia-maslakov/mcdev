@@ -462,7 +462,7 @@ email me with your request.  However, do not ask for regular expression
 support, because this is flatly impossible.
 .PP
 The special
-.B line-local
+.B line\-local
 syntax mode is intended for plain text.  It resets at every newline and
 screen boundary, and only scans the displayed text.  It supports
 .B number
@@ -472,7 +472,7 @@ for decimal numbers up to
 digits,
 .B string
 .I quote foreground
-for single- or double-quoted strings, and
+for single- or double\-quoted strings, and
 .B symbols
 .I characters foreground
 for individually colored punctuation characters.
