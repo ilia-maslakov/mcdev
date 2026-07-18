@@ -1802,6 +1802,7 @@ edit_save_block (WEdit *edit, const char *filename, off_t start, off_t finish)
 
             // pad each line to the selection width so over-wide blocks survive the round-trip
             {
+                const long col1 = MIN (edit->column1, edit->column2);
                 const long width = labs (edit->column2 - edit->column1);
                 GString *padded;
                 gsize ls = 0;
@@ -1813,7 +1814,7 @@ edit_save_block (WEdit *edit, const char *filename, off_t start, off_t finish)
                         long cols;
 
                         g_string_append_len (padded, block->str + ls, i - ls);
-                        for (cols = edit_block_line_columns (edit, block->str + ls, i - ls);
+                        for (cols = edit_block_line_columns (edit, col1, block->str + ls, i - ls);
                              cols < width; cols++)
                             g_string_append_c (padded, ' ');
                         if (i < block->len)

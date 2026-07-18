@@ -418,6 +418,52 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+/* @Test */
+/* a tab is measured from the block's real left column, not from column 0 */
+START_TEST (test_save_block_tab_offset)
+{
+    const char *clip = "/tmp/mc-test-column-tab-off.clip";
+    off_t start_mark, end_mark;
+    int fd;
+    char buf[64];
+    ssize_t n;
+
+    option_tab_spacing = 8;
+
+    // line 1: "abcd" then a tab (starts at column 4, so it spans only columns 4..7)
+    for (const char *ti = "abcd\t\nzzzzzzzzzzzz\n"; *ti != '\0'; ti++)
+    {
+        edit_buffer_insert (&test_edit->buffer, *ti);
+        if (*ti == '\n')
+            test_edit->buffer.lines++;
+    }
+
+    // block columns [4, 12): 8 columns wide, left edge is not a tab stop
+    test_edit->column_highlight = 1;
+    test_edit->column1 = 4;
+    test_edit->column2 = 12;
+    test_edit->mark1 = 4;
+    test_edit->mark2 = 18;
+    test_edit->end_mark_curs = -1;
+    edit_update_curs_col (test_edit);
+
+    eval_marks (test_edit, &start_mark, &end_mark);
+    edit_save_block (test_edit, clip, start_mark, end_mark);
+
+    // the tab covers columns 4..7 (width 4), so it needs 4 pad spaces to reach width 8
+    fd = open (clip, O_RDONLY);
+    n = read (fd, buf, sizeof (buf) - 1);
+    close (fd);
+    buf[n < 0 ? 0 : n] = '\0';
+    mctest_assert_str_eq (buf + 5,  // skip VERTICAL_MAGIC {\1\1\1\1\n}
+                          "\t    \n"
+                          "zzzzzzzz");
+    unlink (clip);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -433,6 +479,7 @@ main (void)
     tcase_add_test (tc_core, test_insert_column_from_clip_utf8);
     tcase_add_test (tc_core, test_save_block_pads_to_selection_width);
     tcase_add_test (tc_core, test_save_block_tab_width);
+    tcase_add_test (tc_core, test_save_block_tab_offset);
     // ***********************************
 
     return mctest_run_all (tc_core);
