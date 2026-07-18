@@ -227,10 +227,7 @@ END_PARAMETRIZED_TEST
 /* --------------------------------------------------------------------------------------------- */
 
 /* @Test */
-/* A ragged vertical block copied to the clip file and pasted back must keep its rectangular
- * shape.  The clip file stores only the raw column text (after the VERTICAL_MAGIC signature),
- * so edit_insert_column_from_file() must reconstruct the column width as the widest line, not
- * as the first line's width. */
+/* ragged block -> clip -> paste keeps rectangular width (widest line, not first) */
 START_TEST (test_insert_column_from_clip_width)
 {
     const char *clip = "/tmp/mc-test-column.clip";
@@ -280,9 +277,7 @@ END_TEST
 /* --------------------------------------------------------------------------------------------- */
 
 /* @Test */
-/* A vertical block of multibyte (UTF-8) characters must paste without spurious padding:
- * the column width has to be measured in display columns, not bytes.  A 1-char Cyrillic
- * column (2 bytes each) must not be padded to 2 columns. */
+/* UTF-8 column width measured in columns, not bytes: no spurious padding */
 START_TEST (test_insert_column_from_clip_utf8)
 {
     const char *clip = "/tmp/mc-test-column-utf8.clip";
@@ -306,8 +301,8 @@ START_TEST (test_insert_column_from_clip_utf8)
     test_edit->column_highlight = 1;
     test_edit->column1 = 2;
     test_edit->column2 = 3;
-    test_edit->mark1 = 4;    // (line0, col2) byte offset
-    test_edit->mark2 = 20;   // (line2, col2) byte offset
+    test_edit->mark1 = 4;   // (line0, col2) byte offset
+    test_edit->mark2 = 20;  // (line2, col2) byte offset
     test_edit->end_mark_curs = -1;
     edit_update_curs_col (test_edit);
 
@@ -335,9 +330,7 @@ END_TEST
 /* --------------------------------------------------------------------------------------------- */
 
 /* @Test */
-/* When the vertical selection is wider than the longest line, the extra (empty) columns must
- * survive the round-trip through the clip file: edit_save_block() pads every line to the
- * selected width, so the block keeps its full rectangular width on paste. */
+/* an over-wide selection is padded to full width in the clip file */
 START_TEST (test_save_block_pads_to_selection_width)
 {
     const char *clip = "/tmp/mc-test-column-wide.clip";
