@@ -1800,9 +1800,7 @@ edit_save_block (WEdit *edit, const char *filename, off_t start, off_t finish)
 
             block = edit_get_block (edit, start, finish);
 
-            // Pad every line to the selected column width so that an over-wide selection
-            // (columns past the longest line) survives the round-trip through the clip file;
-            // edit_get_block() only stores the actual characters, losing the extra width.
+            // pad each line to the selection width so over-wide blocks survive the round-trip
             {
                 const long width = labs (edit->column2 - edit->column1);
                 GString *padded;

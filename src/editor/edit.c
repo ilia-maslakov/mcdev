@@ -2021,11 +2021,7 @@ edit_print_string (WEdit *e, const char *s)
 
 /* --------------------------------------------------------------------------------------------- */
 
-/*
- * Display width, in columns, of one raw block line.  The clip file holds the column text as
- * bytes, so a multibyte (UTF-8) character must count as a single column, not as its byte
- * length - otherwise short lines get over-padded when a vertical block is pasted back.
- */
+// display width of a block line in columns (a multibyte char counts as one)
 long
 edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
 {
@@ -2076,9 +2072,7 @@ edit_insert_column_from_file (WEdit *edit, int file, off_t *start_pos, off_t *en
     cursor = edit->buffer.curs1;
     col = edit_get_col (edit);
 
-    // Read the whole block first.  The clip file stores only the raw column text, not
-    // the column width, so the width for padding short lines must be reconstructed as
-    // the widest line - using the first line's width pads every other line to it.
+    // the clip stores no width; pad short lines to the widest line
     block = g_string_sized_new (TEMP_BUF_LEN);
     data = g_malloc (TEMP_BUF_LEN);
     while ((blocklen = mc_read (file, (char *) data, TEMP_BUF_LEN)) > 0)
