@@ -2021,7 +2021,7 @@ edit_print_string (WEdit *e, const char *s)
 
 /* --------------------------------------------------------------------------------------------- */
 
-// display width of a block line in columns (a multibyte char counts as one)
+// display width of a block line in columns (multibyte char = 1 col, tab to the next tab stop)
 long
 edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
 {
@@ -2030,7 +2030,12 @@ edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
 
     while (i < len)
     {
-        if (edit->utf8 && ((unsigned char) line[i] & 0x80) != 0)
+        if (line[i] == '\t')
+        {
+            cols += TAB_SIZE - cols % TAB_SIZE;
+            i++;
+        }
+        else if (edit->utf8 && ((unsigned char) line[i] & 0x80) != 0)
         {
             gunichar uc;
 
