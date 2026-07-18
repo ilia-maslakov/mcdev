@@ -1813,6 +1813,10 @@ edit_save_block (WEdit *edit, const char *filename, off_t start, off_t finish)
                     {
                         long cols;
 
+                        // a trailing '\n' leaves no final line to pad
+                        if (i == block->len && ls == i)
+                            break;
+
                         g_string_append_len (padded, block->str + ls, i - ls);
                         for (cols = edit_block_line_columns (edit, col1, block->str + ls, i - ls);
                              cols < width; cols++)
