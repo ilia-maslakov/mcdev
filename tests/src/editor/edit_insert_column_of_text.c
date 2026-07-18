@@ -109,6 +109,23 @@ teardown (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+// unique clip path under $TMPDIR; caller unlinks and frees
+static char *
+make_clip_path (void)
+{
+    char *path;
+    int fd;
+
+    path = g_build_filename (g_get_tmp_dir (), "mc-test-column-XXXXXX", NULL);
+    fd = g_mkstemp (path);
+    if (fd >= 0)
+        close (fd);
+
+    return path;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static void
 test_load_text (void)
 {
@@ -230,7 +247,7 @@ END_PARAMETRIZED_TEST
 /* ragged block -> clip -> paste keeps rectangular width (widest line, not first) */
 START_TEST (test_insert_column_from_clip_width)
 {
-    const char *clip = "/tmp/mc-test-column.clip";
+    char *clip = make_clip_path ();
     off_t start_mark, end_mark;
     vfs_path_t *vp;
     GString *actual;
@@ -271,6 +288,7 @@ START_TEST (test_insert_column_from_clip_width)
                           "333WWWW\n");
     g_string_free (actual, TRUE);
     unlink (clip);
+    g_free (clip);
 }
 END_TEST
 
@@ -280,7 +298,7 @@ END_TEST
 /* UTF-8 column width measured in columns, not bytes: no spurious padding */
 START_TEST (test_insert_column_from_clip_utf8)
 {
-    const char *clip = "/tmp/mc-test-column-utf8.clip";
+    char *clip = make_clip_path ();
     off_t start_mark, end_mark;
     vfs_path_t *vp;
     GString *actual;
@@ -323,6 +341,7 @@ START_TEST (test_insert_column_from_clip_utf8)
     mctest_assert_str_eq (actual->str, "кцук\nжцуж\nлцул\n");
     g_string_free (actual, TRUE);
     unlink (clip);
+    g_free (clip);
     mc_global.utf8_display = old_disp;
 }
 END_TEST
@@ -333,7 +352,7 @@ END_TEST
 /* an over-wide selection is padded to full width in the clip file */
 START_TEST (test_save_block_pads_to_selection_width)
 {
-    const char *clip = "/tmp/mc-test-column-wide.clip";
+    char *clip = make_clip_path ();
     off_t start_mark, end_mark;
     int fd;
     char buf[64];
@@ -368,6 +387,7 @@ START_TEST (test_save_block_pads_to_selection_width)
                           "123   \n"
                           "5555  ");
     unlink (clip);
+    g_free (clip);
 }
 END_TEST
 
@@ -377,7 +397,7 @@ END_TEST
 /* a tab counts as its column width, not one byte: a tab-only line is not padded */
 START_TEST (test_save_block_tab_width)
 {
-    const char *clip = "/tmp/mc-test-column-tab.clip";
+    char *clip = make_clip_path ();
     off_t start_mark, end_mark;
     int fd;
     char buf[64];
@@ -413,6 +433,7 @@ START_TEST (test_save_block_tab_width)
                           "\t\n"
                           "12345678");
     unlink (clip);
+    g_free (clip);
 }
 END_TEST
 
@@ -422,7 +443,7 @@ END_TEST
 /* a tab is measured from the block's real left column, not from column 0 */
 START_TEST (test_save_block_tab_offset)
 {
-    const char *clip = "/tmp/mc-test-column-tab-off.clip";
+    char *clip = make_clip_path ();
     off_t start_mark, end_mark;
     int fd;
     char buf[64];
@@ -459,6 +480,7 @@ START_TEST (test_save_block_tab_offset)
                           "\t    \n"
                           "zzzzzzzz");
     unlink (clip);
+    g_free (clip);
 }
 END_TEST
 
