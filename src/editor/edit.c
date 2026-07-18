@@ -2021,18 +2021,19 @@ edit_print_string (WEdit *e, const char *s)
 
 /* --------------------------------------------------------------------------------------------- */
 
-// display width of a block line in columns (multibyte char = 1 col, tab to the next tab stop)
+// display width of a block line in columns, starting at absolute column start_col so a tab
+// advances to the real tab stop (multibyte char = 1 col)
 long
-edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
+edit_block_line_columns (const WEdit *edit, long start_col, const char *line, gsize len)
 {
-    long cols = 0;
+    long col = start_col;
     gsize i = 0;
 
     while (i < len)
     {
         if (line[i] == '\t')
         {
-            cols += TAB_SIZE - cols % TAB_SIZE;
+            col += TAB_SIZE - col % TAB_SIZE;
             i++;
         }
         else if (edit->utf8 && ((unsigned char) line[i] & 0x80) != 0)
@@ -2042,23 +2043,23 @@ edit_block_line_columns (const WEdit *edit, const char *line, gsize len)
             uc = g_utf8_get_char_validated (line + i, len - i);
             if (uc == (gunichar) (-1) || uc == (gunichar) (-2))
             {
-                cols++;
+                col++;
                 i++;
             }
             else
             {
-                cols += (mc_global.utf8_display && g_unichar_iswide (uc)) ? 2 : 1;
+                col += (mc_global.utf8_display && g_unichar_iswide (uc)) ? 2 : 1;
                 i = (gsize) (g_utf8_next_char (line + i) - line);
             }
         }
         else
         {
-            cols++;
+            col++;
             i++;
         }
     }
 
-    return cols;
+    return col - start_col;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -2090,7 +2091,8 @@ edit_insert_column_from_file (WEdit *edit, int file, off_t *start_pos, off_t *en
         for (gsize i = 0; i <= block->len; i++)
             if (i == block->len || block->str[i] == '\n')
             {
-                width = MAX (width, edit_block_line_columns (edit, block->str + start, i - start));
+                width =
+                    MAX (width, edit_block_line_columns (edit, col, block->str + start, i - start));
                 start = i + 1;
             }
     }

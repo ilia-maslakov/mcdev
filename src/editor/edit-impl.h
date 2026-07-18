@@ -145,7 +145,7 @@ void edit_move_up (WEdit *edit, long i, gboolean do_scroll);
 void edit_move_down (WEdit *edit, long i, gboolean do_scroll);
 void edit_move_to_prev_col (WEdit *edit, off_t p);
 long edit_get_col (WEdit *edit);
-long edit_block_line_columns (const WEdit *edit, const char *line, gsize len);
+long edit_block_line_columns (const WEdit *edit, long start_col, const char *line, gsize len);
 void edit_update_curs_row (WEdit *edit);
 void edit_update_curs_col (WEdit *edit);
 void edit_find_bracket (WEdit *edit);
