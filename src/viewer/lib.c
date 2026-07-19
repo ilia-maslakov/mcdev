@@ -178,9 +178,11 @@ mcview_cycle_display_mode (WView *view)
 void
 mcview_toggle_hex_mode (WView *view)
 {
-    /* Filter and terminal mode are text-mode only: deactivate before entering hex. */
+    /* Filter, terminal and structured mode are text-mode only: deactivate before entering hex. */
     if (!view->mode_flags.hex)
     {
+        if (view->mode_flags.structured)
+            mcview_structured_leave (view);
         if (view->filter_active)
             mcview_filter_deactivate (view);
         if (view->mode_flags.terminal)
@@ -280,8 +282,11 @@ mcview_done (WView *view)
         view->saved_bookmarks = NULL;
     }
 
-    // Write back the global viewer mode
+    // Write back the global viewer mode; structured mode is per-file, never sticky
     mcview_global_flags = view->mode_flags;
+    mcview_global_flags.structured = FALSE;
+
+    mcview_structured_reset (view);
 
     // Free memory used by the viewer
     // view->widget needs no destructor

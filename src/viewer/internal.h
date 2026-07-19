@@ -15,6 +15,8 @@
 
 #include "src/keymap.h"           // global_keymap_t
 #include "src/filemanager/dir.h"  // dir_list
+#include "src/mctree/mctree-resolver.h"
+#include "src/mctree/mctree-view.h"
 
 #include "mcviewer.h"
 #include "ansi.h"
@@ -233,6 +235,13 @@ struct WView
     mcview_source_spec_t *source_spec;                    // current spec, owned
     const mcview_source_controller_t *source_controller;  // not owned
     void *source_ctx;                                     // opaque plugin state
+
+    // structured (tree) mode
+    const global_keymap_t *struct_keymap;
+    mctree_model_t *struct_model;               // parsed document, NULL when mode is off
+    mctree_view_t *struct_tree;                 // cursor/expansion state over struct_model
+    mctree_content_type_t struct_content_type;  // for the status line
+    gchar *struct_needle;                       // last tree search string
 };
 
 typedef struct mcview_nroff_struct
@@ -427,6 +436,18 @@ typedef struct
 void mcview_filter_take_snapshot (const WView *view, mcview_filter_snapshot_t *out);
 gboolean mcview_filter_restore (WView *view, const mcview_filter_snapshot_t *snap);
 void mcview_filter_snapshot_clear (mcview_filter_snapshot_t *s);
+
+/* structured.c: */
+void mcview_toggle_structured_mode (WView *view);
+gboolean mcview_structured_try_enter (WView *view, gboolean quiet);
+void mcview_structured_leave (WView *view);
+void mcview_structured_reset (WView *view);
+void mcview_display_structured (WView *view);
+const char *mcview_structured_status (WView *view);
+char *mcview_structured_current_path (WView *view);
+cb_ret_t mcview_structured_execute_cmd (WView *view, long command);
+gboolean mcview_structured_handle_char (WView *view, int key);
+gboolean mcview_structured_auto_candidate (const WView *view);
 
 /* search.c: */
 gboolean mcview_search_init (WView *view);

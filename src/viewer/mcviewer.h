@@ -19,12 +19,13 @@ typedef struct WView WView;
 
 typedef struct
 {
-    gboolean wrap;      // Wrap text lines to fit them on the screen
-    gboolean hex;       // Plainview or hexview
-    gboolean magic;     // Preprocess the file using external programs
-    gboolean nroff;     // Nroff-style highlighting
-    gboolean syntax;    // SGR background-color extension (ANSI text mode)
-    gboolean terminal;  // ANSI terminal replay mode (virtual screen buffer)
+    gboolean wrap;        // Wrap text lines to fit them on the screen
+    gboolean hex;         // Plainview or hexview
+    gboolean magic;       // Preprocess the file using external programs
+    gboolean nroff;       // Nroff-style highlighting
+    gboolean syntax;      // SGR background-color extension (ANSI text mode)
+    gboolean terminal;    // ANSI terminal replay mode (virtual screen buffer)
+    gboolean structured;  // Structured (tree) view of JSON/YAML/XML content
 } mcview_mode_flags_t;
 
 /* Source-controller interface: lets a plugin re-drive what the viewer shows
@@ -84,6 +85,10 @@ extern int mcview_max_dirt_limit;
 
 extern gboolean mcview_mouse_move_pages;
 extern char *mcview_show_eof;
+extern gboolean mcview_structured_auto;
+/* One-shot request to open the next viewed file in structured mode
+ * (set by the mctree symlink and %view{structured}; consumed by mcview_load) */
+extern gboolean mcview_open_structured_once;
 
 /*** declarations of public functions ************************************************************/
 

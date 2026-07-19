@@ -65,6 +65,15 @@ int mcview_max_dirt_limit = 10;
 /* Scrolling is done in pages or line increments */
 gboolean mcview_mouse_move_pages = TRUE;
 
+/* Open supported files (JSON/YAML/XML) in structured (tree) mode right away */
+gboolean mcview_structured_auto = FALSE;
+
+/* One-shot: open the next viewed file in structured mode.
+ * A separate variable, not a bit in mcview_global_flags: intermediate viewer
+ * instances (mc.ext preprocessing) write the global flags back on close and
+ * would eat the request before the real file is loaded. */
+gboolean mcview_open_structured_once = FALSE;
+
 /* end of file will be showen from mcview_show_eof */
 char *mcview_show_eof = NULL;
 
@@ -110,6 +119,31 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         MC_FALLTHROUGH;
 
     case MSG_MOUSE_CLICK:
+        if (view->mode_flags.structured)
+        {
+            // click moves the tree cursor; a click on the current row toggles the node
+            if (msg == MSG_MOUSE_CLICK && view->struct_tree != NULL)
+            {
+                int row = event->y - r->y;
+
+                if (row >= 0 && row < r->lines
+                    && (guint) (view->struct_tree->top + row)
+                        < mctree_view_row_count (view->struct_tree))
+                {
+                    int idx = view->struct_tree->top + row;
+
+                    if (idx == view->struct_tree->cursor)
+                        (void) mctree_view_toggle_current (view->struct_tree);
+                    else
+                    {
+                        view->struct_tree->cursor = idx;
+                        mctree_view_move (view->struct_tree, 0);
+                    }
+                    view->dirty++;
+                }
+            }
+            break;
+        }
         if (!view->mode_flags.wrap && !view->mode_flags.terminal)
         {
             // Scrolling left and right
@@ -176,7 +210,9 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         // ignore mouse wheel events in the inactive quick view panel
         if (widget_get_state (w, WST_FOCUSED))
         {
-            if (view->mode_flags.terminal && view->vterm != NULL)
+            if (view->mode_flags.structured && view->struct_tree != NULL)
+                mctree_view_move (view->struct_tree, -2);
+            else if (view->mode_flags.terminal && view->vterm != NULL)
                 mcview_vterm_set_dpy_top_row (
                     view->vterm,
                     mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines) - 2);
@@ -191,7 +227,9 @@ mcview_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
         // ignore mouse wheel events in the inactive quick view panel
         if (widget_get_state (w, WST_FOCUSED))
         {
-            if (view->mode_flags.terminal && view->vterm != NULL)
+            if (view->mode_flags.structured && view->struct_tree != NULL)
+                mctree_view_move (view->struct_tree, 2);
+            else if (view->mode_flags.terminal && view->vterm != NULL)
                 mcview_vterm_set_dpy_top_row (
                     view->vterm,
                     mcview_vterm_resolve_top_row (view->vterm, view->data_area.lines) + 2);
@@ -231,6 +269,7 @@ mcview_new (const WRect *r, gboolean is_panel)
     mcview_clear_mode_flags (&view->mode_flags);
     view->hexedit_mode = FALSE;
     view->hex_keymap = viewer_hex_map;
+    view->struct_keymap = viewer_struct_map;
     view->hexview_in_text = FALSE;
     view->locked = FALSE;
 
@@ -507,6 +546,9 @@ mcview_load (WView *view, const char *command, const char *file, int start_line,
 
     g_assert (view->bytes_per_line != 0);
 
+    // drop tree state of the previously shown file (quick view reuses the widget)
+    mcview_structured_reset (view);
+
     view->filename_vpath = vfs_path_from_str (file);
 
     // get working dir
@@ -674,6 +716,20 @@ finish:
     view->hexview_in_text = FALSE;
     view->change_list = NULL;
     vfs_path_free (vpath, TRUE);
+
+    if (retval && !view->mode_flags.hex && file != NULL && file[0] != '\0')
+    {
+        /* %view{structured} or the mctree symlink force the tree (with diagnostics);
+           the auto option tries it quietly on matching extensions. */
+        if (mcview_open_structured_once)
+        {
+            mcview_open_structured_once = FALSE;
+            (void) mcview_structured_try_enter (view, FALSE);
+        }
+        else if (mcview_structured_auto && mcview_structured_auto_candidate (view))
+            (void) mcview_structured_try_enter (view, TRUE);
+    }
+
     return retval;
 }
 

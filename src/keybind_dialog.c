@@ -145,6 +145,7 @@ static const keybind_section_t editor_sections[] = {
 static const keybind_section_t viewer_sections[] = {
     { N_ ("&Normal"), KEYMAP_SECTION_VIEWER },
     { N_ ("&Hex"), KEYMAP_SECTION_VIEWER_HEX },
+    { N_ ("&Structured"), KEYMAP_SECTION_VIEWER_STRUCT },
 };
 
 #ifdef USE_DIFF_VIEW
@@ -485,6 +486,8 @@ keybind_find_map (const char *section)
         return viewer_map;
     if (strcmp (section, KEYMAP_SECTION_VIEWER_HEX) == 0)
         return viewer_hex_map;
+    if (strcmp (section, KEYMAP_SECTION_VIEWER_STRUCT) == 0)
+        return viewer_struct_map;
 #ifdef USE_DIFF_VIEW
     if (strcmp (section, KEYMAP_SECTION_DIFFVIEWER) == 0)
         return diff_map;

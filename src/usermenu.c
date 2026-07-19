@@ -677,8 +677,8 @@ menu_file_own (char *path)
         %% The % character
 
         %view Runs the commands and pipes standard output to the view command.
-            If %view is immediately followed by '{', keywords 'ascii', 'hex', 'nroff'
-            and 'unform' are recognized.
+            If %view is immediately followed by '{', keywords 'ascii', 'hex', 'nroff',
+            'unform' and 'structured' are recognized.
 
         %{some text} Prompt for the substitution. An input box is shown and the text inside
             the braces is used as a prompt. The macro is substituted by the text typed
@@ -726,6 +726,11 @@ check_format_view (const char *p)
                 {
                     mcview_global_flags.nroff = FALSE;
                     q += 5;
+                }
+                else if (strncmp (q, "structured", 10) == 0)
+                {
+                    mcview_open_structured_once = TRUE;
+                    q += 9;
                 }
             }
             if (*q == '}')

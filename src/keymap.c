@@ -62,6 +62,7 @@ GArray *editor_x_keymap = NULL;
 #endif
 GArray *viewer_keymap = NULL;
 GArray *viewer_hex_keymap = NULL;
+GArray *viewer_struct_keymap = NULL;
 #ifdef USE_DIFF_VIEW
 GArray *diff_keymap = NULL;
 #endif
@@ -80,6 +81,7 @@ const global_keymap_t *editor_x_map = NULL;
 #endif
 const global_keymap_t *viewer_map = NULL;
 const global_keymap_t *viewer_hex_map = NULL;
+const global_keymap_t *viewer_struct_map = NULL;
 #ifdef USE_DIFF_VIEW
 const global_keymap_t *diff_map = NULL;
 #endif
@@ -577,6 +579,7 @@ static const global_keymap_ini_t default_viewer_keymap[] = {
     { "FilterFollow", "ctrl-t" },
     { "FilterNext", "rbracket" },
     { "FilterPrev", "lbracket" },
+    { "StructMode", "alt-s; t" },
     {
         NULL,
         NULL,
@@ -614,6 +617,35 @@ static const global_keymap_ini_t default_viewer_hex_keymap[] = {
     { "SearchBackwardContinue", "ctrl-r" },
     { "SearchOppositeContinue", "shift-n" },
     { "History", "alt-shift-e" },
+    {
+        NULL,
+        NULL,
+    },
+};
+
+/* structured (tree) viewer */
+static const global_keymap_ini_t default_viewer_struct_keymap[] = {
+    { "Help", "f1" },
+    { "Quit", "f3; f10; q; esc" },
+    { "StructMode", "f4; alt-s; t" },
+    { "Search", "f7" },
+    { "SearchContinue", "f17; n" },
+    { "SearchForward", "slash" },
+    { "StructToggleNode", "enter" },
+    { "StructExpandSub", "asterisk" },
+    { "StructExpandAll", "plus; kpplus" },
+    { "StructCollapseAll", "minus; kpminus" },
+    { "StructCopyPath", "alt-enter" },
+    { "Home", "ctrl-a; home; ctrl-home; ctrl-pgup; alt-lt; g" },
+    { "End", "ctrl-e; end; ctrl-end; ctrl-pgdn; alt-gt; shift-g" },
+    { "Left", "h; left" },
+    { "Right", "l; right" },
+    { "Up", "k; up; ctrl-p" },
+    { "Down", "j; down; ctrl-n" },
+    { "PageDown", "f; space; pgdn; ctrl-v" },
+    { "PageUp", "b; pgup; alt-v; backspace" },
+    { "SelectCodepage", "alt-e" },
+    { "Shell", "ctrl-o" },
     {
         NULL,
         NULL,
@@ -712,6 +744,8 @@ create_default_keymap (void)
 #endif
     create_default_keymap_section (keymap, KEYMAP_SECTION_VIEWER, default_viewer_keymap);
     create_default_keymap_section (keymap, KEYMAP_SECTION_VIEWER_HEX, default_viewer_hex_keymap);
+    create_default_keymap_section (keymap, KEYMAP_SECTION_VIEWER_STRUCT,
+                                   default_viewer_struct_keymap);
 #ifdef USE_DIFF_VIEW
     create_default_keymap_section (keymap, KEYMAP_SECTION_DIFFVIEWER, default_diff_keymap);
 #endif
@@ -959,6 +993,7 @@ keymap_load (gboolean load_from_file)
 #endif
         LOAD_KEYMAP (VIEWER, viewer);
         LOAD_KEYMAP (VIEWER_HEX, viewer_hex);
+        LOAD_KEYMAP (VIEWER_STRUCT, viewer_struct);
 #ifdef USE_DIFF_VIEW
         LOAD_KEYMAP (DIFFVIEWER, diff);
 #endif
@@ -988,6 +1023,7 @@ keymap_load (gboolean load_from_file)
 #endif
     SET_MAP (viewer);
     SET_MAP (viewer_hex);
+    SET_MAP (viewer_struct);
 #ifdef USE_DIFF_VIEW
     SET_MAP (diff);
 #endif
@@ -1024,6 +1060,7 @@ keymap_free (void)
 #endif
     FREE_KEYMAP (viewer);
     FREE_KEYMAP (viewer_hex);
+    FREE_KEYMAP (viewer_struct);
 #ifdef USE_DIFF_VIEW
     FREE_KEYMAP (diff);
 #endif

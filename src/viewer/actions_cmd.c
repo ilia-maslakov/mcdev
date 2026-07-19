@@ -413,10 +413,18 @@ mcview_execute_cmd (WView *view, long command)
             break;
         }
 
+    /* Structured (tree) mode owns navigation, search and its own commands;
+       anything it does not consume (Quit, Help, Shell, ...) falls through. */
+    if (view->mode_flags.structured && mcview_structured_execute_cmd (view, command) == MSG_HANDLED)
+        return MSG_HANDLED;
+
     switch (command)
     {
     case CK_Help:
         mcview_help (view);
+        break;
+    case CK_StructMode:
+        mcview_toggle_structured_mode (view);
         break;
     case CK_HexMode:
         // Toggle between hex view and text view
@@ -672,6 +680,9 @@ mcview_execute_cmd (WView *view, long command)
 static long
 mcview_lookup_key (WView *view, int key)
 {
+    if (view->mode_flags.structured)
+        return keybind_lookup_keymap_command (view->struct_keymap, key);
+
     if (view->mode_flags.hex)
         return keybind_lookup_keymap_command (view->hex_keymap, key);
 
@@ -686,6 +697,10 @@ mcview_handle_key (WView *view, int key)
     long command;
 
     key = convert_from_input_c (key);
+
+    // digits 1-9 expand the tree to the given depth
+    if (view->mode_flags.structured && mcview_structured_handle_char (view, key))
+        return MSG_HANDLED;
 
     if (view->hexedit_mode && view->mode_flags.hex
         && mcview_handle_editkey (view, key) == MSG_HANDLED)

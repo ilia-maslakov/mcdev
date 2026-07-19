@@ -90,6 +90,8 @@
 #define VIEWER_SELECTED_COLOR        mc_skin_color__cache[57]
 #define VIEWER_FRAME_COLOR           mc_skin_color__cache[58]
 #define VIEWER_HEADING_COLOR         mc_skin_color__cache[79]
+#define MCTREE_KEY_COLOR             mc_skin_color__cache[80]
+#define MCTREE_VALUE_COLOR           mc_skin_color__cache[81]
 
 /*
  * editor colors - only 4 for normal, search->found, select, and whitespace
@@ -121,7 +123,7 @@
 
 #define FILEHIGHLIGHT_DEFAULT_COLOR  mc_skin_color__cache[78]
 
-#define MC_SKIN_COLOR_CACHE_COUNT    80
+#define MC_SKIN_COLOR_CACHE_COUNT    82
 
 /*** enums ***************************************************************************************/
 
