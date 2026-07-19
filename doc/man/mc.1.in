@@ -2424,7 +2424,9 @@ to tell the viewer that it should interpret the bold and underline
 sequences of nroff;
 .I unformatted
 to tell the viewer to not interpret nroff commands for making the text
-bold or underlined.
+bold or underlined;
+.I structured
+to open the file in the structured (tree) mode.
 .TP
 .I %%
 The % character
@@ -2979,8 +2981,9 @@ Move to the file beginning.
 Move to the file end.
 .\"NODE "Internal File Viewer"
 .SH "Internal File Viewer"
-The internal file viewer provides two display modes: ASCII and hex.
-To toggle between modes, use the F4 key.
+The internal file viewer provides three display modes: ASCII, hex and
+structured (tree).  To toggle between ASCII and hex, use the F4 key.
+To toggle the structured mode, use Alt\-s or t.
 .PP
 The viewer will try to use the best method provided by your system or
 the file type to display the information.
@@ -3002,6 +3005,40 @@ interpreted as 0x34. The prefix "0x" isn't really needed: we could type
 "BB" instead of "0xBB". And "012" is interpreted as 0x12, not as an octal
 number.
 .PP
+The structured mode renders JSON, YAML, XML and HTML files as an
+expandable tree.  Press Alt\-s (or t) on a supported file to enter it;
+if the file cannot be parsed, a diagnostic is shown and the viewer
+stays in ASCII mode.  YAML is handled by a built\-in parser that
+covers the commonly used subset (block mappings and sequences, block
+scalars, quoted scalars, anchors and aliases).  Aliases are expanded
+by copying; a cyclic alias, or expansion beyond an internal node
+budget, is displayed as a *name reference instead of a copy.  Tags and
+flow collections ([] and {}) are not parsed and appear as plain text
+values; documents outside the subset (multi\-line plain scalars, tab
+characters in indentation) are reported and shown as plain text.  Inside the tree F4, Alt\-s and t return to the
+ASCII mode.  The status line shows the content type and the jq\-style
+path of the current node (for example
+.BR .spec.containers[0].image ).
+The mode also works in the quick view panel (C\-x q), where the tree
+follows the panel cursor.  With the
+.I mcview_structured_auto
+option enabled supported files open in the tree right away.  Keys
+available inside the tree:
+.PP
+.nf
+Enter        expand/collapse the current node; on a leaf show
+             the full value
+Right/Left   expand / collapse (on a collapsed node Left jumps
+             to the parent)
+*            expand the current subtree recursively
++ / \-        expand / collapse the whole tree
+1 .. 9       expand the whole document to the given depth
+Alt\-Enter    copy the path of the current node to the clipboard
+F7, /        search the whole document, including collapsed
+             nodes; the path to a match is expanded
+F17, n       continue the search
+.fi
+.PP
 Here is a listing of the actions associated with each key that the
 Midnight Commander handles in the internal file viewer.
 .TP
@@ -3013,6 +3050,9 @@ Toggle the wrap mode.
 .TP
 .B F4
 Toggle the hex mode.
+.TP
+.B Alt\-s, t
+Toggle the structured (tree) mode for JSON, YAML, XML and HTML files.
 .TP
 .B F5
 Goto. You can specify a line number, offset or percentage of file size
@@ -3915,6 +3955,12 @@ and that is the default value.
 .I mouse_move_pages_viewer
 Controls if scrolling with the mouse is done by pages or line by line
 on the internal file viewer.
+.TP
+.I mcview_structured_auto
+If enabled, the internal file viewer opens supported files (json, yaml,
+yml, xml, html, htm) in the structured (tree) mode right away.  When a
+file fails to parse, the plain text view is used silently.  Disabled by
+default.
 .TP
 .I only_leading_plus_minus
 Allow special treatment for '+', '\-', '*' in the command line (select,
