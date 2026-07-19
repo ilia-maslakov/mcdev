@@ -732,6 +732,17 @@ panel_plugin_get_column_value (const WPanel *panel, const file_entry_t *fe, cons
 }
 
 /* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_set_color (int color)
+{
+    if (color >= 0)
+        tty_setcolor (color);
+    else
+        tty_lowlevel_setcolor (-color);
+}
+
+/* --------------------------------------------------------------------------------------------- */
 /** Formats the file number file_index of panel in the buffer dest */
 
 /* Adjust the scroll marker span to the filename column. */
@@ -843,10 +854,7 @@ format_file (WPanel *panel, int file_index, int width, file_attr_t attr, gboolea
                     perm = 2;
             }
 
-            if (color >= 0)
-                tty_setcolor (color);
-            else
-                tty_lowlevel_setcolor (-color);
+            panel_set_color (color);
 
             if (!isstatus)
                 prepared_text = str_fit_to_term (txt + name_offset, len, HIDE_FIT (fi->just_mode));

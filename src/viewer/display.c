@@ -79,10 +79,30 @@ mcview_set_buttonbar (WView *view)
     Widget *w = WIDGET (view);
     WDialog *h = DIALOG (w->owner);
     WButtonBar *b;
-    const global_keymap_t *keymap = view->mode_flags.hex ? view->hex_keymap : w->keymap;
+    const global_keymap_t *keymap = view->mode_flags.structured ? view->struct_keymap
+        : view->mode_flags.hex                                  ? view->hex_keymap
+                                                                : w->keymap;
 
     b = buttonbar_find (h);
     buttonbar_set_label (b, 1, Q_ ("ButtonBar|Help"), keymap, w);
+
+    if (view->mode_flags.structured)
+    {
+        buttonbar_set_label (b, 2, "", keymap, w);
+        buttonbar_set_label (b, 4, Q_ ("ButtonBar|Text"), keymap, w);
+        buttonbar_set_label (b, 5, "", keymap, w);
+        buttonbar_set_label (b, 6, "", keymap, w);
+        buttonbar_set_label (b, 7, Q_ ("ButtonBar|Search"), keymap, w);
+        buttonbar_set_label (b, 8, "", keymap, w);
+
+        if (!mcview_is_in_panel (view))
+        {
+            buttonbar_set_label (b, 3, Q_ ("ButtonBar|Quit"), keymap, w);
+            buttonbar_set_label (b, 9, "", keymap, w);
+            buttonbar_set_label (b, 10, Q_ ("ButtonBar|Quit"), keymap, w);
+        }
+        return;
+    }
 
     if (view->mode_flags.hex)
     {
@@ -166,7 +186,9 @@ mcview_display_status (WView *view)
     if (r->cols > 40)
     {
         widget_gotoyx (view, r->y, r->cols - 32);
-        if (view->mode_flags.hex)
+        if (view->mode_flags.structured)
+            tty_print_string (str_fit_to_term (mcview_structured_status (view), 32, J_RIGHT_FIT));
+        else if (view->mode_flags.hex)
             tty_printf ("0x%08" PRIxMAX, (uintmax_t) view->hex_cursor);
         else
         {
@@ -209,7 +231,8 @@ mcview_display_status (WView *view)
         else
             tty_print_string (str_fit_to_term (file_label, r->cols - 5, J_LEFT_FIT));
     }
-    if (r->cols > 26)
+    // no byte offsets in structured mode: the percent value is meaningless there
+    if (r->cols > 26 && !view->mode_flags.structured)
         mcview_display_percent (view, view->mode_flags.hex ? view->hex_cursor : view->dpy_end);
 }
 
@@ -362,7 +385,9 @@ mcview_display_terminal (WView *view)
 MC_MOCKABLE void
 mcview_display (WView *view)
 {
-    if (view->mode_flags.hex)
+    if (view->mode_flags.structured)
+        mcview_display_structured (view);
+    else if (view->mode_flags.hex)
         mcview_display_hex (view);
     else if (view->mode_flags.terminal)
         mcview_display_terminal (view);

@@ -21,6 +21,7 @@
 #define KEYMAP_SECTION_EDITOR_EXT      "editor:xmap"
 #define KEYMAP_SECTION_VIEWER          "viewer"
 #define KEYMAP_SECTION_VIEWER_HEX      "viewer:hex"
+#define KEYMAP_SECTION_VIEWER_STRUCT   "viewer:structured"
 #define KEYMAP_SECTION_DIFFVIEWER      "diffviewer"
 
 #define KEYMAP_SHORTCUT_LENGTH         32  // FIXME: is 32 bytes enough for shortcut?
@@ -357,6 +358,12 @@ enum
     CK_FilterFollow,
     CK_FilterNext,
     CK_FilterPrev,
+    CK_StructMode,
+    CK_StructToggleNode,
+    CK_StructExpandSub,
+    CK_StructExpandAll,
+    CK_StructCollapseAll,
+    CK_StructCopyPath,
 
     // diff viewer
     CK_ShowSymbols = 700L,

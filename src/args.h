@@ -16,6 +16,7 @@ extern gboolean mc_args__force_xterm;
 extern gboolean mc_args__nomouse;
 extern gboolean mc_args__force_colors;
 extern gboolean mc_args__nokeymap;
+extern gboolean mc_args__mctree;
 extern char *mc_args__last_wd_file;
 extern char *mc_args__netfs_logfile;
 extern char *mc_args__keymap_file;

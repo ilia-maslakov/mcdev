@@ -304,6 +304,7 @@ static const struct
     { "safe_delete", &safe_delete },
     { "safe_overwrite", &safe_overwrite },
     { "mouse_move_pages_viewer", &mcview_mouse_move_pages },
+    { "mcview_structured_auto", &mcview_structured_auto },
     { "mouse_close_dialog", &mouse_close_dialog },
     { "drop_menus", &drop_menus },
     { "wrap_mode", &mcview_global_flags.wrap },

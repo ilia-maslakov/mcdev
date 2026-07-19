@@ -429,6 +429,7 @@ SelectCodepage = alt-e
 Shell = ctrl-o
 Ruler = alt-r
 History = alt-shift-e
+StructMode = alt-s; t
 
 [viewer:hex]
 Help = f1
@@ -458,6 +459,29 @@ PageUp = pgup; alt-v
 Top = ctrl-home; ctrl-pgup; a1; alt-lt; g
 Bottom = ctrl-end; ctrl-pgdn; c1; alt-gt; shift-g
 History = alt-shift-e
+
+[viewer:structured]
+Help = f1
+Quit = f3; f10; q; esc
+StructMode = f4; alt-s; t
+Search = f7
+SearchContinue = f17; n
+SearchForward = slash
+StructToggleNode = enter
+StructExpandSub = asterisk
+StructExpandAll = plus; kpplus
+StructCollapseAll = minus; kpminus
+StructCopyPath = alt-enter
+Home = ctrl-a; home; ctrl-home; ctrl-pgup; alt-lt; g
+End = ctrl-e; end; ctrl-end; ctrl-pgdn; alt-gt; shift-g
+Left = h; left
+Right = l; right
+Up = k; up; ctrl-p
+Down = j; down; ctrl-n
+PageDown = f; space; pgdn; ctrl-v
+PageUp = b; pgup; alt-v; backspace
+SelectCodepage = alt-e
+Shell = ctrl-o
 
 [diffviewer]
 ShowSymbols = alt-s; s
