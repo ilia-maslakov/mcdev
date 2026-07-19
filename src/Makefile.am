@@ -1,4 +1,4 @@
-SUBDIRS = filemanager man2hlp vfs viewer panel-plugins
+SUBDIRS = mctree filemanager man2hlp vfs viewer panel-plugins
 
 if ENABLE_MCTERM
 SUBDIRS += mcterm
@@ -53,6 +53,7 @@ MCTERMLIB = mcterm/libmcterm.la
 endif
 
 libinternal_la_LIBADD = \
+	mctree/libmctree.la \
 	filemanager/libmcfilemanager.la \
 	vfs/libmc-vfs.la \
 	viewer/libmcviewer.la \
@@ -110,6 +111,7 @@ EXTRA_DIST = $(SRC_maintainer) $(SRC_charset)
 
 install-exec-hook:
 	$(MAKE) install_mcview
+	$(MAKE) install_mctree
 if USE_INTERNAL_EDIT
 	$(MAKE) install_mcedit
 endif
@@ -123,6 +125,9 @@ endif
 install_mcview:
 	cd $(DESTDIR)$(bindir)/$(binprefix) && rm -f mcview && $(LN_S) mc mcview
 
+install_mctree:
+	cd $(DESTDIR)$(bindir)/$(binprefix) && rm -f mctree && $(LN_S) mc mctree
+
 install_mcedit:
 	cd $(DESTDIR)$(bindir)/$(binprefix) && rm -f mcedit && $(LN_S) mc mcedit
 
@@ -131,6 +136,7 @@ install_mcdiff:
 
 uninstall-hook:
 	rm -f $(DESTDIR)$(bindir)/$(binprefix)/mcview
+	rm -f $(DESTDIR)$(bindir)/$(binprefix)/mctree
 if USE_INTERNAL_EDIT
 	rm -f $(DESTDIR)$(bindir)/$(binprefix)/mcedit
 endif
