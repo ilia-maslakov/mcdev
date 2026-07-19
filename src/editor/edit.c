@@ -1017,6 +1017,41 @@ my_type_of (int c)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/** get word at cursor for marking */
+
+static void
+edit_get_current_word_extents (WEdit *edit, off_t *start, off_t *end)
+{
+    long pos;
+
+    for (pos = edit->buffer.curs1; pos < edit->buffer.size; pos++)
+    {
+        const int check_char = edit_buffer_get_byte (&edit->buffer, pos);
+
+        if (is_break_char (check_char))
+        {
+            if (pos == edit->buffer.curs1)  // always select at least one character.
+            {
+                *start = pos;
+                *end = pos + 1;
+                return;
+            }
+            break;
+        }
+    }
+    *end = pos;
+
+    for (; pos != 0; pos--)
+    {
+        const int check_char = edit_buffer_get_byte (&edit->buffer, pos - 1);
+
+        if (is_break_char (check_char))
+            break;
+    }
+    *start = pos;
+}
+
+/* --------------------------------------------------------------------------------------------- */
 
 static void
 edit_left_word_move (WEdit *edit, int s)
@@ -4349,8 +4384,8 @@ edit_set_markers (WEdit *edit, off_t m1, off_t m2, long c1, long c2)
 
 /* --------------------------------------------------------------------------------------------- */
 /**
-   if mark2 is -1 then marking is from mark1 to the cursor.
-   Otherwise its between the markers. This handles this.
+   if mark2 is -1 then marking is from mark1 to end_mark_curs (the cursor).
+   This also handles the logic for word/line highlighting.
    Returns FALSE if no text is marked.
  */
 
@@ -4378,8 +4413,25 @@ eval_marks (WEdit *edit, off_t *start_mark, off_t *end_mark)
     }
     else
     {
-        *start_mark = MIN (edit->mark1, end_mark_curs);
-        *end_mark = MAX (edit->mark1, end_mark_curs);
+        if (edit->word_highlight)
+        {
+            off_t word_start;
+            off_t word_end;
+
+            edit_get_current_word_extents (edit, &word_start, &word_end);
+            *start_mark = MIN (edit->mark1, word_start);
+            *end_mark = MAX (end_mark_curs, word_end);
+        }
+        else if (edit->line_highlight)
+        {
+            *start_mark = MIN (edit->mark1, edit_buffer_get_current_bol (&edit->buffer));
+            *end_mark = MAX (end_mark_curs, edit_buffer_get_current_eol (&edit->buffer));
+        }
+        else
+        {
+            *start_mark = MIN (edit->mark1, end_mark_curs);
+            *end_mark = MAX (edit->mark1, end_mark_curs);
+        }
         edit->column2 = edit->curs_col + edit->over_col;
     }
 
@@ -4427,18 +4479,30 @@ edit_mark_cmd (WEdit *edit, gboolean unmark)
         edit_set_markers (edit, 0, 0, 0, 0);
         edit->force |= REDRAW_PAGE;
     }
-    else if (edit->mark2 >= 0)
+    else if (edit->mark2 >= 0)  // mark highlighting just started.
     {
+        off_t m1 = edit->buffer.curs1;
+
         edit->end_mark_curs = -1;
-        edit_set_markers (edit, edit->buffer.curs1, -1, edit->curs_col + edit->over_col,
+        if (edit->word_highlight)
+            edit_get_current_word_extents (edit, &m1, &edit->end_mark_curs);
+        else if (edit->line_highlight)
+        {
+            m1 = edit_buffer_get_current_bol (&edit->buffer);
+            edit->end_mark_curs = edit_buffer_get_current_eol (&edit->buffer);
+        }
+        edit_set_markers (edit, m1, -1, edit->curs_col + edit->over_col,
                           edit->curs_col + edit->over_col);
         edit->force |= REDRAW_PAGE;
     }
-    else
+    else  // mark highlighting just ended.
     {
-        edit->end_mark_curs = edit->buffer.curs1;
-        edit_set_markers (edit, edit->mark1, edit->buffer.curs1, edit->column1,
-                          edit->curs_col + edit->over_col);
+        off_t m1;
+        off_t m2;
+
+        eval_marks (edit, &m1, &m2);
+        edit->end_mark_curs = m2;
+        edit_set_markers (edit, m1, m2, edit->column1, edit->curs_col + edit->over_col);
     }
 }
 
@@ -4448,33 +4512,7 @@ edit_mark_cmd (WEdit *edit, gboolean unmark)
 void
 edit_mark_current_word_cmd (WEdit *edit)
 {
-    long pos;
-
-    for (pos = edit->buffer.curs1; pos != 0; pos--)
-    {
-        int c1, c2;
-
-        c1 = edit_buffer_get_byte (&edit->buffer, pos);
-        c2 = edit_buffer_get_byte (&edit->buffer, pos - 1);
-        if (!isspace (c1) && isspace (c2))
-            break;
-        if ((my_type_of (c1) & my_type_of (c2)) == 0)
-            break;
-    }
-    edit->mark1 = pos;
-
-    for (; pos < edit->buffer.size; pos++)
-    {
-        int c1, c2;
-
-        c1 = edit_buffer_get_byte (&edit->buffer, pos);
-        c2 = edit_buffer_get_byte (&edit->buffer, pos + 1);
-        if (!isspace (c1) && isspace (c2))
-            break;
-        if ((my_type_of (c1) & my_type_of (c2)) == 0)
-            break;
-    }
-    edit->mark2 = MIN (pos + 1, edit->buffer.size);
+    edit_get_current_word_extents (edit, &edit->mark1, &edit->mark2);
 
     edit->force |= REDRAW_LINE_ABOVE | REDRAW_AFTER_CURSOR;
 }
