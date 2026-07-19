@@ -882,11 +882,9 @@ xmouse_get_event (Gpm_Event *ev, gboolean extended)
             else
             {
                 ev->type = GPM_UP | (GPM_SINGLE << clicks);
-                tv1 = g_get_monotonic_time ();
             }
             ev->buttons = 0;
             last_btn = 0;
-            clicks = 0;
         }
         else
         {
@@ -898,14 +896,6 @@ xmouse_get_event (Gpm_Event *ev, gboolean extended)
     {
         gint64 tv2;
 
-        if (btn >= 32 && btn <= 34)
-        {
-            btn -= 32;
-            ev->type = GPM_DRAG;
-        }
-        else
-            ev->type = GPM_DOWN;
-
         tv2 = g_get_monotonic_time ();
         if (tv1 != 0 && tv2 - tv1 < (gint64) double_click_speed * MC_USEC_PER_MSEC)
         {
@@ -914,6 +904,17 @@ xmouse_get_event (Gpm_Event *ev, gboolean extended)
         }
         else
             clicks = 0;
+
+        if (btn >= 32 && btn <= 34)
+        {
+            btn -= 32;
+            ev->type = GPM_DRAG;
+        }
+        else
+        {
+            ev->type = GPM_DOWN;
+            tv1 = g_get_monotonic_time ();
+        }
 
         switch (btn)
         {
@@ -940,6 +941,7 @@ xmouse_get_event (Gpm_Event *ev, gboolean extended)
             ev->buttons = 0;
             break;
         }
+        ev->type |= (GPM_SINGLE << clicks);
         last_btn = ev->buttons;
     }
 }
