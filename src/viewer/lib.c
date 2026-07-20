@@ -234,6 +234,8 @@ mcview_init (WView *view)
     view->hexedit_lownibble = FALSE;
     view->locked = FALSE;
     view->coord_cache = NULL;
+    view->lcache.by_bol = NULL;
+    view->lcache.by_next = NULL;
 
     view->dpy_start = 0;
     view->dpy_paragraph_skip_lines = 0;

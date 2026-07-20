@@ -186,7 +186,31 @@
  */
 #define MAX_BACKWARDS_WALK_IN_PARAGRAPH (100 * 1000)
 
+/* Layout cache tuning: a checkpoint is dropped every LCACHE_COLUMN_STRIDE visual
+ * columns while a paragraph is parsed; when a paragraph accumulates
+ * LCACHE_MAX_CHECKPOINTS of them, every second one is dropped and the stride is
+ * doubled, so coverage is unbounded at a bounded memory cost. */
+#define LCACHE_COLUMN_STRIDE   64
+#define LCACHE_MAX_CHECKPOINTS 512
+#define LCACHE_MAX_PARAGRAPHS  256
+
 /*** file scope type declarations ****************************************************************/
+
+typedef struct
+{
+    mcview_state_machine_t state;  // between-sequences state; unwrapped_column is the visual column
+    int fill_color;                // color of the last char consumed before this state
+} mcview_lcache_checkpoint_t;
+
+typedef struct
+{
+    off_t bol;            // paragraph start, the by_bol key
+    off_t next_bol;       // start of the following paragraph, -1 if not known yet
+    off_t width;          // visual width of the paragraph, -1 if not known yet
+    off_t stride;         // current column distance between checkpoints
+    GArray *checkpoints;  // mcview_lcache_checkpoint_t, ascending by column
+    guint64 lru;
+} mcview_lcache_paragraph_t;
 
 /*** forward declarations (file scope functions) *************************************************/
 
@@ -292,6 +316,274 @@ mcview_char_display (const WView *view, int c, char *s)
         c = '.';
     *s = c;
     return 1;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static guint
+mcview_lcache_off_hash (gconstpointer key)
+{
+    const guint64 v = (guint64) * (const off_t *) key;
+
+    return (guint) (v ^ (v >> 32));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mcview_lcache_off_equal (gconstpointer a, gconstpointer b)
+{
+    return *(const off_t *) a == *(const off_t *) b;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mcview_lcache_paragraph_free (gpointer data)
+{
+    mcview_lcache_paragraph_t *p = data;
+
+    g_array_free (p->checkpoints, TRUE);
+    g_free (p);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Drop the whole cache if any parameter the cached parser states depend on has changed,
+ * (re)create the empty tables if needed.
+ */
+
+static void
+mcview_lcache_validate (WView *view)
+{
+    mcview_lcache_t *c = &view->lcache;
+
+    if (c->by_bol != NULL
+        && (c->utf8 != view->utf8 || c->nroff != view->mode_flags.nroff
+            || c->syntax != view->mode_flags.syntax || c->tab_spacing != option_tab_spacing
+            || c->converter != view->converter))
+        mcview_lcache_flush (view);
+
+    if (c->by_bol == NULL)
+    {
+        c->by_bol = g_hash_table_new_full (mcview_lcache_off_hash, mcview_lcache_off_equal, NULL,
+                                           mcview_lcache_paragraph_free);
+        c->by_next = g_hash_table_new (mcview_lcache_off_hash, mcview_lcache_off_equal);
+        c->tick = 0;
+        c->utf8 = view->utf8;
+        c->nroff = view->mode_flags.nroff;
+        c->syntax = view->mode_flags.syntax;
+        c->tab_spacing = option_tab_spacing;
+        c->converter = view->converter;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mcview_lcache_evict (WView *view)
+{
+    GHashTableIter iter;
+    gpointer value;
+    mcview_lcache_paragraph_t *oldest = NULL;
+
+    g_hash_table_iter_init (&iter, view->lcache.by_bol);
+    while (g_hash_table_iter_next (&iter, NULL, &value))
+    {
+        mcview_lcache_paragraph_t *p = value;
+
+        if (oldest == NULL || p->lru < oldest->lru)
+            oldest = p;
+    }
+
+    if (oldest != NULL)
+    {
+        if (oldest->next_bol >= 0
+            && g_hash_table_lookup (view->lcache.by_next, &oldest->next_bol) == oldest)
+            g_hash_table_remove (view->lcache.by_next, &oldest->next_bol);
+        g_hash_table_remove (view->lcache.by_bol, &oldest->bol);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mcview_lcache_paragraph_t *
+mcview_lcache_get (WView *view, off_t bol, gboolean create)
+{
+    mcview_lcache_paragraph_t *p;
+
+    mcview_lcache_validate (view);
+
+    p = g_hash_table_lookup (view->lcache.by_bol, &bol);
+    if (p == NULL)
+    {
+        if (!create)
+            return NULL;
+
+        if (g_hash_table_size (view->lcache.by_bol) >= LCACHE_MAX_PARAGRAPHS)
+            mcview_lcache_evict (view);
+
+        p = g_new (mcview_lcache_paragraph_t, 1);
+        p->bol = bol;
+        p->next_bol = -1;
+        p->width = -1;
+        p->stride = LCACHE_COLUMN_STRIDE;
+        p->checkpoints = g_array_new (FALSE, FALSE, sizeof (mcview_lcache_checkpoint_t));
+        p->lru = 0;
+        g_hash_table_insert (view->lcache.by_bol, &p->bol, p);
+    }
+
+    p->lru = ++view->lcache.tick;
+    return p;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/** The paragraph whose next_bol is the given offset, i.e. the one right above it. */
+
+static mcview_lcache_paragraph_t *
+mcview_lcache_get_prev (WView *view, off_t bol)
+{
+    mcview_lcache_paragraph_t *p;
+
+    mcview_lcache_validate (view);
+
+    p = g_hash_table_lookup (view->lcache.by_next, &bol);
+    if (p != NULL)
+        p->lru = ++view->lcache.tick;
+    return p;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mcview_lcache_set_next (WView *view, mcview_lcache_paragraph_t *p, off_t next_bol)
+{
+    if (p->next_bol == next_bol)
+        return;
+
+    if (p->next_bol >= 0 && g_hash_table_lookup (view->lcache.by_next, &p->next_bol) == p)
+        g_hash_table_remove (view->lcache.by_next, &p->next_bol);
+
+    p->next_bol = next_bol;
+    /* replace, not insert: on a key collision the stored key pointer must follow
+     * the surviving entry, or it would dangle once the old entry is evicted */
+    g_hash_table_replace (view->lcache.by_next, &p->next_bol, p);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Whether a paragraph boundary right after "next_bol" can never move, even if the
+ * data source appends more bytes. A trailing \n is final. A lone \r is final only
+ * when the byte after it has already arrived (and is not \n): a \r at the growing
+ * edge may yet become the first half of \r\n, which would shift the boundary.
+ */
+
+static gboolean
+mcview_lcache_boundary_is_final (WView *view, off_t next_bol)
+{
+    int c;
+
+    if (!mcview_may_still_grow (view))
+        return TRUE;
+
+    if (next_bol <= 0 || !mcview_get_byte (view, next_bol - 1, &c))
+        return FALSE;
+
+    return c == '\n' || (c == '\r' && next_bol < mcview_get_filesize (view));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * mcview_eol() with caching. "p" is the paragraph containing "offset" (may be NULL),
+ * the result is the start of the following paragraph.
+ */
+
+static off_t
+mcview_lcache_next_bol (WView *view, mcview_lcache_paragraph_t *p, off_t offset)
+{
+    off_t eol;
+
+    if (p != NULL && p->next_bol >= 0)
+        return p->next_bol;
+
+    eol = mcview_eol (view, offset);
+
+    if (p != NULL && eol > offset && mcview_lcache_boundary_is_final (view, eol))
+        mcview_lcache_set_next (view, p, eol);
+
+    return eol;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/** The last checkpoint at or before the given visual column, or NULL. */
+
+static const mcview_lcache_checkpoint_t *
+mcview_lcache_find (const mcview_lcache_paragraph_t *p, off_t column)
+{
+    guint lo, hi;
+
+    if (p == NULL || p->checkpoints->len == 0
+        || g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, 0).state.unwrapped_column
+            > column)
+        return NULL;
+
+    lo = 0;
+    hi = p->checkpoints->len - 1;
+    while (lo < hi)
+    {
+        const guint mid = (lo + hi + 1) / 2;
+
+        if (g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, mid).state.unwrapped_column
+            <= column)
+            lo = mid;
+        else
+            hi = mid - 1;
+    }
+
+    return &g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, lo);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Append a checkpoint if the parser has advanced a stride past the last recorded one.
+ * "state" must be a between-sequences state of this paragraph.
+ */
+
+static void
+mcview_lcache_extend (mcview_lcache_paragraph_t *p, const mcview_state_machine_t *state,
+                      int fill_color)
+{
+    mcview_lcache_checkpoint_t cp;
+    off_t tail_col = 0;
+
+    if (p->checkpoints->len > 0)
+        tail_col =
+            g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, p->checkpoints->len - 1)
+                .state.unwrapped_column;
+
+    if (state->unwrapped_column < tail_col + p->stride)
+        return;
+
+    if (p->checkpoints->len >= LCACHE_MAX_CHECKPOINTS)
+    {
+        // Thin out: keep every second checkpoint, double the stride.
+        guint i;
+
+        for (i = 1; i * 2 < p->checkpoints->len; i++)
+            g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, i) =
+                g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, i * 2);
+        g_array_set_size (p->checkpoints, i);
+        p->stride *= 2;
+
+        tail_col = g_array_index (p->checkpoints, mcview_lcache_checkpoint_t, i - 1)
+                       .state.unwrapped_column;
+        if (state->unwrapped_column < tail_col + p->stride)
+            return;
+    }
+
+    cp.state = *state;
+    cp.fill_color = fill_color;
+    g_array_append_val (p->checkpoints, cp);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -734,6 +1026,7 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
     off_t dpy_text_column = view->mode_flags.wrap ? 0 : view->dpy_text_column;
     int col = 0;
     int fill_color = view->syntax_fill_color;
+    mcview_lcache_paragraph_t *par = NULL;
     int cs[1 + MAX_COMBINING_CHARS];
     char str[(1 + MAX_COMBINING_CHARS) * MB_LEN_MAX + 1];
     int i, j;
@@ -741,18 +1034,34 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
     if (paragraph_ended != NULL)
         *paragraph_ended = TRUE;
 
-    if (!view->mode_flags.wrap && (row < 0 || row >= r->lines) && linewidth == NULL)
+    if (!view->mode_flags.wrap)
+        par = mcview_lcache_get (view, state->offset, TRUE);
+
+    if (par != NULL && (row < 0 || row >= r->lines) && linewidth == NULL)
     {
         /* Optimization: Fast forward to the end of the line, rather than carefully
          * parsing and then not actually displaying it. */
         off_t eol;
         int retval;
 
-        eol = mcview_eol (view, state->offset);
+        eol = mcview_lcache_next_bol (view, par, state->offset);
         retval = (eol > state->offset) ? 1 : 0;
 
         mcview_state_machine_init (state, eol);
         return retval;
+    }
+
+    if (par != NULL && dpy_text_column > 0)
+    {
+        // Resume parsing from the nearest checkpoint instead of the paragraph start.
+        const mcview_lcache_checkpoint_t *cp = mcview_lcache_find (par, dpy_text_column);
+
+        if (cp != NULL)
+        {
+            *state = cp->state;
+            col = (int) cp->state.unwrapped_column;
+            fill_color = cp->fill_color;
+        }
     }
 
     while (TRUE)
@@ -767,6 +1076,8 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
         if (n == 0)
         {
             mcview_fill_line_remaining (view, row, col, fill_color, dpy_text_column);
+            if (par != NULL && !mcview_may_still_grow (view))
+                par->width = col;
             if (linewidth != NULL)
                 *linewidth = col;
             return (col > 0) ? 1 : 0;
@@ -783,6 +1094,14 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
             int line_fill = (col > 0) ? fill_color : color;
 
             mcview_fill_line_remaining (view, row, col, line_fill, dpy_text_column);
+
+            if (par != NULL)
+            {
+                // state->offset is right past the newline, i.e. the next paragraph.
+                if (mcview_lcache_boundary_is_final (view, state->offset))
+                    mcview_lcache_set_next (view, par, state->offset);
+                par->width = col;
+            }
 
             // Reset positional and nroff state for the new line, but preserve
             // ANSI SGR state: in terminals, color/attribute spans legally cross
@@ -896,6 +1215,9 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
         col += charwidth;
         state->unwrapped_column += charwidth;
 
+        if (par != NULL)
+            mcview_lcache_extend (par, state, color);
+
         if (!view->mode_flags.wrap && (off_t) col >= dpy_text_column + (off_t) r->cols
             && linewidth == NULL)
         {
@@ -903,7 +1225,7 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
              * parsing and then not actually displaying it. */
             off_t eol;
 
-            eol = mcview_eol (view, state->offset);
+            eol = mcview_lcache_next_bol (view, par, state->offset);
             mcview_state_machine_init (state, eol);
             return 1;
         }
@@ -1161,7 +1483,10 @@ mcview_ascii_move_down (WView *view, off_t lines)
          * EOF, that can't happen. */
         if (!view->mode_flags.wrap)
         {
-            view->dpy_start = mcview_eol (view, view->dpy_start);
+            mcview_lcache_paragraph_t *par;
+
+            par = mcview_lcache_get (view, view->dpy_start, TRUE);
+            view->dpy_start = mcview_lcache_next_bol (view, par, view->dpy_start);
             view->dpy_paragraph_skip_lines = 0;
             view->dpy_wrap_dirty = TRUE;
         }
@@ -1215,7 +1540,15 @@ mcview_ascii_move_up (WView *view, off_t lines)
     if (!view->mode_flags.wrap)
     {
         while (lines-- != 0)
-            view->dpy_start = mcview_bol (view, view->dpy_start - 1, 0);
+        {
+            const mcview_lcache_paragraph_t *par;
+
+            par = mcview_lcache_get_prev (view, view->dpy_start);
+            if (par != NULL)
+                view->dpy_start = par->bol;
+            else
+                view->dpy_start = mcview_bol (view, view->dpy_start - 1, 0);
+        }
         view->dpy_paragraph_skip_lines = 0;
         view->dpy_wrap_dirty = TRUE;
     }
@@ -1272,12 +1605,20 @@ mcview_ascii_moveto_eol (WView *view)
 {
     if (!view->mode_flags.wrap)
     {
-        mcview_state_machine_t state;
+        const mcview_lcache_paragraph_t *par;
         off_t linewidth;
 
         // Get the width of the topmost paragraph.
-        mcview_state_machine_init (&state, view->dpy_start);
-        mcview_display_line (view, &state, -1, NULL, &linewidth);
+        par = mcview_lcache_get (view, view->dpy_start, FALSE);
+        if (par != NULL && par->width >= 0)
+            linewidth = par->width;
+        else
+        {
+            mcview_state_machine_t state;
+
+            mcview_state_machine_init (&state, view->dpy_start);
+            mcview_display_line (view, &state, -1, NULL, &linewidth);
+        }
         view->dpy_text_column = DOZ (linewidth, (off_t) view->data_area.cols);
     }
 }
@@ -1291,6 +1632,28 @@ mcview_state_machine_init (mcview_state_machine_t *state, off_t offset)
     state->offset = offset;
     state->print_lonely_combining = TRUE;
     mcview_ansi_state_init (&state->ansi);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+/**
+ * Drop the layout cache. Must be called whenever the underlying data changes
+ * (datasource close, hexedit write); parse parameter changes are detected internally.
+ */
+
+void
+mcview_lcache_flush (WView *view)
+{
+    // by_next borrows keys pointing into by_bol's entries, destroy it first
+    if (view->lcache.by_next != NULL)
+    {
+        g_hash_table_destroy (view->lcache.by_next);
+        view->lcache.by_next = NULL;
+    }
+    if (view->lcache.by_bol != NULL)
+    {
+        g_hash_table_destroy (view->lcache.by_bol);
+        view->lcache.by_bol = NULL;
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
