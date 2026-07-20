@@ -749,15 +749,26 @@ input_execute_cmd (WInput *in, long command)
         clear_line (in);
         break;
     case CK_Store:
-        copy_region (in, MAX (in->mark, 0), in->point);
-        break;
+    {
+        long m1, m2;
+
+        if (input_eval_marks (in, &m1, &m2))
+            copy_region (in, m1, m2);
+        else
+            /* no selection: copy_region() on an empty region falls back to
+             * the current panel file name */
+            copy_region (in, in->point, in->point);
+    }
+    break;
     case CK_Cut:
     {
-        long m;
+        long m1, m2;
 
-        m = MAX (in->mark, 0);
-        copy_region (in, m, in->point);
-        delete_region (in, in->point, m);
+        if (input_eval_marks (in, &m1, &m2))
+        {
+            copy_region (in, m1, m2);
+            delete_region (in, m1, m2);
+        }
     }
     break;
     case CK_Yank:

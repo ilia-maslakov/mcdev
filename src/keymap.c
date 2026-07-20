@@ -307,7 +307,9 @@ static const global_keymap_ini_t default_input_keymap[] = {
     { "DeleteToWordBegin", "alt-backspace" },
     // Region manipulation
     { "Remove", "ctrl-w" },
-    { "Store", "alt-w" },
+    { "Store", "alt-w; ctrl-insert" },
+    { "Cut", "shift-delete" },
+    { "Paste", "shift-insert" },
     { "Yank", "ctrl-y" },
     { "DeleteToEnd", "ctrl-k" },
     // History
