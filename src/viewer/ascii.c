@@ -194,6 +194,11 @@
 #define LCACHE_MAX_CHECKPOINTS 512
 #define LCACHE_MAX_PARAGRAPHS  256
 
+/* How often the parse loop looks at the clock to update the progress spinner:
+ * every 64K character sequences, i.e. a few times per second on a slow parse.
+ * Must be a power of two. */
+#define SPINNER_CHECK_INTERVAL 0x10000
+
 /*** file scope type declarations ****************************************************************/
 
 typedef struct
@@ -1027,6 +1032,7 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
     int col = 0;
     int fill_color = view->syntax_fill_color;
     mcview_lcache_paragraph_t *par = NULL;
+    unsigned int spin = 0;
     int cs[1 + MAX_COMBINING_CHARS];
     char str[(1 + MAX_COMBINING_CHARS) * MB_LEN_MAX + 1];
     int i, j;
@@ -1070,6 +1076,10 @@ mcview_display_line (WView *view, mcview_state_machine_t *state, int row, gboole
         mcview_state_machine_t state_saved;
         int n;
         int color;
+
+        // Long parses (a first "End" on a multi-megabyte line) show a progress spinner.
+        if ((++spin & (SPINNER_CHECK_INTERVAL - 1)) == 0)
+            mcview_spinner (view);
 
         state_saved = *state;
         n = mcview_next_combining_char_sequence (view, state, cs, 1 + MAX_COMBINING_CHARS, &color);
@@ -1354,6 +1364,9 @@ mcview_display_text (WView *view)
 
         mcview_display_clean (view);
         mcview_display_ruler (view);
+        /* Draw the status line right away: long parses below may flush intermediate
+         * frames (progress spinner), which must not show a headless screen. */
+        mcview_display_status (view);
 
         if (!view->mode_flags.wrap)
             mcview_state_machine_init (&state, view->dpy_start);

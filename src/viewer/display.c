@@ -166,8 +166,38 @@ mcview_display_percent (WView *view, off_t p)
 }
 
 /* --------------------------------------------------------------------------------------------- */
+/**
+ * Progress spinner for long parses (e.g. measuring a multi-megabyte line after "End").
+ * Called from tight loops: cheap when throttled, draws |/-\ in the status line corner.
+ */
 
-static void
+void
+mcview_spinner (WView *view)
+{
+    static gint64 timestamp = 0;
+    // update with 10 FPS rate
+    static const gint64 delay = G_USEC_PER_SEC / 10;
+    static const char rotating_dash[4] MC_NONSTRING = "|/-\\";
+    static size_t pos = 0;
+
+    const WRect *r = &view->status_area;
+
+    if (WIDGET (view)->owner == NULL || r->lines < 1 || r->cols < 1)
+        return;
+
+    if (!mc_time_elapsed (&timestamp, delay))
+        return;
+
+    tty_setcolor (STATUSBAR_COLOR);
+    widget_gotoyx (view, r->y, r->x + r->cols - 1);
+    tty_print_char (rotating_dash[pos]);
+    pos = (pos + 1) % sizeof (rotating_dash);
+    mc_refresh ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
 mcview_display_status (WView *view)
 {
     const WRect *r = &view->status_area;
