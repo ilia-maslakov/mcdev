@@ -129,8 +129,12 @@ mcview_update_filesize (WView *view)
     if (view->datasource == DS_FILE)
     {
         struct stat st;
-        if (mc_fstat (view->ds_file_fd, &st) != -1)
+        if (mc_fstat (view->ds_file_fd, &st) != -1 && st.st_size != view->ds_file_filesize)
+        {
             view->ds_file_filesize = st.st_size;
+            // cached line boundaries and widths may no longer match the file
+            mcview_lcache_flush (view);
+        }
     }
 }
 
@@ -280,6 +284,7 @@ mcview_set_byte (WView *view, off_t offset, byte b)
     g_assert (view->datasource == DS_FILE);
 
     view->ds_file_datalen = 0;  // just force reloading
+    mcview_lcache_flush (view);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -370,6 +375,7 @@ mcview_close_datasource (WView *view)
         break;
     }
     view->datasource = DS_NONE;
+    mcview_lcache_flush (view);
 }
 
 /* --------------------------------------------------------------------------------------------- */

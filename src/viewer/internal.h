@@ -100,6 +100,23 @@ typedef struct
     mcview_ansi_state_t ansi;    // ANSI SGR escape sequence parser state
 } mcview_state_machine_t;
 
+/* Unwrap-mode layout cache (ascii.c). Holds per-paragraph parser state checkpoints
+ * at column intervals and the offset of the following paragraph, so that horizontal
+ * scrolling and line stepping on very long lines don't reparse from the paragraph
+ * start every time. */
+typedef struct
+{
+    GHashTable *by_bol;   // off_t paragraph start -> paragraph entry (owns entries)
+    GHashTable *by_next;  // off_t next paragraph start -> paragraph entry (borrowed)
+    guint64 tick;         // LRU clock
+    // parse parameters the cached states depend on
+    gboolean utf8;
+    gboolean nroff;
+    gboolean syntax;
+    int tab_spacing;
+    GIConv converter;
+} mcview_lcache_t;
+
 struct mcview_nroff_struct;
 
 struct WView
@@ -160,6 +177,7 @@ struct WView
     gboolean utf8;  // It's multibyte file codeset
 
     GPtrArray *coord_cache;  // Cache for mapping offsets to cursor positions
+    mcview_lcache_t lcache;  // Unwrap-mode layout cache
 
     // Display information
     int dpy_frame_size;  // Size of the frame surrounding the real viewer
@@ -285,6 +303,7 @@ cb_ret_t mcview_dialog_callback (Widget *w, Widget *sender, widget_msg_t msg, in
 /* ascii.c: */
 void mcview_display_text (WView *view);
 void mcview_state_machine_init (mcview_state_machine_t *, off_t);
+void mcview_lcache_flush (WView *view);
 int mcview_ansi_get_color (const mcview_ansi_state_t *ansi);
 void mcview_ascii_move_down (WView *view, off_t lines);
 void mcview_ascii_move_up (WView *view, off_t lines);
