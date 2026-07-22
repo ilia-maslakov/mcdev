@@ -4,6 +4,7 @@ Contents
 * Introduction
 * Dependencies
 * Features
+* Fork additions
 * Mini-documentation
 * Where to get more information
 * Reporting problems
@@ -12,17 +13,26 @@ Contents
 Introduction
 ------------
 
-GNU Midnight Commander (also referred to as MC) is a user shell with
+Midnight Commander (also referred to as MC) is a user shell with
 text-mode full-screen interface.  It can be run on the OS console,
 in xterm and other terminal emulators.
 
-GNU Midnight Commander allows you to manage files while making the most of
+Midnight Commander allows you to manage files while making the most of
 your screen and giving you a clear representation of the filesystem, yet
 it's simple enough to be run over a telnet or ssh session.
 
-GNU Midnight Commander is released under the GNU General Public
-License version 3 or any later version.  A copy of the file is
-included with this distribution package.
+This distribution is a modified fork of GNU Midnight Commander, based on
+version 4.8.33 and maintained at:
+
+* https://github.com/ilia-maslakov/mcdev
+
+Changes since 2026-02.  It is not an official GNU package; please report
+issues with this fork to the address in "Reporting problems" below, not
+to the upstream project.
+
+Midnight Commander is released under the GNU General Public License
+version 3 or any later version.  A copy of the file is included with
+this distribution package.
 
 
 Dependencies
@@ -35,28 +45,29 @@ and full list of dependencies.
 Features
 --------
 
-GNU Midnight Commander was conceived as a free clone of John Socha's
+Midnight Commander was conceived as a free clone of John Socha's
 Norton Commander (TM).  It also takes the best from more recent software
-with similar interfaces.  GNU Midnight Commander comes with mouse support
+with similar interfaces.  Midnight Commander comes with mouse support
 on xterm and optionally on the Linux console.
 
 Some features are specific to the POSIX environment MC runs on, some are
 familiar to the users of similar software for other operating systems.
 The features include:
 
-	* Built in Virtual File System: manipulate remote file systems
-          through the FTP and SFTP protocols or over secure shell, browse
-          contents of tar, ar, rpm, zip, cpio, lha and rar archives just
-	  like local files.
+	* Built in Virtual File System: browse the contents of tar, ar,
+	  rpm, zip, cpio, lha and rar archives just like local files, and
+	  connect to remote machines over secure shell.  Remote FTP, SFTP,
+	  S3, Samba and other services are provided by panel plugins (see
+	  "Fork additions").
 
 	* Almost all operations work with the virtual file system,
-	  enabling you to do complex tasks, like viewing files in
-	  archives on an FTP server.
+	  enabling you to do complex tasks, like viewing files inside
+	  archives.
 
 	* Mouse support on most terminal emulators for X Window System
 	  as well as on the Linux console.
 
-	* Learn Keys: GNU Midnight Commander may be configured at run
+	* Learn Keys: Midnight Commander may be configured at run
 	  time to support any kind of input keys for a given terminal,
 	  making its operation possible even on most weird terminals.
 
@@ -67,27 +78,19 @@ The features include:
 	  including remote sites and directories inside archives.
 
 	* Command completion: By pressing Alt-Tab in any place where a
-	  filename or an executable are expected, GNU Midnight Commander
+	  filename or an executable are expected, Midnight Commander
 	  will complete the name for you.  If you press Alt-Tab for the
 	  second time, you get a list box with all possible completions.
 
 	* Subshell support: Run your commands by a real shell
-	  interpreter.  GNU Midnight Commander interacts with bash,
+	  interpreter.  Midnight Commander interacts with bash,
 	  tcsh and zsh to provide you with all of the facilities
 	  available in your preferred shell.
 
 	* Find file command can search for the file contents.
 
-	* Background operations allow you to copy or move files from
-	  any virtual file system while you do other tasks (i.e., you
-	  can do background FTP copies).
-
-	* FTP proxy is supported.
-
-	* External panelization: You can run any arbitrary external
-	  command and GNU Midnight Commander will display the output
-	  generated as a file listing that can be manipulated as a
-	  regular directory.
+	* Background operations allow you to copy or move files on any
+	  virtual file system while you do other tasks.
 
 	* Emacs-like key bindings are used in all widgets.
 
@@ -99,6 +102,38 @@ The features include:
 
 	* The built-in editor supports syntax highlighting and external
 	  actions, such as spell checking and formatting.
+
+
+Fork additions
+--------------
+
+This fork adds the following on top of GNU Midnight Commander 4.8.33.
+See the release notes for the full list:
+
+* https://github.com/ilia-maslakov/mcdev/wiki/Releases
+
+	* Panel plugins: panel contents can be supplied by a dynamically
+	  loaded plugin.  Shipped plugins include git, docker, Kubernetes,
+	  MongoDB, S3, FTP/FTPS, SFTP, Samba, systemd, shell connections,
+	  External Panelize, and arcmc.  The old built-in ftpfs and sftpfs
+	  VFS modules are removed in favour of the FTP and SFTP plugins.
+
+	* arcmc: an archive manager built on libarchive that browses,
+	  creates, packs and extracts archives (zip, 7z, tar.*, cpio),
+	  with progress and cancel.
+
+	* Editor plugins, plus code folding, an undo history browser and
+	  a macro explorer in the editor.
+
+	* Viewer: a structured tree mode for JSON, YAML, XML and HTML, a
+	  grep-style live filter, ANSI colour and terminal replay, and
+	  streaming of never-ending command output.
+
+	* An embedded terminal widget that runs a shell inside the file
+	  manager and keeps the panels in sync with its directory.
+
+	* User-editable panel view modes, and dialogs for managing key
+	  bindings and learning terminal keys.
 
 
 Mini-documentation
@@ -121,9 +156,8 @@ These are hints for the text mode edition:
 
 * M-Tab completes the current word (or tries to).
 
-* The Virtual File System is a cute addition to the project, you may
-  browse in tar and compressed tar files as well as browsing remote
-  machines with the shell file system.
+* The Virtual File System lets you browse in tar and compressed tar
+  files as well as browsing remote machines over the shell file system.
 
 * Please read the manual page.
 
@@ -134,37 +168,30 @@ although it's not as nice as the groff printed manual page :-)
 Where to get more information
 -----------------------------
 
-There is a webpage for GNU Midnight Commander at
+This fork is developed at:
+
+* https://github.com/ilia-maslakov/mcdev
+* https://github.com/ilia-maslakov/mcdev/wiki
+
+For the upstream project that this fork is based on, see GNU Midnight
+Commander at:
 
 * https://midnight-commander.org
 
-This page also has current information about mailing lists and some
-useful advices how to report bugs.
-
-You can download the latest version of GNU Midnight Commander from
-
-* https://ftp.osuosl.org/pub/midnightcommander/
 
 Reporting problems
 ------------------
 
-You can report bugs on our site:
+Report bugs in this fork on its issue tracker:
 
-https://github.com/MidnightCommander/mc/issues
+https://github.com/ilia-maslakov/mcdev/issues
 
-Also you can use mc mailing lists to discuss problems.
+Do not report fork-specific problems to the upstream project.
 
-There are two mailing lists:
-
-  - mc@lists.midnight-commander.org
-  - mc-devel@lists.midnight-commander.org
-
-Use mc-devel@ if you are prepared for a more technical discussion
-with the developers of the package, otherwise use mc@.
-
-Include the output of "mc --version", the operating system and the
-distribution (if applicable) you are using, the compiler and the
-configure flags used to compile the program (if you know them).
+Include the output of "mc --version" (which identifies this fork), the
+operating system and the distribution (if applicable) you are using, the
+compiler and the configure flags used to compile the program (if you
+know them).
 
 If the program crashed and produced a core dump, please provide a
 stack trace of the program.
