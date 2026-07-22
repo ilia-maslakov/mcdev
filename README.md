@@ -57,8 +57,6 @@ sudo make install
 ## Documentation
 
 - [Wiki](https://github.com/ilia-maslakov/mcdev/wiki)
-- [Demos](https://github.com/ilia-maslakov/mcdev/wiki/Demos) - the VHS tapes
-  that record the GIFs above
 - Built-in help: press `F1` inside mc
 - Manual pages: `mc(1)`, `mcedit(1)`, `mcview(1)`
 
