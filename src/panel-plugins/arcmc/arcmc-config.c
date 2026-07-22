@@ -27,6 +27,7 @@
 
 #include "lib/global.h"
 #include "lib/mcconfig.h"
+#include "lib/tty/key.h"  // tty_keyname_to_keycode()
 
 #include "arcmc-types.h"
 #include "arcmc-config.h"
@@ -43,6 +44,13 @@ static const char *const builtin_keys[ARCMC_BUILTIN_COUNT] = {
 #define ARCMC_SECTION_BUILTIN   "arcmc-builtin"
 #define ARCMC_SECTION_EXT       "arcmc-ext"
 #define ARCMC_SECTION_EXT_PARAM "arcmc-ext-params-"
+#define ARCMC_SECTION_KEYS      "arcmc"
+
+/* Config key + default for the "Create archive" hotkey. "f11" is Shift-F1 in
+   mc's key naming (Shift-F1..F10 map to F11..F20), preserving the old binding.
+   Set the value to "none" in arcmc.ini to disable the global hotkey. */
+#define ARCMC_KEY_CREATE         "hotkey_create"
+#define ARCMC_KEY_CREATE_DEFAULT "f11"
 
 /*** file scope functions ************************************************************************/
 
@@ -77,10 +85,37 @@ save_ext_param_str (mc_config_t *cfg, const char *section, const char *key, cons
         mc_config_set_string (cfg, section, key, "");
 }
 
+/* Resolve a hotkey config value to a key code, mirroring git/k8s/sftp:
+   empty or "none" disables the key; an unknown name falls back to the
+   builtin default. On success *label (if not NULL) receives a freshly
+   allocated display string for the menu shortcut column. */
+static int
+parse_hotkey (const char *value, const char *fallback_text, int fallback_key, char **label)
+{
+    int keycode;
+
+    if (label != NULL)
+        *label = NULL;
+
+    if (value == NULL || value[0] == '\0' || g_ascii_strcasecmp (value, "none") == 0)
+        return 0;
+
+    keycode = tty_keyname_to_keycode (value, label);
+    if (keycode != 0)
+        return keycode;
+
+    // unknown key name in config: use the builtin default and its label
+    keycode = tty_keyname_to_keycode (fallback_text, label);
+    return keycode != 0 ? keycode : fallback_key;
+}
+
 /*** global variables ****************************************************************************/
 
 gboolean arcmc_builtin_enabled[ARCMC_BUILTIN_COUNT];
 gboolean *arcmc_ext_enabled = NULL;
+
+int arcmc_hotkey_create = 0;
+const char *arcmc_hotkey_create_label = NULL;
 
 /*** public functions ****************************************************************************/
 
@@ -100,12 +135,30 @@ arcmc_config_load (void)
     for (i = 0; i < ext_archivers_count; i++)
         arcmc_ext_enabled[i] = TRUE;
 
+    /* default hotkey: Shift-F1 */
+    g_free ((char *) arcmc_hotkey_create_label);
+    arcmc_hotkey_create_label = NULL;
+    arcmc_hotkey_create = parse_hotkey (ARCMC_KEY_CREATE_DEFAULT, ARCMC_KEY_CREATE_DEFAULT,
+                                        KEY_F (11), (char **) &arcmc_hotkey_create_label);
+
     cfg_path = g_build_filename (mc_config_get_path (), ARCMC_CONFIG_FILE, (char *) NULL);
     cfg = mc_config_init (cfg_path, TRUE);
     g_free (cfg_path);
 
     if (cfg == NULL)
         return;
+
+    {
+        char *value;
+
+        value = mc_config_get_string (cfg, ARCMC_SECTION_KEYS, ARCMC_KEY_CREATE,
+                                      ARCMC_KEY_CREATE_DEFAULT);
+        g_free ((char *) arcmc_hotkey_create_label);
+        arcmc_hotkey_create_label = NULL;
+        arcmc_hotkey_create = parse_hotkey (value, ARCMC_KEY_CREATE_DEFAULT, KEY_F (11),
+                                            (char **) &arcmc_hotkey_create_label);
+        g_free (value);
+    }
 
     for (i = 0; i < ARCMC_BUILTIN_COUNT; i++)
         arcmc_builtin_enabled[i] =
@@ -155,6 +208,15 @@ arcmc_config_save (void)
     {
         g_free (cfg_path);
         return;
+    }
+
+    {
+        char *keyname;
+
+        keyname = arcmc_hotkey_create != 0 ? tty_keycode_to_keyname (arcmc_hotkey_create) : NULL;
+        mc_config_set_string (cfg, ARCMC_SECTION_KEYS, ARCMC_KEY_CREATE,
+                              keyname != NULL ? keyname : "none");
+        g_free (keyname);
     }
 
     for (i = 0; i < ARCMC_BUILTIN_COUNT; i++)

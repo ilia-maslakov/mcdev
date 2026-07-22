@@ -37,6 +37,13 @@
 extern gboolean arcmc_builtin_enabled[ARCMC_BUILTIN_COUNT];
 extern gboolean *arcmc_ext_enabled;
 
+/* "Create archive" hotkey, loaded from arcmc.ini ([arcmc]/hotkey_create).
+   arcmc_hotkey_create is the resolved key code (0 = disabled);
+   arcmc_hotkey_create_label is a program-lifetime display string for the
+   Command menu shortcut column (NULL when disabled). */
+extern int arcmc_hotkey_create;
+extern const char *arcmc_hotkey_create_label;
+
 /*** declarations (functions) ******************************************************************/
 
 void arcmc_config_load (void);
