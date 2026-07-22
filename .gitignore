@@ -58,3 +58,7 @@ src/vfs/extfs/helpers/usqfs
 tests/src/vfs/extfs/helpers-list/data/config.sh
 mc-version.h
 lib/stdckdint.h
+
+# editor/build artifacts
+/tags
+/src/history
