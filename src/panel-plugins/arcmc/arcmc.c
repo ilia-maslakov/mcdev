@@ -171,7 +171,9 @@ static const mc_pp_action_t arcmc_actions[] = {
     { N_ ("Archiver settings"), arcmc_action_settings },
 };
 
-static const mc_pp_cmd_menu_entry_t arcmc_cmd_menu[] = {
+/* Not const: the shortcut/key columns are patched from arcmc.ini at register
+   time so the "Create archive" hotkey can be reassigned. */
+static mc_pp_cmd_menu_entry_t arcmc_cmd_menu[] = {
     { N_ ("Cre&ate archive"), 1, "S-F1", KEY_F (11), NULL },
 };
 
@@ -1446,8 +1448,10 @@ arcmc_handle_key (void *plugin_data, int key)
 
     (void) plugin_data;
 
-    /* Shift+F1 or Shift+F5 */
-    if (key != KEY_F (11) && key != KEY_F (15))
+    /* The global Command-menu shortcut (see arcmc_cmd_menu) already runs the
+       real create action when the panel is focused; here we only honour the
+       configured hotkey as a fallback. */
+    if (arcmc_hotkey_create == 0 || key != arcmc_hotkey_create)
         return MC_PPR_NOT_SUPPORTED;
 
     memset (&opts, 0, sizeof (opts));
@@ -1473,6 +1477,12 @@ const mc_panel_plugin_t *
 mc_panel_plugin_register (void)
 {
     arcmc_config_load ();
+
+    /* Publish the configured "Create archive" hotkey into the Command menu
+       entry that the file manager scans for global shortcuts. */
+    arcmc_cmd_menu[0].key = arcmc_hotkey_create;
+    arcmc_cmd_menu[0].shortcut = arcmc_hotkey_create_label;
+
     return &arcmc_plugin;
 }
 
