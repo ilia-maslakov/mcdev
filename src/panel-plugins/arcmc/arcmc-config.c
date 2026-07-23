@@ -85,28 +85,15 @@ save_ext_param_str (mc_config_t *cfg, const char *section, const char *key, cons
         mc_config_set_string (cfg, section, key, "");
 }
 
-/* Match how mc delivers real key events: Shift+F1..F10 arrive as F11..F20 with
-   the Shift bit cleared (see correct_key_code() in lib/tty/key.c), so a hotkey
-   resolved from "shift-f1" lines up with the actual key press. */
-static int
-normalize_hotkey (int key)
-{
-    int code = key & ~KEY_M_MASK;
-    int mod = key & KEY_M_MASK;
-
-    if (code >= KEY_F (1) && code <= KEY_F (10) && (mod & KEY_M_SHIFT) != 0)
-        code += 10;
-    if (code >= KEY_F (1) && code <= KEY_F (20))
-        mod &= ~KEY_M_SHIFT;
-
-    return code | mod;
-}
-
 /* Resolve a hotkey config value to a key code, mirroring git/k8s/sftp:
    empty or "none" disables the key; an unknown name falls back to the
    builtin default. On success *label (if not NULL) receives a freshly
    allocated display string (mc-native form, e.g. "Shift-F1", "Ctrl-a")
-   for the menu shortcut column. */
+   for the menu shortcut column.
+
+   tty_normalize_keycode() folds "shift-f1" (KEY_F(1)|Shift) into KEY_F(11)
+   the same way mc rewrites real key events, so the resolved code matches the
+   actual key press while the label keeps the friendly "Shift-F1" form. */
 static int
 parse_hotkey (const char *value, const char *fallback_text, int fallback_key, char **label)
 {
@@ -120,11 +107,11 @@ parse_hotkey (const char *value, const char *fallback_text, int fallback_key, ch
 
     keycode = tty_keyname_to_keycode (value, label);
     if (keycode != 0)
-        return normalize_hotkey (keycode);
+        return tty_normalize_keycode (keycode);
 
     // unknown key name in config: use the builtin default and its label
     keycode = tty_keyname_to_keycode (fallback_text, label);
-    return keycode != 0 ? normalize_hotkey (keycode) : fallback_key;
+    return keycode != 0 ? tty_normalize_keycode (keycode) : fallback_key;
 }
 
 /*** global variables ****************************************************************************/
