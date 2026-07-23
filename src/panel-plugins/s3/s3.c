@@ -293,7 +293,7 @@ s3_parse_hotkey (const char *str)
     if (g_ascii_strcasecmp (str, "none") == 0)
         return S3_KEY_NONE;
 
-    return tty_keyname_to_keycode (str, NULL);
+    return tty_normalize_keycode (tty_keyname_to_keycode (str, NULL));
 }
 
 /* --------------------------------------------------------------------------------------------- */

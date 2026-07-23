@@ -207,7 +207,7 @@ k8s_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
 
     result = tty_keyname_to_keycode (value, NULL);
     g_free (value);
-    return result != 0 ? result : fallback_key;
+    return result != 0 ? tty_normalize_keycode (result) : fallback_key;
 }
 
 /* --------------------------------------------------------------------------------------------- */

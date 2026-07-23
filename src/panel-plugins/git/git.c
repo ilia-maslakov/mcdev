@@ -423,7 +423,7 @@ git_parse_hotkey (const char *value, int fallback)
 
     key = tty_keyname_to_keycode (value, NULL);
 
-    return key != 0 ? key : fallback;
+    return key != 0 ? tty_normalize_keycode (key) : fallback;
 }
 
 /* --------------------------------------------------------------------------------------------- */
