@@ -30,6 +30,7 @@
 #include "lib/global.h"
 #include "lib/mcconfig.h"
 #include "lib/tty/key.h"
+#include "lib/plugin-prefs.h"
 
 #include "src/panel-plugins/k8s/k8s-internal.h"
 
@@ -193,21 +194,9 @@ k8s_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
     int result;
 
     value = k8s_read_config_string (key, fallback_text);
-
-    if (value == NULL || value[0] == '\0')
-    {
-        g_free (value);
-        return fallback_key;
-    }
-    if (g_ascii_strcasecmp (value, "none") == 0)
-    {
-        g_free (value);
-        return 0;
-    }
-
-    result = tty_keyname_to_keycode (value, NULL);
+    result = mc_plugin_prefs_parse_hotkey (value, fallback_text, fallback_key, NULL);
     g_free (value);
-    return result != 0 ? tty_normalize_keycode (result) : fallback_key;
+    return result;
 }
 
 /* --------------------------------------------------------------------------------------------- */

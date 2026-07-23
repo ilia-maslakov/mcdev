@@ -44,6 +44,7 @@
 #include "lib/panel-plugin.h"
 #include "lib/panel-cache.h"
 #include "lib/tty/key.h"
+#include "lib/plugin-prefs.h"
 #include "lib/util.h"
 #include "lib/vfs/vfs.h"
 #include "lib/vfs/utilvfs.h"
@@ -231,24 +232,6 @@ ftp_log (const char *fmt, ...)
 /* Configurable hotkeys (same mechanism as git-panel plugin) */
 /* --------------------------------------------------------------------------------------------- */
 
-static int
-ftp_parse_hotkey (const char *value, int fallback)
-{
-    int key;
-
-    if (value == NULL || value[0] == '\0')
-        return fallback;
-
-    if (g_ascii_strcasecmp (value, "none") == 0)
-        return 0;
-
-    key = tty_keyname_to_keycode (value, NULL);
-
-    return key != 0 ? tty_normalize_keycode (key) : fallback;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static char *
 ftp_read_config_string (const char *path, const char *key)
 {
@@ -321,7 +304,7 @@ ftp_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
     if (value == NULL)
         value = g_strdup (fallback_text);
 
-    hotkey = ftp_parse_hotkey (value, fallback_key);
+    hotkey = mc_plugin_prefs_parse_hotkey (value, fallback_text, fallback_key, NULL);
     g_free (value);
     return hotkey;
 }
