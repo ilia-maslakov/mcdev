@@ -216,9 +216,6 @@ dnl Check for main libraries
 dnl ############################################################################
 
 mc_CHECK_GLIB
-PKG_CHECK_MODULES([MCTREE_XML], [libxml-2.0],
-    [AC_DEFINE([HAVE_MCTREE_LIBXML2], [1], [Define if libxml2 is available for mctree])],
-    [:])
 PKG_CHECK_MODULES([MCTREE_MAGIC], [libmagic],
     [AC_DEFINE([HAVE_MCTREE_MAGIC], [1], [Define if libmagic is available for mctree])],
     [:])

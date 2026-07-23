@@ -9,7 +9,6 @@
 
 extern const mctree_provider_t mctree_json_provider;
 extern const mctree_provider_t mctree_xml_provider;
-extern const mctree_provider_t mctree_html_provider;
 extern const mctree_provider_t mctree_yaml_provider;
 
 #endif

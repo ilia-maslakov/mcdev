@@ -1,6 +1,6 @@
 /*
    Internal file viewer for the Midnight Commander
-   Structured (tree) display mode for JSON/YAML/XML/HTML content
+   Structured (tree) display mode for JSON/YAML/XML content
 
    Copyright (C) 2026
    Free Software Foundation, Inc.
