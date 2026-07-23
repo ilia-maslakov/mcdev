@@ -37,4 +37,15 @@ gchar **mc_plugin_prefs_list_disabled (mc_plugin_kind_t kind);
 int mc_plugin_prefs_parse_hotkey (const char *value, const char *fallback_text, int fallback_key,
                                   char **label);
 
+/* Read one stripped, non-empty string from [group]/key in the ini file at
+ * @path.  Returns NULL if the file is absent or the value is unset/empty.
+ * Caller frees. */
+char *mc_plugin_prefs_read_config_string (const char *path, const char *group, const char *key);
+
+/* Resolve a plugin hotkey from config file @basename (looked up first in the
+ * user config dir, then the system config dir), section @group, entry @key,
+ * via mc_plugin_prefs_parse_hotkey().  @label as in that function. */
+int mc_plugin_prefs_load_hotkey (const char *basename, const char *group, const char *key,
+                                 const char *fallback_text, int fallback_key, char **label);
+
 #endif /* MC__PLUGIN_PREFS_H */
