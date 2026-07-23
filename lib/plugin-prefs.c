@@ -27,7 +27,7 @@
 
 #include "lib/global.h"
 #include "lib/mcconfig.h"
-#include "lib/tty/key.h"  // tty_keyname_to_keycode(), tty_normalize_keycode()
+#include "lib/tty/key.h"
 
 #include "plugin-prefs.h"
 
@@ -175,6 +175,62 @@ mc_plugin_prefs_parse_hotkey (const char *value, const char *fallback_text, int 
     }
 
     return fallback_key;
+}
+
+char *
+mc_plugin_prefs_read_config_string (const char *path, const char *group, const char *key)
+{
+    mc_config_t *cfg;
+    char *value;
+
+    if (path == NULL || group == NULL || key == NULL)
+        return NULL;
+
+    if (!g_file_test (path, G_FILE_TEST_IS_REGULAR))
+        return NULL;
+
+    cfg = mc_config_init (path, TRUE);
+    if (cfg == NULL)
+        return NULL;
+
+    value = mc_config_get_string (cfg, group, key, NULL);
+    mc_config_deinit (cfg);
+
+    if (value == NULL)
+        return NULL;
+
+    g_strstrip (value);
+    if (value[0] == '\0')
+    {
+        g_free (value);
+        return NULL;
+    }
+
+    return value;
+}
+
+int
+mc_plugin_prefs_load_hotkey (const char *basename, const char *group, const char *key,
+                             const char *fallback_text, int fallback_key, char **label)
+{
+    char *path;
+    char *value;
+    int hotkey;
+
+    path = g_build_filename (mc_config_get_path (), basename, (char *) NULL);
+    value = mc_plugin_prefs_read_config_string (path, group, key);
+    g_free (path);
+
+    if (value == NULL && mc_global.sysconfig_dir != NULL)
+    {
+        path = g_build_filename (mc_global.sysconfig_dir, basename, (char *) NULL);
+        value = mc_plugin_prefs_read_config_string (path, group, key);
+        g_free (path);
+    }
+
+    hotkey = mc_plugin_prefs_parse_hotkey (value, fallback_text, fallback_key, label);
+    g_free (value);
+    return hotkey;
 }
 
 void

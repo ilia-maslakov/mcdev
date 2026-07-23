@@ -171,10 +171,9 @@ static const mc_pp_action_t arcmc_actions[] = {
     { N_ ("Archiver settings"), arcmc_action_settings },
 };
 
-/* Not const: the shortcut/key columns are patched from arcmc.ini at register
-   time so the "Create archive" hotkey can be reassigned. */
+/* Not const: shortcut/key are patched from arcmc.ini in register(). */
 static mc_pp_cmd_menu_entry_t arcmc_cmd_menu[] = {
-    { N_ ("Cre&ate archive"), 1, "S-F1", KEY_F (11), NULL },
+    { N_ ("Cre&ate archive"), 1, NULL, 0, NULL },
 };
 
 static const mc_panel_plugin_t arcmc_plugin = {

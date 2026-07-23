@@ -214,37 +214,6 @@ sftp_entry_free (gpointer p)
 
 /* --------------------------------------------------------------------------------------------- */
 
-static char *
-sftp_read_config_string (const char *path, const char *key)
-{
-    char *value;
-    mc_config_t *cfg;
-
-    if (path == NULL || !g_file_test (path, G_FILE_TEST_IS_REGULAR))
-        return NULL;
-
-    cfg = mc_config_init (path, TRUE);
-    if (cfg == NULL)
-        return NULL;
-
-    value = mc_config_get_string (cfg, SFTP_PANEL_CONFIG_GROUP, key, NULL);
-    mc_config_deinit (cfg);
-
-    if (value == NULL)
-        return NULL;
-
-    g_strstrip (value);
-    if (*value == '\0')
-    {
-        g_free (value);
-        return NULL;
-    }
-
-    return value;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static void
 sftp_save_config_defaults (const char *path)
 {
@@ -269,27 +238,15 @@ static int
 sftp_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
 {
     char *config_path;
-    char *value;
     int hotkey;
 
+    hotkey = mc_plugin_prefs_load_hotkey (SFTP_PANEL_CONFIG_FILE, SFTP_PANEL_CONFIG_GROUP, key,
+                                          fallback_text, fallback_key, NULL);
+
     config_path = g_build_filename (mc_config_get_path (), SFTP_PANEL_CONFIG_FILE, (char *) NULL);
-
-    value = sftp_read_config_string (config_path, key);
-    if (value == NULL && mc_global.sysconfig_dir != NULL)
-    {
-        char *sys_path;
-
-        sys_path =
-            g_build_filename (mc_global.sysconfig_dir, SFTP_PANEL_CONFIG_FILE, (char *) NULL);
-        value = sftp_read_config_string (sys_path, key);
-        g_free (sys_path);
-    }
-
     sftp_save_config_defaults (config_path);
     g_free (config_path);
 
-    hotkey = mc_plugin_prefs_parse_hotkey (value, fallback_text, fallback_key, NULL);
-    g_free (value);
     return hotkey;
 }
 

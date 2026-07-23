@@ -27,8 +27,8 @@
 
 #include "lib/global.h"
 #include "lib/mcconfig.h"
-#include "lib/tty/key.h"       // KEY_F()
-#include "lib/plugin-prefs.h"  // mc_plugin_prefs_parse_hotkey()
+#include "lib/tty/key.h"
+#include "lib/plugin-prefs.h"
 
 #include "arcmc-types.h"
 #include "arcmc-config.h"
@@ -47,9 +47,7 @@ static const char *const builtin_keys[ARCMC_BUILTIN_COUNT] = {
 #define ARCMC_SECTION_EXT_PARAM "arcmc-ext-params-"
 #define ARCMC_SECTION_KEYS      "arcmc"
 
-/* Config key + default for the "Create archive" hotkey. Names are resolved
-   with tty_keyname_to_keycode() just like mc keymaps ("ctrl-a", "alt-x",
-   "shift-f1", ...); "none" disables the global hotkey. */
+/* "Create archive" hotkey; "none" disables it. */
 #define ARCMC_KEY_CREATE         "hotkey_create"
 #define ARCMC_KEY_CREATE_DEFAULT "shift-f1"
 

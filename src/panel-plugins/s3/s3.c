@@ -256,35 +256,6 @@ static const mc_panel_plugin_t s3_plugin = {
 /* Config / hotkey helpers                                                                        */
 /* --------------------------------------------------------------------------------------------- */
 
-static char *
-s3_read_config_string (const char *path, const char *key)
-{
-    char *value;
-    mc_config_t *cfg;
-
-    if (path == NULL || !g_file_test (path, G_FILE_TEST_IS_REGULAR))
-        return NULL;
-
-    cfg = mc_config_init (path, TRUE);
-    if (cfg == NULL)
-        return NULL;
-
-    value = mc_config_get_string (cfg, S3_PANEL_CONFIG_GROUP, key, NULL);
-    mc_config_deinit (cfg);
-
-    if (value == NULL)
-        return NULL;
-
-    if (value[0] == '\0')
-    {
-        g_free (value);
-        return NULL;
-    }
-    return value;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 static int
 s3_load_hotkey (const char *key, const char *default_str, int default_val)
 {
@@ -294,7 +265,7 @@ s3_load_hotkey (const char *key, const char *default_str, int default_val)
 
     user_cfg =
         g_build_filename (g_get_user_config_dir (), "mc", S3_PANEL_CONFIG_FILE, (char *) NULL);
-    val = s3_read_config_string (user_cfg, key);
+    val = mc_plugin_prefs_read_config_string (user_cfg, S3_PANEL_CONFIG_GROUP, key);
     g_free (user_cfg);
 
     code = mc_plugin_prefs_parse_hotkey (val, default_str, default_val, NULL);
