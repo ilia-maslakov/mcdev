@@ -288,9 +288,6 @@ sftp_load_hotkey (const char *key, const char *fallback_text, int fallback_key)
     sftp_save_config_defaults (config_path);
     g_free (config_path);
 
-    if (value == NULL)
-        value = g_strdup (fallback_text);
-
     hotkey = mc_plugin_prefs_parse_hotkey (value, fallback_text, fallback_key, NULL);
     g_free (value);
     return hotkey;
