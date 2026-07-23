@@ -117,35 +117,31 @@ arcmc_config_load (void)
     for (i = 0; i < ext_archivers_count; i++)
         arcmc_ext_enabled[i] = TRUE;
 
-    /* default hotkey: Shift-F1 */
-    g_free ((char *) arcmc_hotkey_create_label);
-    arcmc_hotkey_create_label = NULL;
-    g_free (arcmc_hotkey_create_text);
-    arcmc_hotkey_create_text = g_strdup (ARCMC_KEY_CREATE_DEFAULT);
-    arcmc_hotkey_create =
-        mc_plugin_prefs_parse_hotkey (ARCMC_KEY_CREATE_DEFAULT, ARCMC_KEY_CREATE_DEFAULT,
-                                      KEY_F (11), (char **) &arcmc_hotkey_create_label);
-
     cfg_path = g_build_filename (mc_config_get_path (), ARCMC_CONFIG_FILE, (char *) NULL);
     cfg = mc_config_init (cfg_path, TRUE);
     g_free (cfg_path);
 
-    if (cfg == NULL)
-        return;
-
     {
         char *value;
+        char *label = NULL;
 
-        value = mc_config_get_string (cfg, ARCMC_SECTION_KEYS, ARCMC_KEY_CREATE,
-                                      ARCMC_KEY_CREATE_DEFAULT);
-        g_free ((char *) arcmc_hotkey_create_label);
-        arcmc_hotkey_create_label = NULL;
+        if (cfg != NULL)
+            value = mc_config_get_string (cfg, ARCMC_SECTION_KEYS, ARCMC_KEY_CREATE,
+                                          ARCMC_KEY_CREATE_DEFAULT);
+        else
+            value = g_strdup (ARCMC_KEY_CREATE_DEFAULT);
+
         g_free (arcmc_hotkey_create_text);
         arcmc_hotkey_create_text = g_strdup (value);
-        arcmc_hotkey_create = mc_plugin_prefs_parse_hotkey (
-            value, ARCMC_KEY_CREATE_DEFAULT, KEY_F (11), (char **) &arcmc_hotkey_create_label);
+        arcmc_hotkey_create =
+            mc_plugin_prefs_parse_hotkey (value, ARCMC_KEY_CREATE_DEFAULT, KEY_F (11), &label);
+        g_free ((char *) arcmc_hotkey_create_label);
+        arcmc_hotkey_create_label = label;
         g_free (value);
     }
+
+    if (cfg == NULL)
+        return;
 
     for (i = 0; i < ARCMC_BUILTIN_COUNT; i++)
         arcmc_builtin_enabled[i] =
