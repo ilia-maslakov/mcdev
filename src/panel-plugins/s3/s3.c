@@ -45,6 +45,7 @@
 #include "lib/panel-cache.h"
 #include "lib/panel-plugin.h"
 #include "lib/tty/key.h"
+#include "lib/plugin-prefs.h"
 #include "lib/widget.h"
 
 #include "src/viewer/mcviewer.h"
@@ -285,20 +286,6 @@ s3_read_config_string (const char *path, const char *key)
 /* --------------------------------------------------------------------------------------------- */
 
 static int
-s3_parse_hotkey (const char *str)
-{
-    if (str == NULL || str[0] == '\0')
-        return S3_KEY_NONE;
-
-    if (g_ascii_strcasecmp (str, "none") == 0)
-        return S3_KEY_NONE;
-
-    return tty_normalize_keycode (tty_keyname_to_keycode (str, NULL));
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static int
 s3_load_hotkey (const char *key, const char *default_str, int default_val)
 {
     char *user_cfg;
@@ -310,15 +297,9 @@ s3_load_hotkey (const char *key, const char *default_str, int default_val)
     val = s3_read_config_string (user_cfg, key);
     g_free (user_cfg);
 
-    if (val != NULL)
-    {
-        code = s3_parse_hotkey (val);
-        g_free (val);
-        return code;
-    }
-
-    (void) default_str;
-    return default_val;
+    code = mc_plugin_prefs_parse_hotkey (val, default_str, default_val, NULL);
+    g_free (val);
+    return code;
 }
 
 /* --------------------------------------------------------------------------------------------- */

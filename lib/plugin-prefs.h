@@ -27,4 +27,16 @@ void mc_plugin_prefs_set_disabled (mc_plugin_kind_t kind, const char *plugin_nam
  * kind.  Caller must free with g_strfreev(). */
 gchar **mc_plugin_prefs_list_disabled (mc_plugin_kind_t kind);
 
+/* Resolve a plugin hotkey config value to a key code, shared by all panel
+ * plugins so they behave identically:
+ *   - NULL/empty          -> fallback_text is tried, else fallback_key
+ *   - "none"              -> 0 (disabled)
+ *   - a known key name    -> tty_normalize_keycode (tty_keyname_to_keycode ())
+ *                            so "shift-f1" folds to KEY_F(11) like real events
+ *   - an unknown key name -> fallback_text is tried, else fallback_key
+ * When label != NULL, *label receives a freshly allocated mc-native display
+ * string (e.g. "Shift-F1", "Ctrl-a") on success, or NULL.  Caller frees it. */
+int mc_plugin_prefs_parse_hotkey (const char *value, const char *fallback_text, int fallback_key,
+                                  char **label);
+
 #endif /* MC__PLUGIN_PREFS_H */

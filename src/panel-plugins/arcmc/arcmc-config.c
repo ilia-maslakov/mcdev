@@ -27,7 +27,8 @@
 
 #include "lib/global.h"
 #include "lib/mcconfig.h"
-#include "lib/tty/key.h"  // tty_keyname_to_keycode()
+#include "lib/tty/key.h"       // KEY_F()
+#include "lib/plugin-prefs.h"  // mc_plugin_prefs_parse_hotkey()
 
 #include "arcmc-types.h"
 #include "arcmc-config.h"
@@ -85,35 +86,6 @@ save_ext_param_str (mc_config_t *cfg, const char *section, const char *key, cons
         mc_config_set_string (cfg, section, key, "");
 }
 
-/* Resolve a hotkey config value to a key code, mirroring git/k8s/sftp:
-   empty or "none" disables the key; an unknown name falls back to the
-   builtin default. On success *label (if not NULL) receives a freshly
-   allocated display string (mc-native form, e.g. "Shift-F1", "Ctrl-a")
-   for the menu shortcut column.
-
-   tty_normalize_keycode() folds "shift-f1" (KEY_F(1)|Shift) into KEY_F(11)
-   the same way mc rewrites real key events, so the resolved code matches the
-   actual key press while the label keeps the friendly "Shift-F1" form. */
-static int
-parse_hotkey (const char *value, const char *fallback_text, int fallback_key, char **label)
-{
-    int keycode;
-
-    if (label != NULL)
-        *label = NULL;
-
-    if (value == NULL || value[0] == '\0' || g_ascii_strcasecmp (value, "none") == 0)
-        return 0;
-
-    keycode = tty_keyname_to_keycode (value, label);
-    if (keycode != 0)
-        return tty_normalize_keycode (keycode);
-
-    // unknown key name in config: use the builtin default and its label
-    keycode = tty_keyname_to_keycode (fallback_text, label);
-    return keycode != 0 ? tty_normalize_keycode (keycode) : fallback_key;
-}
-
 /*** global variables ****************************************************************************/
 
 gboolean arcmc_builtin_enabled[ARCMC_BUILTIN_COUNT];
@@ -150,8 +122,9 @@ arcmc_config_load (void)
     arcmc_hotkey_create_label = NULL;
     g_free (arcmc_hotkey_create_text);
     arcmc_hotkey_create_text = g_strdup (ARCMC_KEY_CREATE_DEFAULT);
-    arcmc_hotkey_create = parse_hotkey (ARCMC_KEY_CREATE_DEFAULT, ARCMC_KEY_CREATE_DEFAULT,
-                                        KEY_F (11), (char **) &arcmc_hotkey_create_label);
+    arcmc_hotkey_create =
+        mc_plugin_prefs_parse_hotkey (ARCMC_KEY_CREATE_DEFAULT, ARCMC_KEY_CREATE_DEFAULT,
+                                      KEY_F (11), (char **) &arcmc_hotkey_create_label);
 
     cfg_path = g_build_filename (mc_config_get_path (), ARCMC_CONFIG_FILE, (char *) NULL);
     cfg = mc_config_init (cfg_path, TRUE);
@@ -169,8 +142,8 @@ arcmc_config_load (void)
         arcmc_hotkey_create_label = NULL;
         g_free (arcmc_hotkey_create_text);
         arcmc_hotkey_create_text = g_strdup (value);
-        arcmc_hotkey_create = parse_hotkey (value, ARCMC_KEY_CREATE_DEFAULT, KEY_F (11),
-                                            (char **) &arcmc_hotkey_create_label);
+        arcmc_hotkey_create = mc_plugin_prefs_parse_hotkey (
+            value, ARCMC_KEY_CREATE_DEFAULT, KEY_F (11), (char **) &arcmc_hotkey_create_label);
         g_free (value);
     }
 

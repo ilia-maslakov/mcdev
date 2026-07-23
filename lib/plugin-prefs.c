@@ -27,6 +27,7 @@
 
 #include "lib/global.h"
 #include "lib/mcconfig.h"
+#include "lib/tty/key.h"  // tty_keyname_to_keycode(), tty_normalize_keycode()
 
 #include "plugin-prefs.h"
 
@@ -141,6 +142,39 @@ mc_plugin_prefs_list_disabled (mc_plugin_kind_t kind)
     g_strfreev (all);
 
     return (gchar **) g_ptr_array_free (out, FALSE);
+}
+
+int
+mc_plugin_prefs_parse_hotkey (const char *value, const char *fallback_text, int fallback_key,
+                              char **label)
+{
+    int key;
+
+    if (label != NULL)
+        *label = NULL;
+
+    if (value == NULL || value[0] == '\0')
+        value = fallback_text;
+
+    if (value == NULL || value[0] == '\0')
+        return fallback_key;
+
+    if (g_ascii_strcasecmp (value, "none") == 0)
+        return 0;
+
+    key = tty_keyname_to_keycode (value, label);
+    if (key != 0)
+        return tty_normalize_keycode (key);
+
+    // unrecognized key name: fall back to the builtin default (code and label)
+    if (fallback_text != NULL && g_strcmp0 (fallback_text, value) != 0)
+    {
+        key = tty_keyname_to_keycode (fallback_text, label);
+        if (key != 0)
+            return tty_normalize_keycode (key);
+    }
+
+    return fallback_key;
 }
 
 void
