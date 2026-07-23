@@ -34,7 +34,6 @@
 #include <unistd.h>
 
 #include "lib/global.h"
-#include "lib/tty/key.h"
 #include "lib/panel-plugin.h"
 #include "lib/widget.h"
 
