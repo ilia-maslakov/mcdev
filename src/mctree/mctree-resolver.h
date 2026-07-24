@@ -14,7 +14,6 @@ typedef enum
     MCTREE_CONTENT_UNKNOWN,
     MCTREE_CONTENT_JSON,
     MCTREE_CONTENT_XML,
-    MCTREE_CONTENT_HTML,
     MCTREE_CONTENT_YAML
 } mctree_content_type_t;
 

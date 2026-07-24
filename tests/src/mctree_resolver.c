@@ -52,7 +52,7 @@ write_temp_file (const char *pattern, const char *contents)
 START_TEST (test_provider_registry_reports_optional_states)
 {
     static const mctree_content_type_t types[] = { MCTREE_CONTENT_JSON, MCTREE_CONTENT_XML,
-                                                   MCTREE_CONTENT_HTML, MCTREE_CONTENT_YAML };
+                                                   MCTREE_CONTENT_YAML };
     gsize i;
 
     for (i = 0; i < G_N_ELEMENTS (types); i++)
@@ -113,60 +113,15 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
-START_TEST (test_html_file_resolves_via_recovering_parser)
+START_TEST (test_plain_text_is_not_claimed_by_xml_probe)
 {
-    const mctree_provider_t *html_provider;
-    mctree_resolver_config_t config;
-    mctree_resolver_result_t result = { 0 };
-    mctree_model_t *model;
-    GArray *rows;
-    GError *error = NULL;
-    char *path;
+    const mctree_provider_t *xml_provider;
 
-    html_provider = mctree_provider_for_type (MCTREE_CONTENT_HTML);
-    mctest_assert_not_null (html_provider);
-    if (html_provider->state != MCTREE_PROVIDER_ENABLED)
-        return;
+    xml_provider = mctree_provider_for_type (MCTREE_CONTENT_XML);
+    mctest_assert_not_null (xml_provider);
 
-    // tag soup: unclosed <li> and <br>, unquoted attribute
-    path = write_temp_file ("mctree-XXXXXX.html",
-                            "<!DOCTYPE html>\n<html><body class=main><ul><li>one<li>two<br></ul>"
-                            "</body></html>");
-
-    mctree_resolver_config_init (&config);
-    model = mctree_resolve_file (path, &config, &result, &error);
-
-    mctest_assert_null (error);
-    mctest_assert_not_null (model);
-    ck_assert_ptr_eq (result.provider, html_provider);
-    ck_assert_int_eq (result.content_type, MCTREE_CONTENT_HTML);
-
-    rows = mctree_model_build_visible_rows (model);
-    ck_assert_uint_ge (rows->len, 2);
-    ck_assert_str_eq (g_array_index (rows, mctree_visible_row_t, 0).node->key, "html");
-
-    g_array_free (rows, TRUE);
-    mctree_model_free (model);
-    mctree_resolver_result_clear (&result);
-    unlink (path);
-    g_free (path);
-}
-END_TEST
-
-/* --------------------------------------------------------------------------------------------- */
-
-START_TEST (test_plain_text_is_not_claimed_by_html_probe)
-{
-    const mctree_provider_t *html_provider;
-
-    html_provider = mctree_provider_for_type (MCTREE_CONTENT_HTML);
-    mctest_assert_not_null (html_provider);
-    if (html_provider->state != MCTREE_PROVIDER_ENABLED)
-        return;
-
-    // the recovering parser would accept this; the sniff must reject it
     mctest_assert_false (
-        html_provider->probe ((const unsigned char *) "just some notes\nsecond line\n", 28));
+        xml_provider->probe ((const unsigned char *) "just some notes\nsecond line\n", 28));
 }
 END_TEST
 
@@ -889,6 +844,178 @@ static const char *const json_invalid_inputs[] = {
     NULL,
 };
 
+static const char *const xml_valid_inputs[] = {
+    // structural
+    "<r/>",
+    "<r></r>",
+    "<r> </r>",
+    " \t\r\n <r/> \n",
+    "<r><a/><b><c/></b></r>",
+    // attributes
+    "<r a=\"1\" b='2'/>",
+    "<r a=\"\"/>",
+    "<r\n a=\"1\"\t b=\"2\" />",
+    // namespaced names pass through verbatim
+    "<ns:r ns:a=\"1\"><ns:c/></ns:r>",
+    // text, CDATA and mixed content
+    "<r>text</r>",
+    "<r><![CDATA[ raw <not> markup & co ]]></r>",
+    "<r>a<b/>c</r>",
+    // entities
+    "<r>&lt;&gt;&amp;&quot;&apos;</r>",
+    "<r>&#65;&#x41;</r>",
+    "<r a=\"&amp;\"/>",
+    // prolog and miscellany
+    "<?xml version=\"1.0\"?><r/>",
+    "<!-- lead --><r/><!-- trail -->",
+    "<?xml version=\"1.0\"?><!DOCTYPE r SYSTEM \"r.dtd\"><r/>",
+    "<!DOCTYPE r [<!ELEMENT r EMPTY>]><r/>",
+    "<r><?target data?></r>",
+    // a leading UTF-8 BOM is ignored
+    "\xef\xbb\xbf"
+    "<r/>",
+    NULL,
+};
+
+static const char *const xml_invalid_inputs[] = {
+    // structural
+    "",
+    "just some notes",
+    "<r>",
+    "</r>",
+    "<r></s>",   // mismatched end tag
+    "<r/><s/>",  // more than one root
+    "<r/>trailing",
+    "<>",
+    "<1r/>",
+    // attributes
+    "<r a/>",
+    "<r a=/>",
+    "<r a=1/>",      // unquoted value
+    "<r a=\"1/>",    // unterminated value
+    "<r a=\"<\"/>",  // raw '<' in a value
+    // unterminated constructs
+    "<r><![CDATA[oops</r>",
+    "<!-- oops",
+    "<?pi oops",
+    NULL,
+};
+
+START_TEST (test_xml_grammar_conformance)
+{
+    const mctree_provider_t *provider;
+    mctree_resolver_config_t config;
+    gsize i;
+
+    provider = mctree_provider_for_type (MCTREE_CONTENT_XML);
+    mctree_resolver_config_init (&config);
+
+    for (i = 0; xml_valid_inputs[i] != NULL; i++)
+    {
+        GError *error = NULL;
+        mctree_model_t *model;
+
+        model = provider->parse ((const unsigned char *) xml_valid_inputs[i],
+                                 strlen (xml_valid_inputs[i]), &config, &error);
+        if (model == NULL)
+            ck_abort_msg ("valid XML rejected: %s (%s)", xml_valid_inputs[i],
+                          error != NULL ? error->message : "no error");
+        mctree_model_free (model);
+        g_clear_error (&error);
+    }
+
+    for (i = 0; xml_invalid_inputs[i] != NULL; i++)
+    {
+        GError *error = NULL;
+        mctree_model_t *model;
+
+        model = provider->parse ((const unsigned char *) xml_invalid_inputs[i],
+                                 strlen (xml_invalid_inputs[i]), &config, &error);
+        if (model != NULL)
+            ck_abort_msg ("invalid XML accepted: %s", xml_invalid_inputs[i]);
+        if (error == NULL)
+            ck_abort_msg ("invalid XML rejected without diagnostic: %s", xml_invalid_inputs[i]);
+        g_clear_error (&error);
+    }
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_xml_entities_cdata_and_comments_reach_the_model)
+{
+    mctree_resolver_result_t result = { 0 };
+    mctree_model_t *model;
+    GError *error = NULL;
+    const mctree_node_t *node;
+
+    model = resolve_content ("mctree-XXXXXX.xml",
+                             "<r>\n"
+                             "  <!-- dropped -->\n"
+                             "  <e a=\"x&amp;y\">1 &lt; 2</e>\n"
+                             "  <c><![CDATA[<raw> & stuff]]></c>\n"
+                             "  <u>&#65;&#x42;</u>\n"
+                             "</r>",
+                             &result, &error);
+
+    mctest_assert_null (error);
+    mctest_assert_not_null (model);
+
+    // attribute values and text are entity-decoded
+    node = find_node_by_key (model->root, "a");
+    mctest_assert_not_null (node);
+    ck_assert_str_eq (node->value, "x&y");
+
+    node = find_node_by_key (model->root, "e");
+    mctest_assert_not_null (node);
+    ck_assert_uint_ge (mctree_node_child_count (node), 1);
+
+    // CDATA is kept verbatim, character references are decoded
+    node = find_node_by_key (model->root, "c");
+    mctest_assert_not_null (node);
+    node = find_node_by_key (model->root, "u");
+    mctest_assert_not_null (node);
+
+    // the comment produced no node
+    mctest_assert_null ((void *) find_node_by_key (model->root, "dropped"));
+
+    mctree_model_free (model);
+    mctree_resolver_result_clear (&result);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_xml_deep_nesting_is_rejected_with_diagnostic)
+{
+    const mctree_provider_t *provider;
+    mctree_resolver_config_t config;
+    mctree_model_t *model;
+    GError *error = NULL;
+    GString *deep;
+    gsize i;
+
+    provider = mctree_provider_for_type (MCTREE_CONTENT_XML);
+    mctree_resolver_config_init (&config);
+
+    deep = g_string_new ("");
+    for (i = 0; i < config.max_depth + 10; i++)
+        g_string_append (deep, "<n>");
+    for (i = 0; i < config.max_depth + 10; i++)
+        g_string_append (deep, "</n>");
+
+    model = provider->parse ((const unsigned char *) deep->str, deep->len, &config, &error);
+
+    mctest_assert_null (model);
+    mctest_assert_not_null (error);
+
+    g_clear_error (&error);
+    g_string_free (deep, TRUE);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 START_TEST (test_json_grammar_conformance)
 {
     const mctree_provider_t *provider;
@@ -1164,8 +1291,10 @@ main (void)
 
     tcase_add_test (tc_core, test_provider_registry_reports_optional_states);
     tcase_add_test (tc_core, test_xml_file_resolves_to_model_when_provider_is_present);
-    tcase_add_test (tc_core, test_html_file_resolves_via_recovering_parser);
-    tcase_add_test (tc_core, test_plain_text_is_not_claimed_by_html_probe);
+    tcase_add_test (tc_core, test_plain_text_is_not_claimed_by_xml_probe);
+    tcase_add_test (tc_core, test_xml_grammar_conformance);
+    tcase_add_test (tc_core, test_xml_entities_cdata_and_comments_reach_the_model);
+    tcase_add_test (tc_core, test_xml_deep_nesting_is_rejected_with_diagnostic);
     tcase_add_test (tc_core, test_json_file_resolves_with_builtin_provider);
     tcase_add_test (tc_core, test_yaml_file_resolves_with_builtin_provider);
     tcase_add_test (tc_core, test_yaml_grammar_conformance);

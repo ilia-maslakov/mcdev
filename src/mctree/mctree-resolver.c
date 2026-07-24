@@ -52,7 +52,6 @@
 static const mctree_provider_t *const mctree_providers[] = {
     &mctree_json_provider,
     &mctree_xml_provider,
-    &mctree_html_provider,
     &mctree_yaml_provider,
 };
 
@@ -74,8 +73,6 @@ mctree_type_from_extension (const char *path)
         type = MCTREE_CONTENT_JSON;
     else if (g_str_has_suffix (lower, ".xml") || g_str_has_suffix (lower, ".xhtml"))
         type = MCTREE_CONTENT_XML;
-    else if (g_str_has_suffix (lower, ".html") || g_str_has_suffix (lower, ".htm"))
-        type = MCTREE_CONTENT_HTML;
     else if (g_str_has_suffix (lower, ".yaml") || g_str_has_suffix (lower, ".yml"))
         type = MCTREE_CONTENT_YAML;
 
@@ -110,8 +107,6 @@ mctree_type_from_magic (const char *path)
             else if (strcmp (mime, "application/xml") == 0 || strcmp (mime, "text/xml") == 0
                      || strcmp (mime, "application/xhtml+xml") == 0)
                 type = MCTREE_CONTENT_XML;
-            else if (strcmp (mime, "text/html") == 0)
-                type = MCTREE_CONTENT_HTML;
             else if (strcmp (mime, "application/x-yaml") == 0 || strcmp (mime, "text/x-yaml") == 0
                      || strcmp (mime, "application/yaml") == 0)
                 type = MCTREE_CONTENT_YAML;
@@ -305,8 +300,6 @@ mctree_content_type_name (mctree_content_type_t type)
         return "JSON";
     case MCTREE_CONTENT_XML:
         return "XML";
-    case MCTREE_CONTENT_HTML:
-        return "HTML";
     case MCTREE_CONTENT_YAML:
         return "YAML";
     case MCTREE_CONTENT_UNKNOWN:
