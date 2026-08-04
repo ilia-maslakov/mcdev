@@ -341,6 +341,118 @@ panel_plugin_refresh (WPanel *panel)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static void
+panel_plugin_dispose_stream_source (WPanel *panel)
+{
+    panel_plugin_suspended_t *source = &panel->stream_source;
+
+    if (source->plugin != NULL && source->data != NULL)
+        source->plugin->close (source->data);
+    if (source->host != NULL)
+        g_free (source->host->focus_after);
+    g_free (source->host);
+
+    memset (source, 0, sizeof (*source));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_plugin_suspend_current (WPanel *panel)
+{
+    panel_plugin_suspended_t *source = &panel->stream_source;
+
+    panel_plugin_dispose_stream_source (panel);
+
+    source->plugin = panel->plugin;
+    source->data = panel->plugin_data;
+    source->host = panel->plugin_host;
+    source->base_list_format = panel->plugin_base_list_format;
+    source->sort_info = panel->sort_info;
+    source->sort_field = panel->sort_field;
+
+    panel->plugin = NULL;
+    panel->plugin_data = NULL;
+    panel->plugin_host = NULL;
+    panel->is_plugin_panel = FALSE;
+    panel->is_panelized = FALSE;
+
+    /* Restore the normal format while the stream consumer becomes active. */
+    set_panel_formats (panel);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_plugin_activate_finish (WPanel *panel, const mc_panel_plugin_t *plugin, mc_panel_host_t *host,
+                              void *new_data, gboolean add_history, gboolean suspend_current)
+{
+    if (panel->is_plugin_panel)
+    {
+        if (suspend_current)
+        {
+            /* A stream reader may need to reopen its source several times.
+               Keep the source instance, including its live connection, until
+               the reader leaves its root directory. */
+            panel_plugin_suspend_current (panel);
+        }
+        else
+        {
+            /* Keep pre-plugin cwd while replacing the plugin instance. */
+            vfs_path_t *keep = panel->plugin_pre_cwd_vpath;
+            panel->plugin_pre_cwd_vpath = NULL;
+            panel_plugin_close (panel);
+            panel->plugin_pre_cwd_vpath = keep;
+        }
+    }
+
+    panel->plugin_data = new_data;
+    panel->plugin = plugin;
+    panel->plugin_host = host;
+    panel->is_plugin_panel = TRUE;
+    panel->is_panelized = TRUE;
+    panel->plugin_base_list_format = panel->list_format;
+
+    panel_clean_dir (panel);
+    /* panel_clean_dir() resets these flags. */
+    panel->is_panelized = TRUE;
+    panel->is_plugin_panel = TRUE;
+
+    panel_plugin_apply_default_columns_format (panel);
+
+    if (plugin->default_sort_id != NULL)
+    {
+        const panel_field_t *sf;
+
+        sf = panel_get_field_by_id (plugin->default_sort_id);
+        if (sf != NULL)
+        {
+            panel_set_sort_order (panel, sf);
+            panel->sort_info.reverse = plugin->default_sort_reverse ? 1 : 0;
+        }
+    }
+
+    dir_list_init (&panel->dir);
+    plugin->get_items (panel->plugin_data, &panel->dir);
+
+    panel_re_sort (panel);
+    panel->dirty = TRUE;
+
+    if (add_history && panel->plugin->proto != NULL && panel->plugin->get_title != NULL)
+    {
+        const char *title = panel->plugin->get_title (panel->plugin_data);
+        if (title != NULL)
+        {
+            const char *path_tail = (title[0] != '\0') ? title : "/";
+            char *plugin_path = g_strdup_printf ("%s:%s", panel->plugin->proto, path_tail);
+            panel_directory_history_add_path (panel, plugin_path);
+            g_free (plugin_path);
+        }
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 void
 panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path)
 {
@@ -377,58 +489,96 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
         (void) saved_pre_cwd;
     }
 
-    if (panel->is_plugin_panel)
+    panel_plugin_activate_finish (panel, plugin, host, new_data, TRUE, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_activate_input_stream (WPanel *panel, const mc_panel_plugin_t *plugin,
+                                    const char *display_name, mc_pp_input_stream_t *stream)
+{
+    mc_panel_host_t *host;
+    void *new_data;
+
+    if (panel == NULL || plugin == NULL || plugin->open_input_stream == NULL || stream == NULL)
+        return FALSE;
+
+    host = g_new0 (mc_panel_host_t, 1);
+    panel_plugin_init_host (host, panel);
+
     {
-        /* Keep pre-plugin cwd while replacing the plugin instance. */
-        vfs_path_t *keep = panel->plugin_pre_cwd_vpath;
-        panel->plugin_pre_cwd_vpath = NULL;
-        panel_plugin_close (panel);
-        panel->plugin_pre_cwd_vpath = keep;
+        vfs_path_t *saved_pre_cwd = panel->plugin_pre_cwd_vpath;
+        gboolean was_plugin = panel->is_plugin_panel;
+        panel->plugin_pre_cwd_vpath =
+            was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
+
+        new_data = plugin->open_input_stream (host, display_name, stream);
+        if (new_data == NULL)
+        {
+            if (!was_plugin)
+            {
+                vfs_path_free (panel->plugin_pre_cwd_vpath, TRUE);
+                panel->plugin_pre_cwd_vpath = saved_pre_cwd;
+            }
+            g_free (host);
+            return FALSE;
+        }
+        (void) saved_pre_cwd;
     }
 
-    panel->plugin_data = new_data;
-    panel->plugin = plugin;
-    panel->plugin_host = host;
+    /* An input stream cannot be reconstructed from a panel-history path. */
+    panel_plugin_activate_finish (panel, plugin, host, new_data, FALSE, TRUE);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+panel_plugin_restore_stream_source (WPanel *panel)
+{
+    panel_plugin_suspended_t source;
+
+    if (panel == NULL || panel->stream_source.plugin == NULL || panel->stream_source.data == NULL
+        || panel->stream_source.host == NULL)
+        return FALSE;
+
+    source = panel->stream_source;
+    memset (&panel->stream_source, 0, sizeof (panel->stream_source));
+
+    if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL)
+        panel->plugin->close (panel->plugin_data);
+    if (panel->plugin_host != NULL)
+        g_free (panel->plugin_host->focus_after);
+    g_free (panel->plugin_host);
+
+    panel->plugin = NULL;
+    panel->plugin_data = NULL;
+    panel->plugin_host = NULL;
+    panel->is_plugin_panel = FALSE;
+    panel->is_panelized = FALSE;
+    set_panel_formats (panel);
+
+    panel->plugin = source.plugin;
+    panel->plugin_data = source.data;
+    panel->plugin_host = source.host;
+    panel->plugin_base_list_format = source.base_list_format;
+    panel->sort_info = source.sort_info;
+    panel->sort_field = source.sort_field;
     panel->is_plugin_panel = TRUE;
     panel->is_panelized = TRUE;
-    panel->plugin_base_list_format = panel->list_format;
 
     panel_clean_dir (panel);
-    /* panel_clean_dir() resets these flags. */
     panel->is_panelized = TRUE;
     panel->is_plugin_panel = TRUE;
-
     panel_plugin_apply_default_columns_format (panel);
 
-    if (plugin->default_sort_id != NULL)
-    {
-        const panel_field_t *sf;
-
-        sf = panel_get_field_by_id (plugin->default_sort_id);
-        if (sf != NULL)
-        {
-            panel_set_sort_order (panel, sf);
-            panel->sort_info.reverse = plugin->default_sort_reverse ? 1 : 0;
-        }
-    }
-
     dir_list_init (&panel->dir);
-    plugin->get_items (panel->plugin_data, &panel->dir);
-
+    panel->plugin->get_items (panel->plugin_data, &panel->dir);
     panel_re_sort (panel);
     panel->dirty = TRUE;
 
-    if (panel->plugin->proto != NULL && panel->plugin->get_title != NULL)
-    {
-        const char *title = panel->plugin->get_title (panel->plugin_data);
-        if (title != NULL)
-        {
-            const char *path_tail = (title[0] != '\0') ? title : "/";
-            char *plugin_path = g_strdup_printf ("%s:%s", panel->plugin->proto, path_tail);
-            panel_directory_history_add_path (panel, plugin_path);
-            g_free (plugin_path);
-        }
-    }
+    return TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -436,20 +586,25 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
 void
 panel_plugin_dispose (WPanel *panel)
 {
-    if (panel == NULL || !panel->is_plugin_panel)
+    if (panel == NULL)
         return;
 
-    if (panel->plugin != NULL && panel->plugin_data != NULL)
-        panel->plugin->close (panel->plugin_data);
+    if (panel->is_plugin_panel)
+    {
+        if (panel->plugin != NULL && panel->plugin_data != NULL)
+            panel->plugin->close (panel->plugin_data);
 
-    panel->plugin = NULL;
-    panel->plugin_data = NULL;
-    panel->is_plugin_panel = FALSE;
+        panel->plugin = NULL;
+        panel->plugin_data = NULL;
+        panel->is_plugin_panel = FALSE;
 
-    if (panel->plugin_host != NULL)
-        g_free (panel->plugin_host->focus_after);
-    g_free (panel->plugin_host);
-    panel->plugin_host = NULL;
+        if (panel->plugin_host != NULL)
+            g_free (panel->plugin_host->focus_after);
+        g_free (panel->plugin_host);
+        panel->plugin_host = NULL;
+    }
+
+    panel_plugin_dispose_stream_source (panel);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -474,6 +629,8 @@ panel_plugin_close (WPanel *panel)
         g_free (panel->plugin_host->focus_after);
     g_free (panel->plugin_host);
     panel->plugin_host = NULL;
+
+    panel_plugin_dispose_stream_source (panel);
 
     panel->is_panelized = FALSE;
 

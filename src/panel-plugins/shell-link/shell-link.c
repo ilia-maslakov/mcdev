@@ -98,6 +98,23 @@ typedef struct
     char *cwd;
 } shell_data_t;
 
+/* A stream owns everything it needs to reconnect after the source panel has
+   been replaced.  In particular, it must not borrow shell_data_t::conn or
+   shell_data_t::active. */
+typedef struct
+{
+    mc_pp_input_stream_t base;
+    shell_connection_t *connection;
+    char *path;
+} shell_input_stream_t;
+
+typedef struct
+{
+    shfs_conn_t *conn;
+    gint64 remaining;
+    gboolean finished;
+} shell_input_stream_handle_t;
+
 /*** forward declarations (file scope functions) *************************************************/
 
 static void *shell_open (mc_panel_host_t *host, const char *open_path);
@@ -108,6 +125,8 @@ static mc_pp_result_t shell_chdir (void *plugin_data, const char *dir);
 static char *shell_remote_path (const shell_data_t *data, const char *name);
 static mc_pp_result_t shell_get_local_copy (void *plugin_data, const char *fname,
                                             char **local_path);
+static mc_pp_result_t shell_get_input_stream (void *plugin_data, const char *fname,
+                                              mc_pp_input_stream_t **stream);
 static char *shell_get_location (void *plugin_data);
 static gboolean shell_exists (void *plugin_data, const char *name);
 static gboolean shell_connect (shell_data_t *data, const shell_connection_t *conn);
@@ -143,6 +162,13 @@ static mc_pp_result_t shell_connection_to_local_copy (const shell_connection_t *
                                                       char **local_path);
 static mc_pp_result_t shell_handle_key (void *plugin_data, int key);
 static void shell_configure (void);
+static shell_connection_t *shell_connection_clone (const shell_connection_t *conn);
+static mc_pp_result_t shell_input_stream_open (mc_pp_input_stream_t *stream, void **handle,
+                                               GError **error);
+static gssize shell_input_stream_read (mc_pp_input_stream_t *stream, void *handle, void *buf,
+                                       gsize size, GError **error);
+static void shell_input_stream_close (mc_pp_input_stream_t *stream, void *handle);
+static void shell_input_stream_free (mc_pp_input_stream_t *stream);
 
 /*** file scope variables ************************************************************************/
 
@@ -197,6 +223,7 @@ static const mc_panel_plugin_t shell_plugin = {
     .read_open = shell_read_open,
     .read_chunk = shell_read_chunk,
     .read_close = shell_read_close,
+    .get_input_stream = shell_get_input_stream,
     .write_open = shell_write_open,
     .write_chunk = shell_write_chunk,
     .write_close = shell_write_close,
@@ -221,6 +248,28 @@ shell_connection_free (gpointer p)
     g_free (c->password);
     g_free (c->path);
     g_free (c);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static shell_connection_t *
+shell_connection_clone (const shell_connection_t *conn)
+{
+    shell_connection_t *copy;
+
+    if (conn == NULL)
+        return NULL;
+
+    copy = g_new0 (shell_connection_t, 1);
+    copy->label = g_strdup (conn->label);
+    copy->host = g_strdup (conn->host);
+    copy->user = g_strdup (conn->user);
+    copy->password = g_strdup (conn->password);
+    copy->path = g_strdup (conn->path);
+    copy->port = conn->port;
+    copy->compressed = conn->compressed;
+
+    return copy;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1401,13 +1450,13 @@ shell_cb_cancelled (void *user_data)
  * rather than as an error.
  */
 static void
-shell_warn_stale_helpers (shell_data_t *data)
+shell_warn_stale_helpers (const shfs_conn_t *conn)
 {
     const GPtrArray *stale;
     GString *text;
     guint i;
 
-    stale = shfs_conn_stale_helpers (data->conn);
+    stale = shfs_conn_stale_helpers (conn);
     if (stale == NULL || stale->len == 0)
         return;
 
@@ -1488,7 +1537,7 @@ shell_connect (shell_data_t *data, const shell_connection_t *conn)
         return FALSE;
     }
 
-    shell_warn_stale_helpers (data);
+    shell_warn_stale_helpers (data->conn);
 
     data->active = conn;
     g_free (data->cwd);
@@ -1654,6 +1703,182 @@ shell_remote_path (const shell_data_t *data, const char *name)
         return g_strdup (name);
 
     return mc_build_filename (data->cwd, name, (char *) NULL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+shell_input_stream_open (mc_pp_input_stream_t *stream, void **handle, GError **error)
+{
+    shell_input_stream_t *source = (shell_input_stream_t *) stream;
+    shell_input_stream_handle_t *stream_handle;
+    shfs_conn_params_t params;
+    shfs_connect_cb_t cb;
+    gint64 remaining;
+
+    if (handle != NULL)
+        *handle = NULL;
+
+    if (source == NULL || source->connection == NULL || source->path == NULL || handle == NULL)
+    {
+        g_set_error (error, SHFS_ERROR, SHFS_ERR_FAILED, "%s",
+                     _ ("shell: invalid archive input stream"));
+        return MC_PPR_FAILED;
+    }
+
+    memset (&params, 0, sizeof (params));
+    params.host = source->connection->host;
+    params.user = source->connection->user;
+    params.password = source->connection->password;
+    params.port = source->connection->port;
+    params.compressed = source->connection->compressed;
+
+    memset (&cb, 0, sizeof (cb));
+    cb.hostkey = shell_cb_hostkey;
+    cb.password = shell_cb_password;
+    cb.passphrase = shell_cb_passphrase;
+    cb.status = shell_cb_status;
+    cb.cancelled = shell_cb_cancelled;
+    cb.terminal_acquire = shell_cb_terminal_acquire;
+    cb.terminal_release = shell_cb_terminal_release;
+
+    stream_handle = g_new0 (shell_input_stream_handle_t, 1);
+
+    tty_enable_interrupt_key ();
+    stream_handle->conn = shfs_conn_open (&params, &cb, error);
+    tty_disable_interrupt_key ();
+
+    if (stream_handle->conn == NULL)
+    {
+        g_free (stream_handle);
+        return MC_PPR_FAILED;
+    }
+
+    shell_warn_stale_helpers (stream_handle->conn);
+
+    if (!shfs_get_begin (stream_handle->conn, source->path, 0, 0, &remaining, error))
+    {
+        shfs_conn_close (stream_handle->conn);
+        g_free (stream_handle);
+        return MC_PPR_FAILED;
+    }
+
+    stream_handle->remaining = remaining;
+    stream_handle->finished = (remaining == 0);
+    *handle = stream_handle;
+
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gssize
+shell_input_stream_read (mc_pp_input_stream_t *stream, void *handle, void *buf, gsize size,
+                         GError **error)
+{
+    shell_input_stream_handle_t *stream_handle = (shell_input_stream_handle_t *) handle;
+    gssize bytes;
+
+    (void) stream;
+
+    if (stream_handle == NULL || stream_handle->conn == NULL)
+    {
+        g_set_error (error, SHFS_ERROR, SHFS_ERR_CLOSED, "%s",
+                     _ ("shell: archive input stream is closed"));
+        return -1;
+    }
+
+    bytes = shfs_get_read (stream_handle->conn, buf, size, error);
+    if (bytes > 0)
+    {
+        stream_handle->remaining -= bytes;
+        stream_handle->finished = (stream_handle->remaining == 0);
+    }
+    else if (bytes == 0)
+        stream_handle->finished = TRUE;
+
+    return bytes;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+shell_input_stream_close (mc_pp_input_stream_t *stream, void *handle)
+{
+    shell_input_stream_handle_t *stream_handle = (shell_input_stream_handle_t *) handle;
+
+    (void) stream;
+
+    if (stream_handle == NULL)
+        return;
+
+    if (stream_handle->conn != NULL)
+    {
+        if (stream_handle->finished)
+        {
+            GError *error = NULL;
+
+            (void) shfs_get_finish (stream_handle->conn, NULL, &error);
+            g_clear_error (&error);
+        }
+        shfs_conn_close (stream_handle->conn);
+    }
+
+    g_free (stream_handle);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+shell_input_stream_free (mc_pp_input_stream_t *stream)
+{
+    shell_input_stream_t *source = (shell_input_stream_t *) stream;
+
+    if (source == NULL)
+        return;
+
+    shell_connection_free (source->connection);
+    g_free (source->path);
+    g_free (source);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const mc_pp_input_stream_ops_t shell_input_stream_ops = {
+    .open = shell_input_stream_open,
+    .read = shell_input_stream_read,
+    .close = shell_input_stream_close,
+    .free = shell_input_stream_free,
+};
+
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_pp_result_t
+shell_get_input_stream (void *plugin_data, const char *fname, mc_pp_input_stream_t **stream)
+{
+    shell_data_t *data = (shell_data_t *) plugin_data;
+    shell_input_stream_t *source;
+
+    if (stream != NULL)
+        *stream = NULL;
+
+    if (data == NULL || stream == NULL || fname == NULL || data->helpers_mode || data->conn == NULL
+        || data->active == NULL)
+        return MC_PPR_NOT_SUPPORTED;
+
+    source = g_new0 (shell_input_stream_t, 1);
+    source->base.ops = &shell_input_stream_ops;
+    source->connection = shell_connection_clone (data->active);
+    source->path = shell_remote_path (data, fname);
+
+    if (source->connection == NULL || source->path == NULL)
+    {
+        shell_input_stream_free (&source->base);
+        return MC_PPR_FAILED;
+    }
+
+    *stream = &source->base;
+    return MC_PPR_OK;
 }
 
 /* --------------------------------------------------------------------------------------------- */

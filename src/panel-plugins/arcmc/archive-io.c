@@ -53,6 +53,7 @@
 
 #include "arcmc-types.h"
 #include "arcmc-config.h"
+#include "arcmc-reader.h"
 #include "progress.h"
 #include "archive-io.h"
 
@@ -1318,21 +1319,12 @@ arcmc_read_archive_res (arcmc_data_t *data)
     struct archive *a;
     struct archive_entry *entry;
     arcmc_read_result_t res = ARCMC_READ_OK;
+    arcmc_archive_reader_ctx_t *reader_ctx;
     int r;
 
-    a = archive_read_new ();
-    archive_read_support_filter_all (a);
-    archive_read_support_format_all (a);
-
-    if (data->password != NULL)
-        archive_read_add_passphrase (a, data->password);
-
-    r = archive_read_open_filename (a, data->archive_path, 10240);
-    if (r != ARCHIVE_OK)
-    {
-        archive_read_free (a);
+    a = arcmc_archive_reader_open (data, &reader_ctx);
+    if (a == NULL)
         return ARCMC_READ_FAILED;
-    }
 
     if (data->all_entries != NULL)
         g_ptr_array_free (data->all_entries, TRUE);
@@ -1420,7 +1412,7 @@ arcmc_read_archive_res (arcmc_data_t *data)
     if (res == ARCMC_READ_ENCRYPTED && archive_format (a) == ARCHIVE_FORMAT_7ZIP)
         res = ARCMC_READ_ENCRYPTED_7Z;
 
-    archive_read_free (a);
+    arcmc_archive_reader_close (a, reader_ctx);
     return res;
 }
 
@@ -1452,17 +1444,23 @@ arcmc_try_open (arcmc_data_t *data)
     if (res == ARCMC_READ_OK)
         return TRUE;
 
-    /* try extfs helper as fallback */
-    data->extfs_helper = arcmc_find_extfs_helper (data->archive_path);
-
-    /* the archive may be a 7z named without the .7z extension */
-    if (res == ARCMC_READ_ENCRYPTED_7Z && data->extfs_helper == NULL && fmt == NULL)
+    /* an external helper is given a filename, so it has nothing to open when the
+       archive arrives as a stream */
+    if (data->input_stream == NULL)
     {
-        const arcmc_builtin_format_t *sevenzip = &arcmc_builtin_formats[ARCMC_FMT_7Z];
+        /* try extfs helper as fallback */
+        data->extfs_helper = arcmc_find_extfs_helper (data->archive_path);
 
-        if (sevenzip->enabled
-            && (sevenzip->unpack == ARCMC_BACKEND_BOTH || sevenzip->unpack == ARCMC_BACKEND_EXTERN))
-            data->extfs_helper = arcmc_extfs_helper_path (sevenzip->extfs_helper);
+        /* the archive may be a 7z named without the .7z extension */
+        if (res == ARCMC_READ_ENCRYPTED_7Z && data->extfs_helper == NULL && fmt == NULL)
+        {
+            const arcmc_builtin_format_t *sevenzip = &arcmc_builtin_formats[ARCMC_FMT_7Z];
+
+            if (sevenzip->enabled
+                && (sevenzip->unpack == ARCMC_BACKEND_BOTH
+                    || sevenzip->unpack == ARCMC_BACKEND_EXTERN))
+                data->extfs_helper = arcmc_extfs_helper_path (sevenzip->extfs_helper);
+        }
     }
 
     if (res == ARCMC_READ_FAILED)
@@ -2111,21 +2109,12 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
 {
     struct archive *a;
     struct archive_entry *entry;
+    arcmc_archive_reader_ctx_t *reader_ctx;
     int r;
 
-    a = archive_read_new ();
-    archive_read_support_filter_all (a);
-    archive_read_support_format_all (a);
-
-    if (data->password != NULL)
-        archive_read_add_passphrase (a, data->password);
-
-    r = archive_read_open_filename (a, data->archive_path, 10240);
-    if (r != ARCHIVE_OK)
-    {
-        archive_read_free (a);
+    a = arcmc_archive_reader_open (data, &reader_ctx);
+    if (a == NULL)
         return MC_PPR_FAILED;
-    }
 
     while (archive_read_next_header (a, &entry) == ARCHIVE_OK)
     {
@@ -2162,7 +2151,7 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
             {
                 if (error != NULL)
                     g_error_free (error);
-                archive_read_free (a);
+                arcmc_archive_reader_close (a, reader_ctx);
                 return MC_PPR_FAILED;
             }
 
@@ -2184,7 +2173,7 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                     unlink (*local_path);
                     g_free (*local_path);
                     *local_path = NULL;
-                    archive_read_free (a);
+                    arcmc_archive_reader_close (a, reader_ctx);
                     return MC_PPR_FAILED;
                 }
 
@@ -2202,7 +2191,7 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                             unlink (*local_path);
                             g_free (*local_path);
                             *local_path = NULL;
-                            archive_read_free (a);
+                            arcmc_archive_reader_close (a, reader_ctx);
                             return MC_PPR_FAILED;
                         }
                         wbuf += nw;
@@ -2224,7 +2213,7 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
                         unlink (*local_path);
                         g_free (*local_path);
                         *local_path = NULL;
-                        archive_read_free (a);
+                        arcmc_archive_reader_close (a, reader_ctx);
                         return MC_PPR_FAILED;
                     }
                 }
@@ -2233,12 +2222,12 @@ arcmc_extract_entry (arcmc_data_t *data, const char *target_path, char **local_p
             close (fd);
         }
 
-        archive_read_free (a);
+        arcmc_archive_reader_close (a, reader_ctx);
         return MC_PPR_OK;
     }
 
     /* entry not found */
-    archive_read_free (a);
+    arcmc_archive_reader_close (a, reader_ctx);
     return MC_PPR_FAILED;
 }
 
@@ -2368,22 +2357,14 @@ arcmc_extract_subtree (arcmc_data_t *data, const char *src_dir, const char *dest
 {
     struct archive *a;
     struct archive_entry *entry;
+    arcmc_archive_reader_ctx_t *reader_ctx;
     size_t dir_len;
     char *last_dir = NULL;
     mc_pp_result_t result = MC_PPR_OK;
 
-    a = archive_read_new ();
-    archive_read_support_filter_all (a);
-    archive_read_support_format_all (a);
-
-    if (data->password != NULL)
-        archive_read_add_passphrase (a, data->password);
-
-    if (archive_read_open_filename (a, data->archive_path, 10240) != ARCHIVE_OK)
-    {
-        archive_read_free (a);
+    a = arcmc_archive_reader_open (data, &reader_ctx);
+    if (a == NULL)
         return MC_PPR_FAILED;
-    }
 
     dir_len = strlen (src_dir);
 
@@ -2446,7 +2427,7 @@ arcmc_extract_subtree (arcmc_data_t *data, const char *src_dir, const char *dest
     }
 
     g_free (last_dir);
-    archive_read_free (a);
+    arcmc_archive_reader_close (a, reader_ctx);
 
     return result;
 }
@@ -2469,6 +2450,7 @@ arcmc_push_nested (arcmc_data_t *data, char *local_path)
     frame->password = data->password;
     frame->extfs_helper = data->extfs_helper;
     frame->all_entries = data->all_entries;
+    frame->input_stream = data->input_stream;
     frame->temp_file = local_path;
     data->nest_stack = frame;
 
@@ -2478,6 +2460,7 @@ arcmc_push_nested (arcmc_data_t *data, char *local_path)
     data->password = NULL;
     data->extfs_helper = NULL;
     data->all_entries = NULL;
+    data->input_stream = NULL;
 
     if (!arcmc_try_open (data))
     {
@@ -2496,6 +2479,7 @@ arcmc_push_nested (arcmc_data_t *data, char *local_path)
         data->password = f->password;
         data->extfs_helper = f->extfs_helper;
         data->all_entries = f->all_entries;
+        data->input_stream = f->input_stream;
         data->nest_stack = f->prev;
 
         unlink (f->temp_file);

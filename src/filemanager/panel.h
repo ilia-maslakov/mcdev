@@ -72,6 +72,18 @@ typedef struct panel_field_struct
     GCompareFunc sort_routine;  // used by mouse_sort_col()
 } panel_field_t;
 
+/* A plugin panel temporarily hidden behind a streamed input consumer.  Its
+   connection stays alive so closing the consumer can restore the exact panel. */
+typedef struct
+{
+    const mc_panel_plugin_t *plugin;
+    void *data;
+    mc_panel_host_t *host;
+    list_format_t base_list_format;
+    dir_sort_options_t sort_info;
+    const panel_field_t *sort_field;
+} panel_plugin_suspended_t;
+
 typedef struct
 {
     Widget widget;
@@ -85,12 +97,13 @@ typedef struct
 
     gboolean is_panelized;  // Special mode: list not reloaded from disk (plugins set this too)
 
-    gboolean is_plugin_panel;               // TRUE when driven by a panel plugin
-    const mc_panel_plugin_t *plugin;        // active plugin descriptor, or NULL
-    void *plugin_data;                      // instance handle from plugin->open()
-    mc_panel_host_t *plugin_host;           // host interface given to the plugin
-    list_format_t plugin_base_list_format;  // list format active before plugin custom columns
-    vfs_path_t *plugin_pre_cwd_vpath;       // panel cwd captured at activation; restored on close
+    gboolean is_plugin_panel;                // TRUE when driven by a panel plugin
+    const mc_panel_plugin_t *plugin;         // active plugin descriptor, or NULL
+    void *plugin_data;                       // instance handle from plugin->open()
+    mc_panel_host_t *plugin_host;            // host interface given to the plugin
+    list_format_t plugin_base_list_format;   // list format active before plugin custom columns
+    vfs_path_t *plugin_pre_cwd_vpath;        // panel cwd captured at activation; restored on close
+    panel_plugin_suspended_t stream_source;  // source suspended while a stream consumer is active
 
     int codepage;  // Panel codepage
 
@@ -205,6 +218,10 @@ void panel_plugin_apply_default_columns_format (WPanel *panel);
 void panel_plugin_refresh (WPanel *panel);
 void panel_plugin_reload (WPanel *panel);
 void panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const char *open_path);
+gboolean panel_plugin_activate_input_stream (WPanel *panel, const mc_panel_plugin_t *plugin,
+                                             const char *display_name,
+                                             mc_pp_input_stream_t *stream);
+gboolean panel_plugin_restore_stream_source (WPanel *panel);
 gboolean panel_plugin_activate_by_name (WPanel *panel, const char *plugin_name,
                                         const char *open_path);
 const mc_panel_plugin_t *panel_plugin_find_by_path (const char *open_path);

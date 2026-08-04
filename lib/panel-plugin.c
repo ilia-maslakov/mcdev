@@ -138,6 +138,15 @@ mc_pp_quiet_messages (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
+void
+mc_pp_input_stream_free (mc_pp_input_stream_t *stream)
+{
+    if (stream != NULL && stream->ops != NULL && stream->ops->free != NULL)
+        stream->ops->free (stream);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 gboolean
 mc_pp_write_temp_file (const char *tmpl, const void *data, gssize len, char **local_path)
 {

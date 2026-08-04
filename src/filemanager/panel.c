@@ -2706,7 +2706,8 @@ goto_parent_dir (WPanel *panel)
                 }
 
                 g_free (focus_name);
-                panel_plugin_close (panel);
+                if (r != MC_PPR_CLOSE || !panel_plugin_restore_stream_source (panel))
+                    panel_plugin_close (panel);
 
                 if (plugin_focus != NULL)
                 {
@@ -3415,6 +3416,7 @@ do_enter (WPanel *panel)
         gboolean local_files = (panel->plugin->flags & MC_PPF_LOCAL_FILES) != 0;
         gboolean is_dotdot =
             (fe->fname != NULL && fe->fname->str != NULL && strcmp (fe->fname->str, "..") == 0);
+        mc_pp_result_t enter_result = MC_PPR_NOT_SUPPORTED;
 
         /* LOCAL_FILES plugins without navigation hooks use native file handling. */
         if (local_files && panel->plugin->enter == NULL
@@ -3453,16 +3455,14 @@ do_enter (WPanel *panel)
         // let plugin handle enter first
         if (panel->plugin->enter != NULL)
         {
-            mc_pp_result_t r;
-
-            r = panel->plugin->enter (panel->plugin_data, fe->fname->str, &fe->st);
+            enter_result = panel->plugin->enter (panel->plugin_data, fe->fname->str, &fe->st);
             if (!panel->is_plugin_panel || panel->plugin == NULL || panel->plugin_data == NULL)
             {
                 g_free (focus_name);
                 return TRUE;
             }
 
-            if (r == MC_PPR_OK)
+            if (enter_result == MC_PPR_OK)
             {
                 if (panel->plugin->get_focus_name != NULL)
                 {
@@ -3478,6 +3478,27 @@ do_enter (WPanel *panel)
                     panel_set_current_by_name (panel, focus_name);
                 g_free (focus_name);
                 return TRUE;
+            }
+        }
+
+        if (enter_result == MC_PPR_NOT_SUPPORTED && S_ISREG (fe->st.st_mode)
+            && panel->plugin->get_input_stream != NULL)
+        {
+            const mc_panel_plugin_t *arcmc;
+            mc_pp_input_stream_t *stream = NULL;
+
+            arcmc = mc_panel_plugin_find_by_name ("arcmc");
+            if (arcmc != NULL
+                && panel->plugin->get_input_stream (panel->plugin_data, fe->fname->str, &stream)
+                    == MC_PPR_OK
+                && stream != NULL)
+            {
+                if (panel_plugin_activate_input_stream (panel, arcmc, fe->fname->str, stream))
+                {
+                    g_free (focus_name);
+                    return TRUE;
+                }
+                mc_pp_input_stream_free (stream);
             }
         }
 
@@ -3524,7 +3545,8 @@ do_enter (WPanel *panel)
                     }
 
                     g_free (focus_name);
-                    panel_plugin_close (panel);
+                    if (r != MC_PPR_CLOSE || !panel_plugin_restore_stream_source (panel))
+                        panel_plugin_close (panel);
 
                     if (plugin_focus != NULL)
                     {

@@ -87,21 +87,23 @@ typedef struct arcmc_nest_frame_t
     char *password;
     char *extfs_helper;
     GPtrArray *all_entries;
-    char *temp_file; /* extracted temp file (to unlink on pop), or NULL */
+    mc_pp_input_stream_t *input_stream; /* owned source of the outer archive, or NULL */
+    char *temp_file;                    /* extracted temp file (to unlink on pop), or NULL */
 } arcmc_nest_frame_t;
 
 typedef struct
 {
     mc_panel_host_t *host;
-    char *archive_path;             /* path to the archive on disk */
-    char *current_dir;              /* current directory inside the archive ("" = root) */
-    char *password;                 /* password (if encrypted), NULL otherwise */
-    GPtrArray *all_entries;         /* flat list of all entries from the archive */
-    char *title_buf;                /* buffer for get_title */
-    char *extfs_helper;             /* full path to extfs helper, or NULL for libarchive mode */
-    arcmc_nest_frame_t *nest_stack; /* stack of outer archives for nested browsing */
-    GHashTable *bulk_cache;         /* bulk extract cache: filename -> local_path */
-    char *bulk_temp_dir;            /* temp directory for bulk-extracted files */
+    char *archive_path;                 /* path to the archive on disk */
+    char *current_dir;                  /* current directory inside the archive ("" = root) */
+    char *password;                     /* password (if encrypted), NULL otherwise */
+    GPtrArray *all_entries;             /* flat list of all entries from the archive */
+    char *title_buf;                    /* buffer for get_title */
+    char *extfs_helper;                 /* full path to extfs helper, or NULL for libarchive mode */
+    mc_pp_input_stream_t *input_stream; /* owned non-local archive source, or NULL */
+    arcmc_nest_frame_t *nest_stack;     /* stack of outer archives for nested browsing */
+    GHashTable *bulk_cache;             /* bulk extract cache: filename -> local_path */
+    char *bulk_temp_dir;                /* temp directory for bulk-extracted files */
 } arcmc_data_t;
 
 /* Progress dialog context for pack/extract operations */

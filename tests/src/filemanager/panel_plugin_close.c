@@ -99,14 +99,47 @@ mock_mc_panel_plugin_find_by_prefix (const char *prefix)
     return find_by_prefix_result;
 }
 
+/* @Mock */
+static void
+mock_panel_clean_dir (WPanel *panel)
+{
+    panel->is_panelized = FALSE;
+}
+
+/* @Mock */
+static void
+mock_panel_plugin_apply_default_columns_format (WPanel *panel)
+{
+    (void) panel;
+}
+
+/* @Mock */
+static gboolean
+mock_dir_list_init (dir_list *list)
+{
+    (void) list;
+    return TRUE;
+}
+
+/* @Mock */
+static void
+mock_panel_re_sort (WPanel *panel)
+{
+    (void) panel;
+}
+
 /* Redirect calls inside panel_plugin_ui.c to local mocks via preprocessor.
    This is a compile-time seam: panel_plugin_close() calls
    mock_set_panel_formats / mock_panel_reload instead of the real ones. */
-#define set_panel_formats                mock_set_panel_formats
-#define panel_reload                     mock_panel_reload
-#define panel_do_cd                      mock_panel_do_cd
-#define panel_directory_history_add_path mock_panel_directory_history_add_path
-#define mc_panel_plugin_find_by_prefix   mock_mc_panel_plugin_find_by_prefix
+#define set_panel_formats                         mock_set_panel_formats
+#define panel_reload                              mock_panel_reload
+#define panel_do_cd                               mock_panel_do_cd
+#define panel_directory_history_add_path          mock_panel_directory_history_add_path
+#define mc_panel_plugin_find_by_prefix            mock_mc_panel_plugin_find_by_prefix
+#define panel_clean_dir                           mock_panel_clean_dir
+#define panel_plugin_apply_default_columns_format mock_panel_plugin_apply_default_columns_format
+#define dir_list_init                             mock_dir_list_init
+#define panel_re_sort                             mock_panel_re_sort
 
 #include "src/filemanager/panel_plugin_ui.c"
 
@@ -115,11 +148,19 @@ mock_mc_panel_plugin_find_by_prefix (const char *prefix)
 #undef panel_do_cd
 #undef panel_directory_history_add_path
 #undef mc_panel_plugin_find_by_prefix
+#undef panel_clean_dir
+#undef panel_plugin_apply_default_columns_format
+#undef dir_list_init
+#undef panel_re_sort
 
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean mock_plugin_close_called;
 static const char *mock_plugin_title;
+static gboolean mock_input_stream_open_called;
+static gboolean mock_input_stream_freed;
+static gboolean mock_stream_target_close_called;
+static mc_pp_input_stream_t *mock_stream_target_input;
 
 static void
 mock_plugin_close (void *data)
@@ -144,6 +185,92 @@ static const mc_panel_plugin_t mock_plugin = {
 
 /* --------------------------------------------------------------------------------------------- */
 
+static mc_pp_result_t
+mock_plugin_get_items (void *data, void *list)
+{
+    (void) data;
+    (void) list;
+    return MC_PPR_OK;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void *
+mock_open_input_stream_accept (mc_panel_host_t *host, const char *display_name,
+                               mc_pp_input_stream_t *stream)
+{
+    static int target_data;
+
+    (void) host;
+    (void) display_name;
+
+    mock_stream_target_input = stream;
+    return &target_data;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mock_stream_target_close (void *data)
+{
+    (void) data;
+
+    mock_stream_target_close_called = TRUE;
+    mc_pp_input_stream_free (mock_stream_target_input);
+    mock_stream_target_input = NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const mc_panel_plugin_t mock_stream_source_plugin = {
+    .name = "source",
+    .close = mock_plugin_close,
+    .get_items = mock_plugin_get_items,
+};
+
+static const mc_panel_plugin_t mock_stream_target_plugin = {
+    .name = "target",
+    .close = mock_stream_target_close,
+    .get_items = mock_plugin_get_items,
+    .open_input_stream = mock_open_input_stream_accept,
+};
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void *
+mock_open_input_stream_reject (mc_panel_host_t *host, const char *display_name,
+                               mc_pp_input_stream_t *stream)
+{
+    (void) host;
+    (void) display_name;
+
+    mock_input_stream_open_called = (stream != NULL);
+    return NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mock_input_stream_free (mc_pp_input_stream_t *stream)
+{
+    (void) stream;
+
+    mock_input_stream_freed = TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const mc_pp_input_stream_ops_t mock_input_stream_ops = {
+    .free = mock_input_stream_free,
+};
+
+static const mc_panel_plugin_t mock_input_stream_rejecting_plugin = {
+    .name = "rejecting",
+    .open_input_stream = mock_open_input_stream_reject,
+};
+
+/* --------------------------------------------------------------------------------------------- */
+
 /* @Before */
 static void
 setup (void)
@@ -154,6 +281,10 @@ setup (void)
     panel_history_add_called = FALSE;
     mock_plugin_close_called = FALSE;
     mock_plugin_title = NULL;
+    mock_input_stream_open_called = FALSE;
+    mock_input_stream_freed = FALSE;
+    mock_stream_target_close_called = FALSE;
+    mock_stream_target_input = NULL;
     g_clear_pointer (&last_find_prefix, g_free);
     find_by_prefix_result = NULL;
     call_counter = 0;
@@ -300,6 +431,65 @@ END_TEST
 /* --------------------------------------------------------------------------------------------- */
 
 /* @Test */
+START_TEST (test_closing_stream_consumer_restores_suspended_source)
+{
+    WPanel panel;
+    mc_panel_host_t *source_host;
+    mc_pp_input_stream_t stream = { .ops = &mock_input_stream_ops };
+    int source_data = 42;
+
+    memset (&panel, 0, sizeof (panel));
+    panel.is_plugin_panel = TRUE;
+    panel.is_panelized = TRUE;
+    panel.plugin = &mock_stream_source_plugin;
+    panel.plugin_data = &source_data;
+    source_host = g_new0 (mc_panel_host_t, 1);
+    panel.plugin_host = source_host;
+
+    ck_assert (panel_plugin_activate_input_stream (&panel, &mock_stream_target_plugin, "remote.tar",
+                                                   &stream));
+    ck_assert_ptr_eq ((const void *) panel.plugin, (const void *) &mock_stream_target_plugin);
+    ck_assert_ptr_eq ((const void *) panel.stream_source.plugin,
+                      (const void *) &mock_stream_source_plugin);
+    ck_assert (!mock_plugin_close_called);
+
+    ck_assert (panel_plugin_restore_stream_source (&panel));
+    ck_assert (mock_stream_target_close_called);
+    ck_assert (mock_input_stream_freed);
+    ck_assert_ptr_eq ((const void *) panel.plugin, (const void *) &mock_stream_source_plugin);
+    ck_assert_ptr_eq (panel.plugin_data, &source_data);
+    mctest_assert_null (panel.stream_source.plugin);
+
+    panel_plugin_dispose (&panel);
+    ck_assert (mock_plugin_close_called);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* @Test */
+START_TEST (test_input_stream_stays_with_caller_when_target_rejects_it)
+{
+    WPanel panel;
+    mc_pp_input_stream_t stream = { .ops = &mock_input_stream_ops };
+
+    memset (&panel, 0, sizeof (panel));
+
+    ck_assert (!panel_plugin_activate_input_stream (&panel, &mock_input_stream_rejecting_plugin,
+                                                    "remote.tar", &stream));
+    ck_assert (mock_input_stream_open_called);
+    ck_assert (!mock_input_stream_freed);
+    mctest_assert_null (panel.plugin);
+    mctest_assert_null (panel.plugin_data);
+
+    mc_pp_input_stream_free (&stream);
+    ck_assert (mock_input_stream_freed);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* @Test */
 START_TEST (test_plugin_find_by_path_uses_prefix_registry)
 {
     const mc_panel_plugin_t *plugin;
@@ -343,6 +533,8 @@ main (void)
     tcase_add_test (tc_core, test_plugin_close_null_panel);
     tcase_add_test (tc_core, test_plugin_close_not_plugin_panel);
     tcase_add_test (tc_core, test_plugin_close_clears_plugin_host_with_focus_after);
+    tcase_add_test (tc_core, test_closing_stream_consumer_restores_suspended_source);
+    tcase_add_test (tc_core, test_input_stream_stays_with_caller_when_target_rejects_it);
     tcase_add_test (tc_core, test_plugin_find_by_path_uses_prefix_registry);
     tcase_add_test (tc_core, test_plugin_find_by_path_ignores_unknown_prefix);
 

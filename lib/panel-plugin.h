@@ -15,7 +15,7 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 10
+#define MC_PANEL_PLUGIN_API_VERSION 11
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
 
 /* Well-known target menu names for mc_pp_cmd_menu_entry_t.menu_name.
@@ -64,6 +64,26 @@ typedef enum
 
 /* Forward declaration */
 struct mc_panel_host_t;
+
+/* An independently owned, re-openable byte source supplied by a panel plugin.
+   It deliberately has no VFS, protocol or libarchive knowledge. A source must
+   remain valid after the panel that created it has been closed. */
+typedef struct mc_pp_input_stream mc_pp_input_stream_t;
+
+typedef struct
+{
+    mc_pp_result_t (*open) (mc_pp_input_stream_t *stream, void **handle, GError **error);
+    gssize (*read) (mc_pp_input_stream_t *stream, void *handle, void *buf, gsize size,
+                    GError **error);
+    void (*close) (mc_pp_input_stream_t *stream, void *handle);
+    void (*free) (mc_pp_input_stream_t *stream);
+} mc_pp_input_stream_ops_t;
+
+struct mc_pp_input_stream
+{
+    const mc_pp_input_stream_ops_t *ops;
+    void *data;
+};
 
 /* Plugin action descriptor - one entry per action the plugin exposes. */
 typedef struct mc_pp_action_t
@@ -137,6 +157,12 @@ typedef struct mc_panel_plugin_t
        The ".." entry at index 0 is already created by the host;
        the plugin must NOT add ".." itself - only real items. */
     mc_pp_result_t (*get_items) (void *plugin_data, void *list /* dir_list* */);
+
+    /* Optional target for an independently owned input stream. On success the
+       callback takes ownership of @stream and returns its plugin data. On
+       failure it returns NULL and leaves @stream with the caller. */
+    void *(*open_input_stream) (mc_panel_host_t *host, const char *display_name,
+                                mc_pp_input_stream_t *stream);
 
     /* Optional (NULL = not supported) */
     mc_pp_result_t (*chdir) (void *plugin_data, const char *path);
@@ -251,6 +277,13 @@ typedef struct mc_panel_plugin_t
     gssize (*read_chunk) (void *plugin_data, void *handle, void *buf, gsize size);
     gboolean (*read_close) (void *plugin_data, void *handle, char **digest);
 
+    /* Optional independently owned input source for a file. Unlike the
+       read_* callbacks above, the returned stream remains valid after this
+       plugin panel has been closed or replaced. On MC_PPR_OK, ownership of
+       *stream transfers to the caller, which must call mc_pp_input_stream_free(). */
+    mc_pp_result_t (*get_input_stream) (void *plugin_data, const char *fname,
+                                        mc_pp_input_stream_t **stream);
+
     /* write_open() is told the final @size for protocols that must announce it
        up front. @offset is where writing starts; 0 means the beginning. */
     void *(*write_open) (void *plugin_data, const char *fname, gint64 size, gint64 offset);
@@ -296,6 +329,9 @@ gboolean mc_pp_write_temp_file (const char *tmpl, const void *data, gssize len, 
    report the failure through the return value, do not open a dialog. */
 gboolean mc_pp_quiet_messages (void);
 gboolean mc_pp_set_quiet_messages (gboolean quiet);
+
+/* Release an input stream returned by get_input_stream(). */
+void mc_pp_input_stream_free (mc_pp_input_stream_t *stream);
 
 /* Registry */
 gboolean mc_panel_plugin_add (const mc_panel_plugin_t *plugin);

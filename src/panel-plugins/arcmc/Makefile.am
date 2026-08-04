@@ -4,6 +4,7 @@ arcmc_LTLIBRARIES = mc-panel-arcmc.la
 mc_panel_arcmc_la_SOURCES = \
     arcmc.c \
     arcmc-config.c \
+    arcmc-reader.c \
     archive-io.c \
     progress.c \
     dialog-pack.c \
