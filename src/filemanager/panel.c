@@ -3349,6 +3349,14 @@ do_enter_on_file_entry (WPanel *panel, const file_entry_t *fe)
         return TRUE;
     }
 
+    /* SQLite plugin quietly declines non-database files, so local SQLite
+       databases open with Enter just like archives do above. */
+    if (panel_plugin_activate_by_name (panel, "sqlite", vfs_path_as_str (full_name_vpath)))
+    {
+        vfs_path_free (full_name_vpath, TRUE);
+        return TRUE;
+    }
+
     // Try associated command
     ok = regex_command (full_name_vpath, "Open") != 0;
     vfs_path_free (full_name_vpath, TRUE);
