@@ -33,4 +33,4 @@ Navigation:
 
   Ordinary rowid tables are read in rowid order.  Views and WITHOUT ROWID
   tables are supported too, but very large ones can be slower to browse.  Use
-  Ctrl-G to cancel a long database scan.
+  Ctrl-C to cancel a long database scan.

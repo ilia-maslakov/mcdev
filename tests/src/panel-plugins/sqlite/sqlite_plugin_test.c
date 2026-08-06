@@ -384,6 +384,45 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+START_TEST (test_reload_sees_external_changes)
+{
+    const mc_panel_plugin_t *plugin;
+    sqlite3 *db = NULL;
+    dir_list list = { 0 };
+    void *data;
+    char *db_path;
+
+    db_path = sqlite_test_create_rowid_database ();
+    plugin = mc_panel_plugin_register ();
+    data = plugin->open (NULL, db_path);
+    mctest_assert_not_null (data);
+
+    ck_assert_int_eq (plugin->chdir (data, "entries"), MC_PPR_OK);
+    ck_assert_int_eq (plugin->reload (data), MC_PPR_OK);
+    ck_assert_int_eq (plugin->get_items (data, &list), MC_PPR_OK);
+    mctest_assert_false (sqlite_test_list_has (&list, "rows-000000000401-000000000402"));
+    sqlite_test_list_clear (&list);
+
+    ck_assert_int_eq (sqlite3_open (db_path, &db), SQLITE_OK);
+    ck_assert_int_eq (sqlite3_exec (db,
+                                    "INSERT INTO entries (rowid, value) VALUES (402, 'row-402');",
+                                    NULL, NULL, NULL),
+                      SQLITE_OK);
+    sqlite3_close (db);
+
+    ck_assert_int_eq (plugin->reload (data), MC_PPR_OK);
+    ck_assert_int_eq (plugin->get_items (data, &list), MC_PPR_OK);
+    mctest_assert_true (sqlite_test_list_has (&list, "rows-000000000401-000000000402"));
+
+    sqlite_test_list_clear (&list);
+    plugin->close (data);
+    unlink (db_path);
+    g_free (db_path);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 START_TEST (test_pretty_embedded_json)
 {
     const char input[] = "{\"IndexText\":{\"LineStart\":0},\"IndexContent\":\"\\n\"}";
@@ -465,6 +504,7 @@ main (void)
     tcase_add_test (tc_core, test_rowid_page_mapping);
     tcase_add_test (tc_core, test_location_with_colon_in_database_path);
     tcase_add_test (tc_core, test_fallback_order_for_view_and_without_rowid_table);
+    tcase_add_test (tc_core, test_reload_sees_external_changes);
     tcase_add_test (tc_core, test_pretty_embedded_json);
     tcase_add_test (tc_core, test_non_database_is_declined);
     tcase_add_test (tc_core, test_closing_database_focuses_its_file);

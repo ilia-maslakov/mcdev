@@ -865,17 +865,17 @@ AS_CASE([$enable_panel_plugin_sqlite],
     [AC_MSG_ERROR([bad value '$enable_panel_plugin_sqlite' for --enable-panel-plugin-sqlite (use auto, yes, or no)])])
 
 if test "x$enable_panel_plugin_sqlite" != xno; then
-    PKG_CHECK_MODULES([SQLITE3], [sqlite3], [have_panel_plugin_sqlite=yes], [:])
+    PKG_CHECK_MODULES([SQLITE3], [sqlite3 >= 3.26], [have_panel_plugin_sqlite=yes], [:])
 fi
 
 if test "x$enable_panel_plugin_sqlite" = xyes && test "x$have_panel_plugin_sqlite" != xyes; then
-    AC_MSG_ERROR([SQLite panel plugin requested but sqlite3 development files were not found.
+    AC_MSG_ERROR([SQLite panel plugin requested but sqlite3 >= 3.26 development files were not found.
 Install the SQLite development package (for example: libsqlite3-dev) or use
 --enable-panel-plugin-sqlite=auto/no.])
 fi
 
 if test "x$enable_panel_plugin_sqlite" = xauto && test "x$have_panel_plugin_sqlite" != xyes; then
-    AC_MSG_WARN([SQLite panel plugin disabled: sqlite3 development files were not found.])
+    AC_MSG_WARN([SQLite panel plugin disabled: sqlite3 >= 3.26 development files were not found.])
 fi
 
 AM_CONDITIONAL([ENABLE_PANEL_PLUGIN_SQLITE], [test x"$have_panel_plugin_sqlite" = xyes])

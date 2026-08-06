@@ -70,10 +70,13 @@ typedef struct
     sqlite_level_t level;
     gint64 row_count;
     gint64 page_first;
+    int data_version;
     gboolean object_uses_rowid;
     const char *rowid_name;    /* one of SQLite's unshadowed rowid aliases */
     GArray *rowid_page_starts; /* gint64, one entry for every 200 rows */
     GArray *page_rowids;       /* gint64, IDs for the currently open page */
+    GPtrArray *page_rows;      /* rendered rows of the currently open page */
+    gboolean page_rows_unfolded;
 } sqlite_data_t;
 
 /*** forward declarations (file scope functions) *************************************************/
@@ -138,6 +141,42 @@ sqlite_progress_handler (void *user_data)
     (void) user_data;
 
     return tty_got_interrupt () ? 1 : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sqlite_begin_interruptible (sqlite_data_t *data)
+{
+    tty_enable_interrupt_key ();
+    sqlite3_progress_handler (data->db, 1000, sqlite_progress_handler, NULL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+sqlite_end_interruptible (sqlite_data_t *data)
+{
+    sqlite3_progress_handler (data->db, 0, NULL, NULL);
+    tty_disable_interrupt_key ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+sqlite_data_version (sqlite_data_t *data)
+{
+    sqlite3_stmt *stmt = NULL;
+    int version = 0;
+
+    if (sqlite3_prepare_v2 (data->db, "PRAGMA data_version", -1, &stmt, NULL) == SQLITE_OK)
+    {
+        if (sqlite3_step (stmt) == SQLITE_ROW)
+            version = sqlite3_column_int (stmt, 0);
+        sqlite3_finalize (stmt);
+    }
+
+    return version;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -416,6 +455,11 @@ sqlite_clear_current_page (sqlite_data_t *data)
         g_array_free (data->page_rowids, TRUE);
         data->page_rowids = NULL;
     }
+    if (data->page_rows != NULL)
+    {
+        g_ptr_array_free (data->page_rows, TRUE);
+        data->page_rows = NULL;
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -453,7 +497,7 @@ sqlite_load_rowid_pages (sqlite_data_t *data)
         return FALSE;
 
     starts = g_array_new (FALSE, FALSE, sizeof (gint64));
-    sqlite3_progress_handler (data->db, 1000, sqlite_progress_handler, NULL);
+    sqlite_begin_interruptible (data);
     while ((rc = sqlite3_step (stmt)) == SQLITE_ROW)
     {
         gint64 rowid = sqlite3_column_int64 (stmt, 0);
@@ -462,7 +506,7 @@ sqlite_load_rowid_pages (sqlite_data_t *data)
             g_array_append_val (starts, rowid);
         count++;
     }
-    sqlite3_progress_handler (data->db, 0, NULL, NULL);
+    sqlite_end_interruptible (data);
     sqlite3_finalize (stmt);
     if (rc != SQLITE_DONE)
     {
@@ -509,14 +553,14 @@ sqlite_load_current_page_rowids (sqlite_data_t *data)
     sqlite3_bind_int64 (stmt, 1, start);
     sqlite3_bind_int (stmt, 2, SQLITE_ROW_PAGE_SIZE);
     rowids = g_array_new (FALSE, FALSE, sizeof (gint64));
-    sqlite3_progress_handler (data->db, 1000, sqlite_progress_handler, NULL);
+    sqlite_begin_interruptible (data);
     while ((rc = sqlite3_step (stmt)) == SQLITE_ROW)
     {
         gint64 rowid = sqlite3_column_int64 (stmt, 0);
 
         g_array_append_val (rowids, rowid);
     }
-    sqlite3_progress_handler (data->db, 0, NULL, NULL);
+    sqlite_end_interruptible (data);
     sqlite3_finalize (stmt);
     if (rc != SQLITE_DONE)
     {
@@ -537,13 +581,21 @@ sqlite_update_row_count (sqlite_data_t *data)
     char *quoted;
     char *sql;
     sqlite3_stmt *stmt = NULL;
+    int version;
     int rc;
 
     if (data->object_name == NULL)
         return TRUE;
 
+    version = sqlite_data_version (data);
+
     if (data->object_uses_rowid)
-        return sqlite_load_rowid_pages (data);
+    {
+        if (!sqlite_load_rowid_pages (data))
+            return FALSE;
+        data->data_version = version;
+        return TRUE;
+    }
 
     quoted = sqlite_quote_identifier (data->object_name);
     sql = g_strdup_printf ("SELECT count(*) FROM %s", quoted);
@@ -554,11 +606,14 @@ sqlite_update_row_count (sqlite_data_t *data)
     if (rc != SQLITE_OK)
         return FALSE;
 
-    sqlite3_progress_handler (data->db, 1000, sqlite_progress_handler, NULL);
+    sqlite_begin_interruptible (data);
     rc = sqlite3_step (stmt);
-    sqlite3_progress_handler (data->db, 0, NULL, NULL);
+    sqlite_end_interruptible (data);
     if (rc == SQLITE_ROW)
+    {
         data->row_count = sqlite3_column_int64 (stmt, 0);
+        data->data_version = version;
+    }
     sqlite3_finalize (stmt);
 
     return rc == SQLITE_ROW;
@@ -884,7 +939,8 @@ sqlite_get_objects (sqlite_data_t *data, void *list_ptr)
     sqlite3_stmt *stmt = NULL;
     int rc;
 
-    mc_pp_add_entry (list_ptr, "schema.sql", S_IFREG | 0444, 0, 0);
+    if (!sqlite_object_exists (data, "schema.sql"))
+        mc_pp_add_entry (list_ptr, "schema.sql", S_IFREG | 0444, 0, 0);
 
     rc = sqlite3_prepare_v2 (data->db,
                              "SELECT name FROM sqlite_master "
@@ -1032,6 +1088,7 @@ sqlite_chdir (void *plugin_data, const char *path)
 
         if (!sqlite_parse_page_name (path, &first) || first > data->row_count)
             return MC_PPR_FAILED;
+        sqlite_clear_current_page (data);
         data->page_first = first;
         data->level = SQLITE_LEVEL_ROWS;
         if (data->object_uses_rowid && !sqlite_load_current_page_rowids (data))
@@ -1239,77 +1296,15 @@ sqlite_fallback_order_by (sqlite_data_t *data)
 /* --------------------------------------------------------------------------------------------- */
 
 static char *
-sqlite_render_row (sqlite_data_t *data, gint64 row_number, gboolean unfold_json_text)
+sqlite_render_stmt_row (sqlite3_stmt *stmt, gboolean unfold_json_text)
 {
-    char *quoted;
-    char *sql;
-    sqlite3_stmt *stmt = NULL;
     GString *out;
-    int rc;
+    int count;
     int i;
 
-    quoted = sqlite_quote_identifier (data->object_name);
-    if (data->object_uses_rowid)
-    {
-        guint index;
-        gint64 rowid;
-
-        if (data->page_rowids == NULL || row_number < data->page_first)
-        {
-            g_free (quoted);
-            return NULL;
-        }
-        index = (guint) (row_number - data->page_first);
-        if (index >= data->page_rowids->len)
-        {
-            g_free (quoted);
-            return NULL;
-        }
-        rowid = g_array_index (data->page_rowids, gint64, index);
-        sql = g_strdup_printf ("SELECT * FROM %s WHERE %s = ?1", quoted, data->rowid_name);
-        g_free (quoted);
-
-        rc = sqlite3_prepare_v2 (data->db, sql, -1, &stmt, NULL);
-        g_free (sql);
-        if (rc != SQLITE_OK)
-            return NULL;
-        sqlite3_bind_int64 (stmt, 1, rowid);
-    }
-    else
-    {
-        char *order_by;
-
-        /* Views and WITHOUT ROWID tables do not expose a stable, inexpensive
-           record key.  Sorting by the complete result makes their fallback
-           stable; rows tied on every visible value have identical JSON. */
-        order_by = sqlite_fallback_order_by (data);
-        if (order_by == NULL)
-        {
-            g_free (quoted);
-            return NULL;
-        }
-        sql = g_strdup_printf ("SELECT * FROM %s ORDER BY %s LIMIT 1 OFFSET ?1", quoted, order_by);
-        g_free (quoted);
-        g_free (order_by);
-
-        rc = sqlite3_prepare_v2 (data->db, sql, -1, &stmt, NULL);
-        g_free (sql);
-        if (rc != SQLITE_OK)
-            return NULL;
-        sqlite3_bind_int64 (stmt, 1, row_number - 1);
-    }
-
-    sqlite3_progress_handler (data->db, 1000, sqlite_progress_handler, NULL);
-    rc = sqlite3_step (stmt);
-    sqlite3_progress_handler (data->db, 0, NULL, NULL);
-    if (rc != SQLITE_ROW)
-    {
-        sqlite3_finalize (stmt);
-        return NULL;
-    }
-
+    count = sqlite3_column_count (stmt);
     out = g_string_new ("{\n");
-    for (i = 0; i < sqlite3_column_count (stmt); i++)
+    for (i = 0; i < count; i++)
     {
         const char *name = sqlite3_column_name (stmt, i);
 
@@ -1317,12 +1312,110 @@ sqlite_render_row (sqlite_data_t *data, gint64 row_number, gboolean unfold_json_
         sqlite_append_json_string (out, name, strlen (name));
         g_string_append (out, ": ");
         sqlite_append_column_value (out, stmt, i, unfold_json_text, 2);
-        g_string_append (out, i + 1 == sqlite3_column_count (stmt) ? "\n" : ",\n");
+        g_string_append (out, i + 1 == count ? "\n" : ",\n");
     }
     g_string_append (out, "}\n");
 
-    sqlite3_finalize (stmt);
     return g_string_free (out, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+/* Views and WITHOUT ROWID tables do not expose a stable, inexpensive record
+   key.  Sorting by the complete result makes their order stable; rows tied on
+   every visible value have identical JSON.  That sort covers the whole object,
+   so a page is read by one query and kept until it is left. */
+static gboolean
+sqlite_load_current_page_rows (sqlite_data_t *data, gboolean unfold_json_text)
+{
+    sqlite3_stmt *stmt = NULL;
+    GPtrArray *rows;
+    char *order_by;
+    char *quoted;
+    char *sql;
+    int rc;
+
+    order_by = sqlite_fallback_order_by (data);
+    if (order_by == NULL)
+        return FALSE;
+
+    quoted = sqlite_quote_identifier (data->object_name);
+    sql = g_strdup_printf ("SELECT * FROM %s ORDER BY %s LIMIT ?1 OFFSET ?2", quoted, order_by);
+    g_free (quoted);
+    g_free (order_by);
+
+    rc = sqlite3_prepare_v2 (data->db, sql, -1, &stmt, NULL);
+    g_free (sql);
+    if (rc != SQLITE_OK)
+        return FALSE;
+
+    sqlite3_bind_int (stmt, 1, SQLITE_ROW_PAGE_SIZE);
+    sqlite3_bind_int64 (stmt, 2, data->page_first - 1);
+
+    rows = g_ptr_array_new_with_free_func (g_free);
+    sqlite_begin_interruptible (data);
+    while ((rc = sqlite3_step (stmt)) == SQLITE_ROW)
+        g_ptr_array_add (rows, sqlite_render_stmt_row (stmt, unfold_json_text));
+    sqlite_end_interruptible (data);
+    sqlite3_finalize (stmt);
+    if (rc != SQLITE_DONE)
+    {
+        g_ptr_array_free (rows, TRUE);
+        return FALSE;
+    }
+
+    sqlite_clear_current_page (data);
+    data->page_rows = rows;
+    data->page_rows_unfolded = unfold_json_text;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static char *
+sqlite_render_row (sqlite_data_t *data, gint64 row_number, gboolean unfold_json_text)
+{
+    sqlite3_stmt *stmt = NULL;
+    char *rendered;
+    char *quoted;
+    char *sql;
+    guint index;
+    gint64 rowid;
+    int rc;
+
+    if (row_number < data->page_first)
+        return NULL;
+    index = (guint) (row_number - data->page_first);
+
+    if (!data->object_uses_rowid)
+    {
+        if ((data->page_rows == NULL || data->page_rows_unfolded != unfold_json_text)
+            && !sqlite_load_current_page_rows (data, unfold_json_text))
+            return NULL;
+        if (index >= data->page_rows->len)
+            return NULL;
+        return g_strdup (g_ptr_array_index (data->page_rows, index));
+    }
+
+    if (data->page_rowids == NULL || index >= data->page_rowids->len)
+        return NULL;
+    rowid = g_array_index (data->page_rowids, gint64, index);
+
+    quoted = sqlite_quote_identifier (data->object_name);
+    sql = g_strdup_printf ("SELECT * FROM %s WHERE %s = ?1", quoted, data->rowid_name);
+    g_free (quoted);
+
+    rc = sqlite3_prepare_v2 (data->db, sql, -1, &stmt, NULL);
+    g_free (sql);
+    if (rc != SQLITE_OK)
+        return NULL;
+
+    sqlite3_bind_int64 (stmt, 1, rowid);
+    rendered =
+        sqlite3_step (stmt) == SQLITE_ROW ? sqlite_render_stmt_row (stmt, unfold_json_text) : NULL;
+    sqlite3_finalize (stmt);
+
+    return rendered;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1533,13 +1626,21 @@ static mc_pp_result_t
 sqlite_reload (void *plugin_data)
 {
     sqlite_data_t *data = (sqlite_data_t *) plugin_data;
+    int version;
 
     if (data == NULL)
         return MC_PPR_FAILED;
     if (data->object_name == NULL)
         return MC_PPR_OK;
+
+    version = sqlite_data_version (data);
+    if (version != 0 && version == data->data_version)
+        return MC_PPR_OK;
+
     if (!sqlite_update_row_count (data))
         return MC_PPR_FAILED;
+
+    sqlite_clear_current_page (data);
     if (data->level == SQLITE_LEVEL_ROWS && data->page_first > data->row_count)
     {
         data->level = SQLITE_LEVEL_OBJECT;
