@@ -56,6 +56,7 @@ In-tree references (read these before writing your own):
   src/panel-plugins/git/         shell-driven listing, custom columns
   src/panel-plugins/panelize/    list curation; LOCAL_FILES,
                                  open_file_list, menu self-registration
+  src/panel-plugins/sqlite/      read-only SQLite table browser
 
 
 3.0 Lifecycle and Location
@@ -769,4 +770,3 @@ Editor plugins:
   - some panel plugin must advertise MC_PPF_ACCEPTS_FILE_LIST and
     implement open_file_list().  When no such plugin is loaded the
     button is hidden by design.
-

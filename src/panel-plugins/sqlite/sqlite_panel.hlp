@@ -13,6 +13,9 @@ Opening a database:
 The database is always opened read-only.  This plugin never changes its
 schema or records.
 
+  The database and any active -wal/-shm sidecar files must be readable.  A
+  database that needs an unreadable WAL file cannot be opened.
+
 Navigation:
 
   Database -> table or view -> row page -> JSON row
@@ -25,4 +28,9 @@ Navigation:
   column names and values.  If a text column itself contains a JSON object or
   array, F3 unfolds it as nested JSON.  Shift-F3 shows the original, unmodified
   stored value instead.  BLOB values are represented as a hexadecimal preview
-  together with their original byte length.
+  together with their original byte length.  Invalid UTF-8 in a TEXT value is
+  shown as byte escapes.
+
+  Ordinary rowid tables are read in rowid order.  Views and WITHOUT ROWID
+  tables are supported too, but very large ones can be slower to browse.  Use
+  Ctrl-G to cancel a long database scan.

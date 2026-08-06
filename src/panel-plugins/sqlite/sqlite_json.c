@@ -144,7 +144,7 @@ sqlite_json_parse_number (sqlite_json_parser_t *parser, GString *out)
 
     if (*parser->cur == '0')
         parser->cur++;
-    else if (g_ascii_isdigit ((guchar) *parser->cur) && *parser->cur != '0')
+    else if (g_ascii_isdigit ((guchar) *parser->cur))
     {
         do
             parser->cur++;
