@@ -410,6 +410,96 @@ jobs:
           if-no-files-found: warn
           overwrite: true
 
+  macos-package:
+    needs: [archive]
+    name: macOS package (${{ matrix.name }})
+    timeout-minutes: 60
+    # Each architecture is built on a native runner: Homebrew libraries are
+    # architecture-bound, so cross-compiling needs a universal copy of every
+    # dependency, which is more machinery than a native build of the same
+    # things. The artifact names end in -packages, matching the publish job.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Apple Silicon
+            suffix: arm64
+            runs-on: macos-latest
+          - name: Intel
+            suffix: x86_64
+            runs-on: macos-15-intel
+    runs-on: ${{ matrix.runs-on }}
+    env:
+      VERSION: ${{ needs.archive.outputs.version }}
+      SUFFIX: ${{ matrix.suffix }}
+      NAME: ${{ matrix.name }}
+
+    # The macOS build: a .pkg installer, and a .dmg carrying it. The check job
+    # above stays fast by leaving Samba and the Mongo driver out; this package
+    # is what a macOS user downloads.
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: source-archive
+          path: dist
+
+      - name: Install the libraries
+        run: brew install glib s-lang pkgconf gettext libssh2 libarchive libmagic samba mongo-c-driver
+
+      - name: Build and stage the package
+        run: |
+          brew_prefix=$(brew --prefix)
+          gettext_prefix=$(brew --prefix gettext)
+
+          # Homebrew is not on the default search paths of the compiler, and
+          # the keg-only formulas have to be pointed at by hand.
+          export CPPFLAGS="-I$brew_prefix/include -I$gettext_prefix/include"
+          export LDFLAGS="-L$brew_prefix/lib -L$gettext_prefix/lib"
+          export PKG_CONFIG_PATH="$brew_prefix/lib/pkgconfig:$(brew --prefix libarchive)/lib/pkgconfig:$(brew --prefix samba)/lib/pkgconfig:$(brew --prefix mongo-c-driver)/lib/pkgconfig"
+
+          tar -xf "dist/mc6-$VERSION.tar.gz"
+          cd "mc6-$VERSION"
+          # The package is built for /usr/local, and DESTDIR stages the tree:
+          # pkgbuild puts stage/usr/local back at /usr/local on install.
+          ./configure --prefix=/usr/local --disable-static \
+              --with-screen=slang --enable-mcterm=yes
+          make -j"$(sysctl -n hw.ncpu)"
+          make install DESTDIR="$(pwd)/stage"
+
+      - name: Build the .pkg and .dmg
+        shell: bash
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          mkdir -p out dmg
+
+          # An unsigned installer: a release for a terminal app has no Apple
+          # identity to sign with, and the package installs the same (Gatekeeper
+          # warns, then lets the user through).
+          pkgbuild \
+            --root "mc6-$VERSION/stage" \
+            --identifier "com.mcdev.mc6" \
+            --version "$VERSION" \
+            "out/mc6-$VERSION-$SUFFIX.pkg"
+
+          cp "out/mc6-$VERSION-$SUFFIX.pkg" dmg/
+          printf '%s\n' \
+            "mc6 $VERSION — $NAME" \
+            '' \
+            'Double-click the .pkg and follow the installer.' \
+            'It installs mc, mcedit, mcview and mcdiff under /usr/local.' \
+            > dmg/README.txt
+          hdiutil create \
+            -volname "mc6-$VERSION-$SUFFIX" \
+            -srcfolder dmg \
+            -ov -format UDZO \
+            "out/mc6-$VERSION-$SUFFIX.dmg"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-${{ matrix.suffix }}-packages
+          path: out/*
+          overwrite: true
+
   ppa:
     needs: archive
     runs-on: ubuntu-latest
@@ -472,7 +562,7 @@ jobs:
           overwrite: true
 
   publish:
-    needs: [debian, fedora, arch, arch-install, fedora-install, debian-install]
+    needs: [debian, fedora, arch, arch-install, fedora-install, debian-install, macos-package]
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # Runs even when a distribution failed: what did get built is still worth
