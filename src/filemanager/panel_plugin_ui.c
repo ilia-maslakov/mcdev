@@ -729,7 +729,17 @@ panel_plugin_view_file_operation (WPanel *panel, const mc_pp_file_operation_t *o
 
     g_free (host->focus_after);
     g_free (host);
-    return result == MC_PPR_OK && *local_path != NULL;
+
+    if (result != MC_PPR_OK)
+        return FALSE;
+
+    /* Success took the stream with it, so this is not a rejection to hand
+       back however little the operation left behind. */
+    if (*local_path == NULL)
+        message (D_ERROR, MSG_ERROR, _ ("%s produced nothing to view for %s"), operation->name,
+                 display_name);
+
+    return TRUE;
 }
 
 /* --------------------------------------------------------------------------------------------- */

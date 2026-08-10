@@ -75,6 +75,7 @@ typedef struct
 
 static magic_config_t magic_user_config = { NULL, NULL };
 static magic_config_t magic_system_config = { NULL, NULL };
+static gboolean magic_configs_loaded = FALSE;
 static mc_search_t *magic_action_regex = NULL;
 
 /*** file scope functions ************************************************************************/
@@ -111,8 +112,9 @@ magic_load (void)
 {
     char *path;
 
-    if (magic_user_config.ini != NULL || magic_system_config.ini != NULL)
+    if (magic_configs_loaded)
         return;
+    magic_configs_loaded = TRUE;
 
     path = mc_config_get_full_path (MC_MAGIC_FILE);
     magic_config_load (&magic_user_config, path);
@@ -288,7 +290,6 @@ magic_group_matches (mc_config_t *ini, const char *group, const mc_magic_source_
     const char *filename;
     size_t filename_len;
     gchar *pattern;
-    gboolean type_found = FALSE;
     gboolean type_used = FALSE;
 
     filename = x_basename (source->display_name);
@@ -301,9 +302,10 @@ magic_group_matches (mc_config_t *ini, const char *group, const mc_magic_source_
         if (pattern != NULL)
         {
             gboolean ignore_case = mc_config_get_bool (ini, group, "TypeIgnoreCase", FALSE);
+            gboolean type_found;
 
-            type_used = TRUE;
             type_found = magic_type_matches (pattern, ignore_case, source, local_copy, type);
+            type_used = TRUE;
             g_free (pattern);
             if (!type_found)
                 return FALSE;
@@ -330,7 +332,7 @@ magic_group_matches (mc_config_t *ini, const char *group, const mc_magic_source_
             matched = mc_search_run (search, filename, 0, filename_len, NULL);
             mc_search_free (search);
         }
-        return matched && (!type_used || type_found);
+        return matched;
     }
 
     pattern = mc_config_get_string_raw (ini, group, "Shell", NULL);
@@ -347,20 +349,20 @@ magic_group_matches (mc_config_t *ini, const char *group, const mc_magic_source_
         else
             matched = pattern_len == filename_len && cmp_func (pattern, filename, pattern_len) == 0;
         g_free (pattern);
-        return matched && (!type_used || type_found);
+        return matched;
     }
 
-    return type_used && type_found;
+    return type_used;
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 static mc_magic_action_state_t
 magic_find_in_config (magic_config_t *config, const mc_magic_source_t *source, const char *action,
-                      char **local_copy, mc_magic_action_t *result, gboolean *matched_out)
+                      char **local_copy, mc_magic_action_t *result, gboolean *matched_out,
+                      magic_type_info_t *type)
 {
     char **iter;
-    magic_type_info_t type = { FALSE, { '\0' } };
 
     *matched_out = FALSE;
     if (config->ini == NULL || config->groups == NULL)
@@ -373,16 +375,19 @@ magic_find_in_config (magic_config_t *config, const mc_magic_source_t *source, c
 
         if (strcmp (group, "Default") == 0 || strcmp (group, "magic.ini") == 0)
             continue;
-        if (!magic_group_matches (config->ini, group, source, local_copy, &type))
+        if (!magic_group_matches (config->ini, group, source, local_copy, type))
             continue;
 
-        *matched_out = TRUE;
         value = mc_config_get_string_raw (config->ini, group, action, NULL);
         if (value == NULL || value[0] == '\0')
         {
+            /* A rule with an Open= but no View= says nothing about viewing;
+               the next file, the system one, still may. */
             g_free (value);
-            return MC_MAGIC_ACTION_NONE;
+            continue;
         }
+
+        *matched_out = TRUE;
 
         {
             mc_magic_action_state_t state = magic_parse_action (value, result);
@@ -420,6 +425,7 @@ mc_magic_find_action (const mc_magic_source_t *source, const char *action, char 
                       mc_magic_action_t *result)
 {
     mc_magic_action_state_t state;
+    magic_type_info_t type = { FALSE, { '\0' } };
     gboolean matched;
 
     if (source == NULL || source->display_name == NULL || action == NULL || local_copy == NULL
@@ -429,12 +435,14 @@ mc_magic_find_action (const mc_magic_source_t *source, const char *action, char 
     mc_magic_action_clear (result);
     magic_load ();
 
-    state = magic_find_in_config (&magic_user_config, source, action, local_copy, result, &matched);
+    /* file(1) runs at most once for the file, however many rules ask. */
+    state = magic_find_in_config (&magic_user_config, source, action, local_copy, result, &matched,
+                                  &type);
     if (matched)
         return state;
 
-    return magic_find_in_config (&magic_system_config, source, action, local_copy, result,
-                                 &matched);
+    return magic_find_in_config (&magic_system_config, source, action, local_copy, result, &matched,
+                                 &type);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -458,6 +466,7 @@ mc_magic_flush (void)
 {
     magic_config_clear (&magic_user_config);
     magic_config_clear (&magic_system_config);
+    magic_configs_loaded = FALSE;
     mc_search_free (magic_action_regex);
     magic_action_regex = NULL;
 }

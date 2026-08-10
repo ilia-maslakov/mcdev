@@ -58,6 +58,7 @@
 #include "filemanager/treestore.h"  // tree_store_save
 #include "filemanager/layout.h"
 #include "filemanager/ext.h"      // flush_extension_file()
+#include "filemanager/magic.h"    // mc_magic_flush()
 #include "filemanager/command.h"  // cmdline
 #include "filemanager/panel.h"    // panalized_panel
 #include "filemanager/filenot.h"  // my_rmdir()
@@ -449,6 +450,7 @@ main (int argc, char *argv[])
     vfs_shut ();
 
     flush_extension_file ();  // does only free memory
+    mc_magic_flush ();
 
     mc_skin_deinit ();
     tty_colors_done ();
