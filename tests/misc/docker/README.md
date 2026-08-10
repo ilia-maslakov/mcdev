@@ -1,78 +1,98 @@
-# Stream sandbox
+# Sandbox
 
-A remote host with archives on it and a container that builds this tree, for
-trying out what panel plugins do with an input stream.
+Docker scenarios for trying out panel plugins by hand: a remote host with
+archives on it, and a container that builds this tree and runs mc against it.
 
-    tests/misc/docker/sandbox.sh up     # images, remote host, mc -- a few minutes
-    tests/misc/docker/sandbox.sh mc     # mc against that host
+    tests/misc/docker/sandbox.sh arcmc up     # images, remote host, mc -- a few minutes
+    tests/misc/docker/sandbox.sh arcmc mc     # mc against that scenario
 
-`sandbox.sh` with no argument lists the rest: `build` after an edit, `check`
-to ask every protocol for a listing without a terminal, `shell`, `remote`,
-`logs`, `down`, `clean`.
+The scenario name may be left out; `arcmc` is the default, or whatever
+`$MC_SANDBOX` says. `sandbox.sh` with no command lists the rest: `build` after
+an edit, `check` to ask every protocol for a listing without a terminal,
+`shell`, `remote`, `logs`, `down`, `clean`, and `list` for the scenarios there
+are.
 
-The sources are mounted read-only and copied inside the container, so the
-build leaves nothing in the working tree.  `sandbox.sh build` after an edit
-reuses the object files in the `work` volume.
+Sources are mounted read-only and copied inside the container, so a build
+leaves nothing in the working tree and reuses its object files between runs.
 
-## The remote host
+## Layout
 
-`remote`, user `mc`, password `mc`, archives in `~/archives`:
+    sandbox.sh              the driver; it holds no list of scenarios
+    common/                 what a scenario should not have to write again
+      build-mc.sh           copy the tree in, configure, make, install
+      check-remote.sh       ask each protocol for a listing
+      fixtures.sh           build the scenario directories
+      remote/               the host that serves them: sshd, vsftpd, smbd
+    scenarios/
+      arcmc/                docker-compose.yml, Dockerfile.mc, README.md
 
-| file                      | what it is for                                     |
-|---------------------------|----------------------------------------------------|
-| `small.tar.gz`            | reads in one pass, works without seeking            |
-| `small.zip`               | same                                                |
-| `small.7z`                | directory at the end: needs a seekable stream       |
-| `big.7z`                  | ~10 MB, past libarchive's read-ahead buffer         |
-| `noext`                   | a tar.gz with no extension: format from content     |
-| `sevenzip-without-suffix` | a 7z with no extension                              |
-| `notanarchive.tar.gz`     | plain text with a lying name: must be declined      |
-| `outer.tar`               | archives inside an archive                          |
+## Adding a scenario
 
-The same directory is served four ways, all as user `mc` with password `mc`:
+Add a directory under `scenarios/` with a `docker-compose.yml` in it. Nothing
+else has to change: `sandbox.sh` finds scenarios by looking for that file, and
+each is its own compose project with its own network, containers and build
+volume, so an existing one is never touched or rebuilt because a new one
+appeared.
 
-| protocol            | from the `mc` container | from the host              |
-|---------------------|-------------------------|----------------------------|
-| sftp                | `remote`, port 22       | `localhost`, port 2222     |
-| shell link (FISH)   | `remote`, port 22       | `localhost`, port 2222     |
-| ftp                 | `remote`, port 21       | `localhost`, port 2121 (passive 21100-21110) |
-| samba               | `remote`, share `archives` | `localhost`, port 1445  |
+A scenario that only differs in its environment -- an older distribution,
+fewer tools installed, another shell -- is a `Dockerfile.mc` with a different
+`FROM` and the same three `COPY` lines from `common/`; `build-mc.sh` does not
+care which distribution it is on. One that differs in how the far end behaves
+reuses the image and changes `common/remote` through its own compose file.
+
+Build contexts are the sandbox root, which is why the Dockerfiles refer to
+`common/...` and `scenarios/<name>/...`.
+
+Scenarios publish no host ports, so several can run side by side; mc reaches
+its host over the compose network by the name `remote`. To get at a server
+from outside, add a compose override with the ports you want.
+
+## What a scenario contains
+
+`remote`, user `mc`, password `mc`, scenarios in `~/archives`; the mc container
+has the same tree in `/work/local` for what needs no server.
+
+One directory per situation, each with a `cases.tsv` of file, key, expected
+outcome and reason -- a checklist to read, and columns something automated can
+walk later:
+
+| directory      | what it is for                                            |
+|----------------|-----------------------------------------------------------|
+| `01-formats`   | tar, zip and 7z, including one past libarchive's buffer    |
+| `02-content`   | archives with no extension, and plain text named as one    |
+| `03-nested`    | an archive inside an archive, and one inside `uzip://`     |
+| `04-non-ascii` | Cyrillic and spaces in names, inside the archives and out  |
+
+The same tree is served four ways, all as user `mc` with password `mc`:
+sftp and ssh on port 22, ftp on 21, and the samba share `archives`.
 
 ## What to try
 
-**sftp panel** — connect to `remote`, port 22, user `mc`, password `mc`, then
-`~/archives`:
+The cases.tsv files say what each file is for; what differs is where the panel
+is standing when you press the key.
 
-- Enter on `small.tar.gz` opens an archive panel without downloading it first.
-- Enter on `big.7z` does too.  This is the case that only works because the
-  stream can seek: `libssh2_sftp_seek64()` behind `ops->seek`.
-- Enter on `noext` and `sevenzip-without-suffix` opens them as well — the
-  format comes from the content, not from the name.
-- Enter on `notanarchive.tar.gz` must *not* open an archive panel.
-- `..` out of the archive returns to the sftp panel with the connection alive.
+**sftp** and **shell link** supply a stream, so an archive opens without being
+downloaded first, and `02-content` works there: the format comes from the
+content rather than the name. `01-formats/big.7z` is the case that only works
+because the stream can seek.
 
-**shell link panel** — the same host over ssh (`sh://mc@remote`).  Same list.
-Here the source cannot cancel a running transfer, so a file arrives in windows
-that grow while it is read in order; a seek starts a new one.  `big.7z` is the
-interesting case again.
+**ftp** and **samba** have no `get_input_stream()` yet, so an archive is
+fetched to a local copy first, and `02-content` does not open: without a stream
+the decision is made by name.
 
-**samba panel** — `remote`, share `archives`, same credentials.  Like ftp, no
-`get_input_stream()` yet.
-
-**ftp panel** — `remote`, port 21, same credentials.  The ftp plugin has no
-`get_input_stream()` yet, so archives there still go through a download.  That
-is the next thing to write, and this is where it will be tried.
+**A local panel** in `/work/local` covers the same ground with no server, plus
+`03-nested/zip-in-zip.zip` for what happens inside an mc filesystem.
 
 ## Poking at it by hand
 
-    tests/misc/docker/sandbox.sh remote      # the remote host
-    tests/misc/docker/sandbox.sh shell       # the build container
-    tests/misc/docker/sandbox.sh clean       # remove containers and the build
+    tests/misc/docker/sandbox.sh arcmc remote    # the remote host
+    tests/misc/docker/sandbox.sh arcmc shell     # the build container
+    tests/misc/docker/sandbox.sh arcmc clean     # remove containers and the build
 
-Or by hand, if mc is already built:
+Or directly, if mc is already built:
 
-    docker run --rm -it --network mc-sandbox_default \
-        -v mc-sandbox_work:/work mc-sandbox-mc /work/opt/mc/bin/mc
+    docker run --rm -it --network mc-sandbox-arcmc_default \
+        -v mc-sandbox-arcmc_work:/work mc-sandbox-arcmc-mc /work/opt/mc/bin/mc
 
-The `mc` container has `ssh` and `curl`, so a transfer can be watched from
-outside mc as well.
+The `mc` container has `ssh`, `curl` and `smbclient`, so a transfer can be
+watched from outside mc as well.

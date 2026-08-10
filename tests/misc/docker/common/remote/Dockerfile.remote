@@ -14,10 +14,10 @@ RUN useradd -m -s /bin/bash mc \
     && echo 'mc:mc' | chpasswd \
     && mkdir -p /run/sshd /var/run/vsftpd/empty /var/log/samba
 
-COPY vsftpd.conf /etc/vsftpd.conf
-COPY smb.conf /etc/samba/smb.conf
-COPY fixtures.sh /usr/local/bin/fixtures.sh
-COPY entrypoint-remote.sh /usr/local/bin/entrypoint-remote.sh
+COPY common/remote/vsftpd.conf /etc/vsftpd.conf
+COPY common/remote/smb.conf /etc/samba/smb.conf
+COPY common/fixtures.sh /usr/local/bin/fixtures.sh
+COPY common/remote/entrypoint-remote.sh /usr/local/bin/entrypoint-remote.sh
 
 RUN chmod +x /usr/local/bin/fixtures.sh /usr/local/bin/entrypoint-remote.sh \
     && /usr/local/bin/fixtures.sh /home/mc/archives \

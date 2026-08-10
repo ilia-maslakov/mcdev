@@ -2,13 +2,15 @@ SUBDIRS = ext.d
 
 EXTRA_DIST = \
 	docker/README.md \
-	docker/docker-compose.yml \
-	docker/Dockerfile.mc \
-	docker/Dockerfile.remote \
-	docker/build-mc.sh \
-	docker/check-remote.sh \
-	docker/entrypoint-remote.sh \
-	docker/fixtures.sh \
 	docker/sandbox.sh \
-	docker/smb.conf \
-	docker/vsftpd.conf
+	docker/common/build-mc.sh \
+	docker/common/check-remote.sh \
+	docker/common/fixtures.sh \
+	docker/common/zshrc \
+	docker/common/remote/Dockerfile.remote \
+	docker/common/remote/entrypoint-remote.sh \
+	docker/common/remote/smb.conf \
+	docker/common/remote/vsftpd.conf \
+	docker/scenarios/arcmc/Dockerfile.mc \
+	docker/scenarios/arcmc/docker-compose.yml \
+	docker/scenarios/arcmc/README.md

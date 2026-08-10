@@ -8,7 +8,7 @@ copy_sources ()
 {
     rsync -a --delete \
         --exclude '.git' \
-        --exclude 'docker/stream-sandbox/' \
+        --exclude 'tests/misc/docker/' \
         /src/ /work/src/
 }
 
@@ -17,6 +17,7 @@ mkdir -p /work/src /work/build
 copy_sources
 
 cd /work/src
+[ -x autogen.sh ] || { echo "no autogen.sh in /work/src: is the tree mounted at /src?" >&2; exit 1; }
 if [ ! -x configure ] || [ configure.ac -nt configure ]; then
     echo "== autogen =="
     ./autogen.sh
@@ -44,6 +45,17 @@ fi
 echo "== make =="
 make -j"$(nproc)"
 make install
+
+# The same archives on a local panel, for what does not need a server.  A
+# scenario that exists to check the build may not have an archiver at all.
+if [ ! -d /work/local ]; then
+    if command -v bsdtar >/dev/null; then
+        echo "== local fixtures =="
+        /usr/local/bin/fixtures.sh /work/local >/dev/null
+    else
+        echo "== local fixtures skipped: no bsdtar in this image =="
+    fi
+fi
 
 echo
 echo "mc installed:      $PREFIX/bin/mc"

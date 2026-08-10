@@ -1,0 +1,12 @@
+# Enough for mc's subshell: a prompt it can find, history, and no first-run
+# questionnaire.
+autoload -Uz compinit && compinit -u
+
+HISTFILE=~/.zsh_history
+HISTSIZE=1000
+SAVEHIST=1000
+setopt inc_append_history
+
+PROMPT='%n@%m:%~%# '
+
+alias ls='ls --color=auto'
