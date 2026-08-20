@@ -18,7 +18,7 @@ Build requirements for GNU Midnight Commander
   - https://www.gnu.org/software/libtool/
 - pkg-config (optional)
   - https://pkg-config.freedesktop.org/wiki/
-- glib2 >= 2.32
+- glib2 >= 2.58
   - https://www.gtk.org
 - slang2 or ncurses screen library
   - https://www.jedsoft.org/slang/
