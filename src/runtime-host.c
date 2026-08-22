@@ -519,6 +519,7 @@ runtime_host_panel_chdir (const mc_runtime_handle_t *handle, const char *path, c
 
 /* --------------------------------------------------------------------------------------------- */
 
+#ifdef USE_INTERNAL_EDIT
 static WEdit *
 runtime_host_editor_resolve (const mc_runtime_handle_t *handle, const char **error)
 {
@@ -533,6 +534,7 @@ runtime_host_editor_resolve (const mc_runtime_handle_t *handle, const char **err
 
     return editor;
 }
+#endif
 
 /* --------------------------------------------------------------------------------------------- */
 
@@ -1565,6 +1567,7 @@ runtime_host_ui_message (const char *title, const char *text)
     return TRUE;
 }
 
+#ifdef USE_DIFF_VIEW
 static gboolean
 runtime_host_write_temp (const char *data, gsize length, char **path)
 {
@@ -1595,6 +1598,7 @@ runtime_host_write_temp (const char *data, gsize length, char **path)
     }
     return TRUE;
 }
+#endif
 
 static gboolean
 runtime_host_ui_open_diff (const char *left, gsize left_length, const char *right,
