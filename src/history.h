@@ -15,7 +15,6 @@
 #define MC_HISTORY_EDIT_INSERT_FILE   "mc.edit.insert-file"
 #define MC_HISTORY_EDIT_GOTO_LINE     "mc.edit.goto-line"
 #define MC_HISTORY_EDIT_SORT          "mc.edit.sort"
-#define MC_HISTORY_EDIT_PASTE_EXTCMD  "mc.edit.paste-extcmd"
 #define MC_HISTORY_EDIT_REPEAT        "mc.edit.repeat-action"
 #define MC_HISTORY_EDIT_SPELL_ADD     "mc.edit.spell-add-word"
 

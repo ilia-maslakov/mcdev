@@ -37,6 +37,7 @@
 #include "clipboard.h"  // clipboard events
 #include "execute.h"    // execute_suspend()
 #include "help.h"       // help_interactive_display()
+#include "runtime-host.h"
 
 #include "events_init.h"
 
@@ -106,6 +107,7 @@ events_init (GError **mcerror)
 gboolean
 events_deinit (GError **mcerror)
 {
+    runtime_host_clear_errors ();
     mc_runtime_events_deinit ();
     runtime_startup_published = FALSE;
     runtime_shutdown_published = FALSE;
@@ -153,7 +155,10 @@ events_publish_runtime_startup (void)
         g_strdup (mc_config_get_data_path () != NULL ? mc_config_get_data_path () : "");
 
     if (mc_runtime_event_publish (snapshot, NULL))
+    {
         runtime_startup_published = TRUE;
+        runtime_host_flush_errors ();
+    }
     mc_runtime_event_snapshot_free (snapshot);
 }
 

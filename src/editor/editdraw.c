@@ -49,6 +49,7 @@
 #include "lib/util.h"     // is_printable()
 #include "lib/widget.h"
 #include "lib/charsets.h"
+#include "lib/extension-runtime.h"
 
 #include "edit-impl.h"
 #include "editwidget.h"
@@ -199,8 +200,11 @@ edit_status_fullscreen (WEdit *edit, int color)
     Widget *h = WIDGET (WIDGET (edit)->owner);
     const int w = h->rect.cols;
     const int gap = 3;        // between the filename and the status
-    const int right_gap = 5;  // at the right end of the screen
     const int preferred_fname_len = 16;
+    char *indicator;
+    int indicator_len;
+    int right_reserved;
+    int indicator_space;
     char *status;
     size_t status_size;
     int status_len;
@@ -211,6 +215,12 @@ edit_status_fullscreen (WEdit *edit, int color)
     status = g_malloc (status_size);
     status_string (edit, status, status_size);
     status_len = (int) str_term_width1 (status);
+    right_reserved = 6
+        + (edit_options.simple_statusbar && w > EDITOR_MINIMUM_TERMINAL_WIDTH ? 6 : 0);
+    indicator_space = MAX (0, w - preferred_fname_len - gap - right_reserved - 1);
+    indicator = mc_runtime_ui_indicators_compose ("editor", MIN (24, indicator_space));
+    indicator_len = (int) str_term_width1 (indicator);
+    right_reserved += indicator_len > 0 ? indicator_len + 1 : 0;
 
     if (edit->filename_vpath != NULL)
     {
@@ -224,19 +234,26 @@ edit_status_fullscreen (WEdit *edit, int color)
     if (fname_len < preferred_fname_len)
         fname_len = preferred_fname_len;
 
-    if (fname_len + gap + status_len + right_gap >= w)
+    if (fname_len + gap + status_len + right_reserved >= w)
     {
-        if (preferred_fname_len + gap + status_len + right_gap >= w)
+        if (preferred_fname_len + gap + status_len + right_reserved >= w)
             fname_len = preferred_fname_len;
         else
-            fname_len = w - (gap + status_len + right_gap);
+            fname_len = w - (gap + status_len + right_reserved);
+        fname_len = MAX (0, fname_len);
         fname = str_trunc (fname, fname_len);
     }
 
     widget_gotoyx (h, 0, 0);
     tty_setcolor (color);
     printwstr (fname, fname_len + gap);
-    printwstr (status, w - (fname_len + gap));
+    printwstr (status, MAX (0, w - (fname_len + gap + right_reserved)));
+
+    if (indicator_len > 0)
+    {
+        widget_gotoyx (h, 0, w - right_reserved);
+        tty_print_string (indicator);
+    }
 
     if (edit_options.simple_statusbar && w > EDITOR_MINIMUM_TERMINAL_WIDTH)
     {
@@ -248,6 +265,7 @@ edit_status_fullscreen (WEdit *edit, int color)
     }
 
     g_free (status);
+    g_free (indicator);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -263,6 +281,9 @@ edit_status_window (WEdit *edit)
     Widget *w = WIDGET (edit);
     int y, x;
     int cols = w->rect.cols;
+    char *indicator = mc_runtime_ui_indicators_compose ("editor", MIN (24, MAX (0, cols / 3)));
+    int indicator_len = (int) str_term_width1 (indicator);
+    const int right_reserved = 8 + (indicator_len > 0 ? indicator_len + 1 : 0);
 
     tty_setcolor (STATUSBAR_COLOR);
 
@@ -281,19 +302,25 @@ edit_status_window (WEdit *edit)
             fname = _ ("NoName");
 
         edit_move (2, 0);
-        tty_printf ("[%s]", str_term_trim (fname, w->rect.cols - 8 - 6));
+        tty_printf ("[%s]", str_term_trim (fname, MAX (0, w->rect.cols - right_reserved - 6)));
     }
 
     tty_getyx (&y, &x);
     x -= w->rect.x;
     x += 4;
-    if (x + 6 <= cols - 2 - 6)
+    if (x + 6 <= cols - right_reserved)
     {
         edit_move (x, 0);
         tty_printf ("[%c%c%c%c]",
                     edit->mark1 != edit->mark2 ? (edit->column_highlight ? 'C' : 'B') : '-',
                     edit->modified != 0 ? 'M' : '-', macro_index < 0 ? '-' : 'R',
                     edit->overwrite == 0 ? '-' : 'O');
+    }
+
+    if (indicator_len > 0 && cols - right_reserved >= x + 6)
+    {
+        edit_move (cols - right_reserved, 0);
+        tty_print_string (indicator);
     }
 
     if (cols > 30)
@@ -318,6 +345,8 @@ edit_status_window (WEdit *edit)
         tty_printf ("[%s]", character_code);
         g_free (character_code);
     }
+
+    g_free (indicator);
 }
 
 /* --------------------------------------------------------------------------------------------- */

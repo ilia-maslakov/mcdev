@@ -358,6 +358,8 @@ mc_runtime_event_dispatch (mc_runtime_events_state_t *state, mc_runtime_event_sn
             (mc_runtime_event_subscription_t *) g_ptr_array_index (dispatch_list, i);
         mc_runtime_event_result_t result;
 
+        if (!subscription->active)
+            continue;
         result = subscription->callback (subscription->runtime_context, snapshot,
                                          subscription->user_data);
 

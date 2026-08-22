@@ -712,22 +712,24 @@ mc_pstream_get_string (mc_pipe_stream_t *ps)
 
 /* --------------------------------------------------------------------------------------------- */
 /**
- * Close pipe and destroy pipe descriptor.
+ * Close pipe, wait for the child and destroy the pipe descriptor.
  *
  * @parameter p pipe descriptor
  * @parameter error contains pointer to object to handle error code and message
+ * @return raw waitpid() status, or -1 on failure
  */
 
-void
-mc_pclose (mc_pipe_t *p, GError **error)
+int
+mc_pclose_status (mc_pipe_t *p, GError **error)
 {
     int res;
+    int status = -1;
 
     if (p == NULL)
     {
         mc_replace_error (error, MC_PIPE_ERROR_READ, "%s",
                           _ ("Cannot close pipe descriptor (p == NULL)"));
-        return;
+        return -1;
     }
 
     if (p->out.fd >= 0)
@@ -737,8 +739,6 @@ mc_pclose (mc_pipe_t *p, GError **error)
 
     do
     {
-        int status;
-
         res = waitpid (p->child_pid, &status, 0);
     }
     while (res < 0 && errno == EINTR);
@@ -748,6 +748,15 @@ mc_pclose (mc_pipe_t *p, GError **error)
                           unix_error_string (errno));
 
     g_free (p);
+    return res < 0 ? -1 : status;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mc_pclose (mc_pipe_t *p, GError **error)
+{
+    (void) mc_pclose_status (p, error);
 }
 
 /* --------------------------------------------------------------------------------------------- */

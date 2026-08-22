@@ -640,6 +640,10 @@ dnl ############################################################################
 dnl Configure results
 dnl ############################################################################
 
+if test x"$use_internal_edit" = xyes && test x"$have_lua_plugin" != xyes; then
+    AC_MSG_ERROR([the internal editor requires the Lua runtime extension; install Lua 5.3+ or disable the internal editor])
+fi
+
 CFLAGS="$mc_configured_cflags $CFLAGS_OPTS $CFLAGS"
 
 AC_SUBST(MCLIBS)

@@ -10,10 +10,14 @@
 #include "tests/mctest.h"
 
 #include "lib/charsets.h"
+#include "lib/event.h"
+#include "lib/runtime-events.h"
 #include "src/selcodepage.h"
 
 #include "src/editor/edit-impl.h"
 #include "src/editor/editwidget.h"
+#include "src/events_init.h"
+#include "src/runtime-host.h"
 
 /* A dialog, not a bare group: the editor reaches its owner as one, and a
  * WGroup has no room for the fields it reads there. */
@@ -26,8 +30,12 @@ static void
 setup (void)
 {
     WRect r;
+    GError *error = NULL;
 
     str_init_strings (NULL);
+    ck_assert_msg (events_init (&error), "events init failed: %s",
+                   error != NULL ? error->message : "unknown error");
+    events_publish_runtime_startup ();
 
     mc_global.sysconfig_dir = (char *) TEST_SHARE_DIR;
     load_codepages_list ();
@@ -58,11 +66,15 @@ setup (void)
 static void
 teardown (void)
 {
+    GError *error = NULL;
+
     edit_clean (test_edit);
     group_remove_widget (test_edit);
     g_free (test_edit);
 
     free_codepages_list ();
+    ck_assert (events_deinit (&error));
+    g_clear_error (&error);
     str_uninit_strings ();
 }
 
@@ -217,6 +229,96 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+START_TEST (test_reload_preserves_runtime_handle_and_advances_revision)
+{
+    const mc_runtime_handle_t handle =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, test_edit);
+    const guint64 revision = test_edit->runtime_revision;
+
+    ck_assert (edit_reload_line (test_edit, NULL));
+    ck_assert_ptr_eq (mc_runtime_handle_resolve (&handle, MC_RUNTIME_HANDLE_EDITOR), test_edit);
+    ck_assert_uint_gt (test_edit->runtime_revision, revision);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_runtime_insert_materializes_virtual_columns)
+{
+    const mc_runtime_handle_t handle =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, test_edit);
+    const char *error = NULL;
+
+    test_edit->over_col = 4;
+    ck_assert_msg (runtime_host_editor_insert (&handle, "X", &error), "%s",
+                   error != NULL ? error : "insert failed");
+    test_assert_text ("    X");
+    ck_assert_int_eq (test_edit->over_col, 0);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_runtime_edit_is_atomic_and_revision_checked)
+{
+    const mc_runtime_handle_t handle =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, test_edit);
+    mc_runtime_editor_change_t changes[2] = {
+        { 1, 3, "BC", 2 },
+        { 4, 6, "EF", 2 },
+    };
+    mc_runtime_editor_edit_t edit_spec;
+    mc_runtime_editor_edit_result_t result;
+    const char *error = NULL;
+    guint64 revision;
+
+    for (const char *text = "abcdef"; *text != '\0'; text++)
+        edit_insert (test_edit, *text);
+    revision = test_edit->runtime_revision;
+    edit_spec = (mc_runtime_editor_edit_t) {
+        .revision = revision,
+        .changes = changes,
+        .changes_count = G_N_ELEMENTS (changes),
+    };
+
+    ck_assert_msg (runtime_host_editor_edit (&handle, &edit_spec, &result, &error), "%s",
+                   error != NULL ? error : "edit failed");
+    test_assert_text ("aBCdEF");
+    ck_assert_uint_eq (result.revision, revision + 1);
+
+    edit_execute_key_command (test_edit, CK_Undo, -1);
+    test_assert_text ("abcdef");
+
+    edit_spec.revision = revision;
+    ck_assert (!runtime_host_editor_edit (&handle, &edit_spec, &result, &error));
+    mctest_assert_str_eq (error, "stale_revision");
+    test_assert_text ("abcdef");
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
+START_TEST (test_runtime_column_replace_pads_short_lines)
+{
+    const mc_runtime_handle_t handle =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, test_edit);
+    mc_runtime_editor_edit_result_t result;
+    const char *error = NULL;
+
+    for (const char *text = "a\nbb"; *text != '\0'; text++)
+        edit_insert (test_edit, *text);
+    edit_set_markers (test_edit, 0, test_edit->buffer.size, 3, 4);
+    test_edit->column_highlight = 1;
+
+    ck_assert_msg (runtime_host_editor_replace_selection (&handle, "X", 1, &result, &error),
+                   "%s", error != NULL ? error : "replace selection failed");
+    test_assert_text ("a  X\nbb X");
+    ck_assert_int_eq (test_edit->column_highlight, 0);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 int
 main (void)
 {
@@ -229,6 +331,10 @@ main (void)
     tcase_add_test (tc_core, test_redo_delete_of_blank_character);
     tcase_add_test (tc_core, test_cursor_clears_redo_branch_keeps_modified);
     tcase_add_test (tc_core, test_cursor_clear_redo_on_saved_content_no_false_modified);
+    tcase_add_test (tc_core, test_reload_preserves_runtime_handle_and_advances_revision);
+    tcase_add_test (tc_core, test_runtime_insert_materializes_virtual_columns);
+    tcase_add_test (tc_core, test_runtime_edit_is_atomic_and_revision_checked);
+    tcase_add_test (tc_core, test_runtime_column_replace_pads_short_lines);
 
     return mctest_run_all (tc_core);
 }

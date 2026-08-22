@@ -334,6 +334,7 @@ enum
     CK_SyntaxChoose,
     CK_EditPluginsInfo,
     CK_EditLuaScripts,
+    CK_EditLuaRun,
     CK_InsertLiteral,
     CK_ExternalCommand,
     CK_Date,

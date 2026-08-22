@@ -26,7 +26,14 @@ AM_CPPFLAGS = \
 	-DLOCALEDIR=\""$(localedir)"\" \
 	-DEXTHELPERSDIR=\""@EXTHELPERSDIR@/"\" \
 	-DMC_PANEL_PLUGINS_DIR=\""$(panel_plugins_dir)"\" \
-	-DMC_EDITOR_PLUGINS_DIR=\""$(editor_plugins_dir)"\"
+	-DMC_EDITOR_PLUGINS_DIR=\""$(editor_plugins_dir)"\" \
+	-DMC_RUNTIME_PLUGINS_DIR=\""$(runtime_plugins_dir)"\"
+
+if ENABLE_LUA_PLUGIN
+AM_CPPFLAGS += \
+	-DMC_LUA_SYSTEM_SCRIPTS_DIR=\""$(lua_scripts_dir)"\" \
+	-DMC_LUA_SYSTEM_MODULES_DIR=\""$(lua_modules_dir)"\"
+endif
 
 if CONS_SAVER
 SUBDIRS += consaver

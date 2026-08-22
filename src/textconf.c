@@ -257,6 +257,13 @@ show_datadirs_extended (void)
 #ifdef MC_EDITOR_PLUGINS_DIR
     print_plugins_in_dir (_ ("Editor plugins:"), MC_EDITOR_PLUGINS_DIR);
 #endif
+#ifdef MC_RUNTIME_PLUGINS_DIR
+    print_plugins_in_dir (_ ("Runtime plugins:"), MC_RUNTIME_PLUGINS_DIR);
+#endif
+#ifdef ENABLE_LUA_PLUGIN
+    PRINTF_SECTION (_ ("Lua scripts:"), MC_LUA_SYSTEM_SCRIPTS_DIR);
+    PRINTF_SECTION (_ ("Lua modules:"), MC_LUA_SYSTEM_MODULES_DIR);
+#endif
     (void) puts ("");
 
     PRINTF_GROUP (_ ("User data"));
@@ -270,6 +277,27 @@ show_datadirs_extended (void)
 #ifdef USE_INTERNAL_EDIT
     PRINTF ("mcedit macros:", mc_config_get_data_path (), MC_MACRO_FILE);
     PRINTF ("mcedit external macros:", mc_config_get_data_path (), EDIT_HOME_MACRO_FILE ".*");
+#endif
+#ifdef ENABLE_LUA_PLUGIN
+    {
+        gchar *user_lua_scripts =
+            g_build_filename (g_get_user_data_dir (), "mc", "lua", "scripts", (char *) NULL);
+        gchar *user_lua_modules =
+            g_build_filename (g_get_user_data_dir (), "mc", "lua", "lib", (char *) NULL);
+        gchar *legacy_lua_scripts =
+            g_build_filename (g_get_user_config_dir (), "mc", "lua", "scripts", (char *) NULL);
+        gchar *legacy_lua_modules =
+            g_build_filename (g_get_user_config_dir (), "mc", "lua", "lib", (char *) NULL);
+
+        PRINTF_SECTION2 (_ ("Lua scripts:"), user_lua_scripts);
+        PRINTF_SECTION2 (_ ("Lua modules:"), user_lua_modules);
+        PRINTF_SECTION2 (_ ("Legacy Lua scripts:"), legacy_lua_scripts);
+        PRINTF_SECTION2 (_ ("Legacy Lua modules:"), legacy_lua_modules);
+        g_free (user_lua_scripts);
+        g_free (user_lua_modules);
+        g_free (legacy_lua_scripts);
+        g_free (legacy_lua_modules);
+    }
 #endif
     PRINTF_SECTION2 (_ ("Cache directory:"), mc_config_get_cache_path ());
 

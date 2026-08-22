@@ -32,14 +32,17 @@
 #include "lib/event.h"
 #include "lib/extension-runtime.h"
 #include "lib/runtime-events.h"
+#include "lib/strutil.h"
 
 /*** global variables ****************************************************************************/
 
 static GError *error = NULL;
 static char *test_root = NULL;
 static char *config_dir = NULL;
+static char *data_dir = NULL;
 static char *system_scripts_dir = NULL;
 static char *user_scripts_dir = NULL;
+static char *legacy_user_scripts_dir = NULL;
 static char *system_mc_scripts_dir = NULL;
 static char *user_mc_scripts_dir = NULL;
 static char *system_editor_scripts_dir = NULL;
@@ -48,18 +51,38 @@ static char *output_path = NULL;
 static char *ui_status_text = NULL;
 static char *ui_message_title = NULL;
 static char *ui_message_text = NULL;
+static guint ui_dialog_count = 0;
+static char *runtime_error_runtime = NULL;
+static char *runtime_error_package = NULL;
+static char *runtime_error_summary = NULL;
+static char *runtime_error_details = NULL;
+static mc_runtime_error_phase_t runtime_error_phase;
+static guint runtime_error_count = 0;
 static char *object_panel_chdir_path = NULL;
 static char *object_editor_insert_text = NULL;
+static char *object_editor_replacement = NULL;
+static char *object_editor_range_replacement = NULL;
+static char *process_shell_command = NULL;
+static guint64 object_editor_range_from = 0;
+static guint64 object_editor_range_to = 0;
 static guint object_panel_refreshes = 0;
 static guint64 object_editor_line = 0;
 static guint64 object_editor_column = 0;
+static guint64 object_editor_typed_revision = 0;
+static guint object_editor_typed_changes = 0;
+static guint64 object_editor_selection_revision = 0;
 static gint64 object_viewer_offset = 0;
 static guint enumerated_lua_packages = 0;
+static guint enumerated_lua_runtimes = 0;
 static gboolean enumerated_disabled_beta = FALSE;
 static guint enumerated_lua_editor_packages = 0;
 static guint enumerated_disabled_lua_editor_packages = 0;
 static gboolean enumerated_lua_editor_global = FALSE;
 static gboolean enumerated_lua_editor_user = FALSE;
+static guint enumerated_lua_actions = 0;
+static gboolean enumerated_lua_consume_action = FALSE;
+static guint enumerated_lua_menu_actions = 0;
+static gboolean enumerated_lua_drawing_action = FALSE;
 
 /*** file scope macro definitions ****************************************************************/
 
@@ -302,6 +325,32 @@ create_ui_script (void)
                 "mc.on(\"startup\", function()\n"
                 "    assert(mc.ui.status(\"Lua status\"))\n"
                 "    assert(mc.ui.message(\"Lua title\", \"Lua message\"))\n"
+                "    assert(mc.ui.indicator { id = \"ui-test\", area = \"editor\", text = \"[UI]\", priority = 25 })\n"
+                "end)\n"
+                "mc.on(\"editor.key\", function()\n"
+                "    local result = assert(mc.ui.dialog {\n"
+                "        title = \"Base64 tools\",\n"
+                "        controls = {\n"
+                "            { type = \"label\", text = \"Selected text\" },\n"
+                "            { id = \"operation\", type = \"select\", label = \"Operation\", value = \"decode\", options = {\n"
+                "                { id = \"decode\", label = \"Decode\" },\n"
+                "                { id = \"encode\", label = \"Encode\" },\n"
+                "            } },\n"
+                "            { id = \"line_width\", type = \"input\", value = \"0\",\n"
+                "              history = \"lua-test-input\",\n"
+                "              complete_on_tab = true,\n"
+                "              completion = { \"commands\", \"files\", \"shell\" } },\n"
+                "            { id = \"omit_padding\", type = \"checkbox\", label = \"Omit padding\", value = false },\n"
+                "            { type = \"hbox\", controls = {\n"
+                "                { id = \"run\", type = \"button\", label = \"&Run\", default = true },\n"
+                "                { id = \"close\", type = \"button\", label = \"&Close\", cancel = true },\n"
+                "            } },\n"
+                "        },\n"
+                "    })\n"
+                "    assert(result.button == \"run\")\n"
+                "    assert(result.values.operation == \"encode\")\n"
+                "    assert(result.values.line_width == \"76\")\n"
+                "    assert(result.values.omit_padding == true)\n"
                 "end)\n");
 
     g_free (entry_path);
@@ -369,9 +418,35 @@ create_object_script (void)
                 "    assert(panel:chdir(\"/other\"))\n"
                 "    local editor = assert(mc.editor.current())\n"
                 "    assert(editor:path() == \"/editor\")\n"
+                "    local info = editor:info()\n"
+                "    assert(info.path == \"/editor\" and info.name == \"editor\")\n"
+                "    assert(info.modified and not info.readonly and info.revision == 7)\n"
+                "    assert(info.byte_length == 4 and info.line_count == 1)\n"
+                "    local selection = editor:selection()\n"
+                "    assert(selection.kind == \"column\" and selection.revision == 7)\n"
+                "    assert(selection.anchor.offset == 1 and selection.anchor.line == 1)\n"
+                "    assert(selection.cursor.offset == 8 and selection.cursor.column == 4)\n"
+                "    assert(#selection.ranges == 2)\n"
+                "    assert(selection.ranges[1].from == 1 and selection.ranges[1].to == 3)\n"
+                "    assert(selection.ranges[2].from == 6 and selection.ranges[2].to == 8)\n"
+                "    assert(selection.text == \"bc\\ngh\" and not selection.text_truncated)\n"
+                "    local edit_result = assert(editor:replace_selection(\"BC\\nGH\"))\n"
+                "    assert(edit_result.revision == 8 and edit_result.cursor.offset == 5)\n"
+                "    local range_result = assert(editor:replace(1, 3, \"xy\"))\n"
+                "    assert(range_result.revision == 9 and range_result.cursor.offset == 3)\n"
                 "    local line, column = editor:cursor()\n"
                 "    assert(line == 2 and column == 3 and not editor:is_readonly())\n"
+                "    assert(editor:tab_width() == 8)\n"
                 "    assert(editor:get_text(1, 4) == \"text\")\n"
+                "    assert(editor:text { from = 1, to = 3, revision = 7 } == \"yp\")\n"
+                "    local typed = assert(editor:replace({ from = 1, to = 3, revision = 7 }, \"zz\"))\n"
+                "    assert(typed.revision == 10)\n"
+                "    local transaction = assert(editor:edit { revision = 10, changes = {\n"
+                "        { from = 0, to = 1, text = \"A\" },\n"
+                "        { from = 3, to = 4, text = \"Z\" },\n"
+                "    }, cursor = { offset = 2 } })\n"
+                "    assert(transaction.revision == 11 and transaction.cursor.offset == 2)\n"
+                "    assert(mc.ui.text_width(\"漢\") == 2)\n"
                 "    assert(editor:selected_text() == \"U2V0\")\n"
                 "    assert(editor:set_cursor(3, 4))\n"
                 "    assert(editor:insert(\"!\"))\n"
@@ -447,6 +522,27 @@ create_macro_script (void)
                          "        record(\"macro-pass\")\n"
                          "        return mc.PASS\n"
                          "    end,\n"
+                         "})\n"
+                         "assert(mc.macro {\n"
+                         "    id = \"menu-only\",\n"
+                         "    area = \"editor\",\n"
+                         "    description = \"Menu only\",\n"
+                         "    menu = { path = \"Drawing\", label = \"Draw test line\", "
+                         "position = 25 },\n"
+                         "    action = function()\n"
+                         "        local result = assert(mc.process.run { command = \"printf test\" })\n"
+                         "        assert(result.stdout == \"process output\" and "
+                         "result.stderr == \"warning\" and result.exit_code == 7)\n"
+                         "        record(\"menu-only\") return mc.CONSUME\n"
+                         "    end,\n"
+                         "})\n"
+                         "assert(mc.macro {\n"
+                         "    id = \"hidden-f9\",\n"
+                         "    area = \"editor\",\n"
+                         "    key = \"F9\",\n"
+                         "    description = \"Hidden F9\",\n"
+                         "    listed = false,\n"
+                         "    action = function() return mc.CONSUME end,\n"
                          "})\n",
                          output_path);
     write_file (entry_path, script);
@@ -481,12 +577,124 @@ test_ui_message (const char *title, const char *text)
 
 /* --------------------------------------------------------------------------------------------- */
 
+static gboolean
+test_ui_dialog (const mc_runtime_dialog_t *dialog, mc_runtime_dialog_result_t *result,
+                const char **dialog_error)
+{
+    const mc_runtime_dialog_control_t *buttons;
+
+    (void) dialog_error;
+    ck_assert_ptr_nonnull (dialog);
+    ck_assert_str_eq (dialog->title, "Base64 tools");
+    ck_assert_int_eq ((int) dialog->controls_count, 5);
+    ck_assert_int_eq ((int) dialog->controls[0].type, (int) MC_RUNTIME_DIALOG_LABEL);
+    ck_assert_str_eq (dialog->controls[0].text, "Selected text");
+    ck_assert_int_eq ((int) dialog->controls[1].type, (int) MC_RUNTIME_DIALOG_SELECT);
+    ck_assert_str_eq (dialog->controls[1].value, "decode");
+    ck_assert_int_eq ((int) dialog->controls[1].options_count, 2);
+    ck_assert_int_eq ((int) dialog->controls[2].type, (int) MC_RUNTIME_DIALOG_INPUT);
+    ck_assert_str_eq (dialog->controls[2].value, "0");
+    ck_assert_str_eq (dialog->controls[2].text, "lua-test-input");
+    ck_assert (dialog->controls[2].checked);
+    ck_assert_int_eq ((int) dialog->controls[2].options_count, 3);
+    ck_assert_str_eq (dialog->controls[2].options[0].id, "commands");
+    ck_assert_str_eq (dialog->controls[2].options[1].id, "files");
+    ck_assert_str_eq (dialog->controls[2].options[2].id, "shell");
+    ck_assert_int_eq ((int) dialog->controls[3].type, (int) MC_RUNTIME_DIALOG_CHECKBOX);
+    ck_assert (!dialog->controls[3].checked);
+    ck_assert_int_eq ((int) dialog->controls[4].type, (int) MC_RUNTIME_DIALOG_HBOX);
+    buttons = dialog->controls[4].controls;
+    ck_assert_int_eq ((int) dialog->controls[4].controls_count, 2);
+    ck_assert_str_eq (buttons[0].id, "run");
+    ck_assert (buttons[0].default_button);
+    ck_assert_str_eq (buttons[1].id, "close");
+    ck_assert (buttons[1].cancel_button);
+
+    result->button_id = g_strdup ("run");
+    result->values_count = 3;
+    result->values = g_new0 (mc_runtime_dialog_value_t, result->values_count);
+    result->values[0].id = g_strdup ("operation");
+    result->values[0].value = g_strdup ("encode");
+    result->values[1].id = g_strdup ("line_width");
+    result->values[1].value = g_strdup ("76");
+    result->values[2].id = g_strdup ("omit_padding");
+    result->values[2].is_boolean = TRUE;
+    result->values[2].checked = TRUE;
+    ui_dialog_count++;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_dialog_result_free (mc_runtime_dialog_result_t *result)
+{
+    guint i;
+
+    g_free (result->button_id);
+    for (i = 0; i < result->values_count; i++)
+    {
+        g_free ((char *) result->values[i].id);
+        g_free ((char *) result->values[i].value);
+    }
+    g_free (result->values);
+    memset (result, 0, sizeof (*result));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_process_run_shell (const char *command, gsize max_output,
+                        mc_runtime_process_result_t *result, const char **out_error)
+{
+    (void) max_output;
+    if (out_error != NULL)
+        *out_error = NULL;
+    g_free (process_shell_command);
+    process_shell_command = g_strdup (command);
+    memset (result, 0, sizeof (*result));
+    result->out.data = g_strdup ("process output");
+    result->out.length = strlen (result->out.data);
+    result->err.data = g_strdup ("warning");
+    result->err.length = strlen (result->err.data);
+    result->exit_code = 7;
+    return TRUE;
+}
+
+static void
+test_process_result_free (mc_runtime_process_result_t *result)
+{
+    g_free (result->out.data);
+    g_free (result->err.data);
+    memset (result, 0, sizeof (*result));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static void
 test_runtime_log (const char *source, const char *level, const char *message)
 {
     (void) source;
     (void) level;
     (void) message;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_runtime_error (const char *runtime_name, const char *package_id,
+                    mc_runtime_error_phase_t phase, const char *summary, const char *details)
+{
+    g_free (runtime_error_runtime);
+    g_free (runtime_error_package);
+    g_free (runtime_error_summary);
+    g_free (runtime_error_details);
+    runtime_error_runtime = g_strdup (runtime_name);
+    runtime_error_package = g_strdup (package_id);
+    runtime_error_phase = phase;
+    runtime_error_summary = g_strdup (summary);
+    runtime_error_details = g_strdup (details);
+    runtime_error_count++;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -504,6 +712,23 @@ test_enumerate_lua_package (const char *runtime_name, const char *id, const char
     enumerated_lua_packages++;
     if (g_strcmp0 (id, "beta") == 0 && !enabled)
         enumerated_disabled_beta = TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_enumerate_lua_runtime (const char *runtime_name, const char *display_name, guint abi_version,
+                            guint64 capability_flags, guint64 required_host_capabilities,
+                            gpointer user_data)
+{
+    (void) capability_flags;
+    (void) required_host_capabilities;
+    (void) user_data;
+
+    ck_assert_str_eq (runtime_name, "lua");
+    ck_assert_str_eq (display_name, "Lua engine");
+    ck_assert_int_eq ((int) abi_version, MC_RUNTIME_PLUGIN_ABI_VERSION);
+    enumerated_lua_runtimes++;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -534,6 +759,52 @@ test_enumerate_lua_package_details (const char *runtime_name, const char *id,
         ck_assert_str_eq (origin, "user");
         ck_assert (g_str_has_suffix (directory, "/editor-user"));
         enumerated_lua_editor_user = TRUE;
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_enumerate_lua_action (const char *runtime_name, const char *id, const char *label,
+                           const char *shortcut, gpointer user_data)
+{
+    (void) user_data;
+
+    ck_assert_str_eq (runtime_name, "lua");
+    ck_assert_ptr_nonnull (id);
+    ck_assert_ptr_nonnull (label);
+    enumerated_lua_actions++;
+    if (g_strcmp0 (id, "macro-test:consume-f11") == 0)
+    {
+        ck_assert_str_eq (label, "Consume F11");
+        ck_assert_str_eq (shortcut, "F11");
+        enumerated_lua_consume_action = TRUE;
+    }
+    else if (g_strcmp0 (id, "macro-test:menu-only") == 0)
+    {
+        ck_assert_str_eq (label, "Menu only");
+        ck_assert_ptr_null (shortcut);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_enumerate_lua_menu_action (const char *runtime_name, const char *id, const char *menu_path,
+                                const char *label, const char *shortcut, gint position,
+                                gpointer user_data)
+{
+    (void) user_data;
+
+    ck_assert_str_eq (runtime_name, "lua");
+    enumerated_lua_menu_actions++;
+    if (g_strcmp0 (id, "macro-test:menu-only") == 0)
+    {
+        ck_assert_str_eq (menu_path, "Drawing");
+        ck_assert_str_eq (label, "Draw test line");
+        ck_assert_ptr_null (shortcut);
+        ck_assert_int_eq (position, 25);
+        enumerated_lua_drawing_action = TRUE;
     }
 }
 
@@ -681,6 +952,163 @@ test_object_editor_path (const mc_runtime_handle_t *editor, mc_runtime_string_t 
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
+test_object_editor_info (const mc_runtime_handle_t *editor, mc_runtime_editor_info_t *info,
+                         const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+
+    memset (info, 0, sizeof (*info));
+    info->path = g_strdup ("/editor");
+    info->path_length = strlen (info->path);
+    info->name = g_strdup ("editor");
+    info->name_length = strlen (info->name);
+    info->has_path = TRUE;
+    info->modified = TRUE;
+    info->readonly = FALSE;
+    info->revision = 7;
+    info->byte_length = 4;
+    info->line_count = 1;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_object_editor_info_free (mc_runtime_editor_info_t *info)
+{
+    g_free (info->path);
+    g_free (info->name);
+    memset (info, 0, sizeof (*info));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_object_editor_selection (const mc_runtime_handle_t *editor,
+                              mc_runtime_editor_selection_t *selection,
+                              const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+
+    memset (selection, 0, sizeof (*selection));
+    selection->kind = MC_RUNTIME_EDITOR_SELECTION_COLUMN;
+    selection->revision = 7;
+    selection->anchor = (mc_runtime_editor_position_t) { 1, 1, 2 };
+    selection->cursor = (mc_runtime_editor_position_t) { 8, 2, 4 };
+    selection->ranges_count = 2;
+    selection->ranges = g_new (mc_runtime_editor_range_t, 2);
+    selection->ranges[0] = (mc_runtime_editor_range_t) { 1, 3 };
+    selection->ranges[1] = (mc_runtime_editor_range_t) { 6, 8 };
+    selection->text = g_strdup ("bc\ngh");
+    selection->text_length = 5;
+    selection->has_text = TRUE;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+test_object_editor_selection_free (mc_runtime_editor_selection_t *selection)
+{
+    g_free (selection->ranges);
+    g_free (selection->text);
+    memset (selection, 0, sizeof (*selection));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_object_editor_replace_selection (const mc_runtime_handle_t *editor, const char *text,
+                                      gsize text_length,
+                                      mc_runtime_editor_edit_result_t *result,
+                                      const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+
+    g_free (object_editor_replacement);
+    object_editor_replacement = g_strndup (text, text_length);
+    result->revision = 8;
+    result->cursor = (mc_runtime_editor_position_t) { 5, 1, 6 };
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_object_editor_replace (const mc_runtime_handle_t *editor, guint64 from, guint64 to,
+                            const char *text, gsize text_length,
+                            mc_runtime_editor_edit_result_t *result, const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+
+    object_editor_range_from = from;
+    object_editor_range_to = to;
+    g_free (object_editor_range_replacement);
+    object_editor_range_replacement = g_strndup (text, text_length);
+    result->revision = 9;
+    result->cursor = (mc_runtime_editor_position_t) { 3, 1, 4 };
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_object_editor_text (const mc_runtime_handle_t *editor,
+                         const mc_runtime_editor_range_t *range, gboolean has_revision,
+                         guint64 revision, mc_runtime_string_t *text, const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+    ck_assert (range != NULL && range->from == 1 && range->to == 3);
+    ck_assert (has_revision && revision == 7);
+    text->data = g_strdup ("yp");
+    text->length = 2;
+    return TRUE;
+}
+
+static gboolean
+test_object_editor_edit (const mc_runtime_handle_t *editor,
+                         const mc_runtime_editor_edit_t *edit_spec,
+                         mc_runtime_editor_edit_result_t *result, const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+    object_editor_typed_revision = edit_spec->revision;
+    object_editor_typed_changes = edit_spec->changes_count;
+    result->revision = edit_spec->changes_count == 1 ? 10 : 11;
+    result->cursor = (mc_runtime_editor_position_t) {
+        edit_spec->has_cursor ? edit_spec->cursor.offset : 3, 1, 3
+    };
+    return TRUE;
+}
+
+static gboolean
+test_object_editor_replace_selection_v2 (const mc_runtime_handle_t *editor, guint64 revision,
+                                         const char *text, gsize text_length,
+                                         mc_runtime_editor_edit_result_t *result,
+                                         const char **object_error)
+{
+    object_editor_selection_revision = revision;
+    return test_object_editor_replace_selection (editor, text, text_length, result, object_error);
+}
+
+static gboolean
+test_ui_text_width (const char *text, gsize text_length, guint *width, const char **object_error)
+{
+    (void) object_error;
+    ck_assert_int_eq ((int) text_length, 3);
+    ck_assert_int_eq (memcmp (text, "漢", 3), 0);
+    *width = 2;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
 test_object_editor_cursor (const mc_runtime_handle_t *editor, guint64 *line, guint64 *column,
                            const char **object_error)
 {
@@ -716,6 +1144,19 @@ test_object_editor_is_readonly (const mc_runtime_handle_t *editor, gboolean *rea
         return test_object_fail (object_error, "closed");
 
     *readonly = FALSE;
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_object_editor_tab_width (const mc_runtime_handle_t *editor, guint *tab_width,
+                              const char **object_error)
+{
+    if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
+        return test_object_fail (object_error, "closed");
+
+    *tab_width = 8;
     return TRUE;
 }
 
@@ -885,6 +1326,9 @@ setup (void)
         .ui_status = test_ui_status,
         .ui_message = test_ui_message,
         .log = test_runtime_log,
+        .runtime_error = test_runtime_error,
+        .ui_dialog = test_ui_dialog,
+        .dialog_result_free = test_dialog_result_free,
         .panel_active = test_object_panel_active,
         .panel_passive = test_object_panel_passive,
         .panel_cwd = test_object_panel_cwd,
@@ -909,6 +1353,19 @@ setup (void)
         .file_snapshot_free = test_object_file_snapshot_free,
         .file_list_free = test_object_file_list_free,
         .editor_selected_text = test_object_editor_selected_text,
+        .editor_info = test_object_editor_info,
+        .editor_info_free = test_object_editor_info_free,
+        .editor_selection = test_object_editor_selection,
+        .editor_selection_free = test_object_editor_selection_free,
+        .editor_replace_selection = test_object_editor_replace_selection,
+        .editor_replace = test_object_editor_replace,
+        .process_run_shell = test_process_run_shell,
+        .process_result_free = test_process_result_free,
+        .editor_tab_width = test_object_editor_tab_width,
+        .editor_text = test_object_editor_text,
+        .editor_edit = test_object_editor_edit,
+        .editor_replace_selection_v2 = test_object_editor_replace_selection_v2,
+        .ui_text_width = test_ui_text_width,
     };
 
     error = NULL;
@@ -921,18 +1378,38 @@ setup (void)
     g_clear_pointer (&ui_status_text, g_free);
     g_clear_pointer (&ui_message_title, g_free);
     g_clear_pointer (&ui_message_text, g_free);
+    g_clear_pointer (&runtime_error_runtime, g_free);
+    g_clear_pointer (&runtime_error_package, g_free);
+    g_clear_pointer (&runtime_error_summary, g_free);
+    g_clear_pointer (&runtime_error_details, g_free);
+    runtime_error_phase = MC_RUNTIME_ERROR_PHASE_STARTUP;
+    runtime_error_count = 0;
+    ui_dialog_count = 0;
     g_clear_pointer (&object_panel_chdir_path, g_free);
     g_clear_pointer (&object_editor_insert_text, g_free);
+    g_clear_pointer (&object_editor_replacement, g_free);
+    g_clear_pointer (&object_editor_range_replacement, g_free);
+    g_clear_pointer (&process_shell_command, g_free);
+    object_editor_range_from = 0;
+    object_editor_range_to = 0;
     object_panel_refreshes = 0;
     object_editor_line = 0;
     object_editor_column = 0;
+    object_editor_typed_revision = 0;
+    object_editor_typed_changes = 0;
+    object_editor_selection_revision = 0;
     object_viewer_offset = 0;
     enumerated_lua_packages = 0;
+    enumerated_lua_runtimes = 0;
     enumerated_disabled_beta = FALSE;
     enumerated_lua_editor_packages = 0;
     enumerated_disabled_lua_editor_packages = 0;
     enumerated_lua_editor_global = FALSE;
     enumerated_lua_editor_user = FALSE;
+    enumerated_lua_actions = 0;
+    enumerated_lua_consume_action = FALSE;
+    enumerated_lua_menu_actions = 0;
+    enumerated_lua_drawing_action = FALSE;
     {
         char *prefs_path = g_build_filename (config_dir, "mc", "plugins.ini", (char *) NULL);
         char *ini_path = g_build_filename (config_dir, "mc", "ini", (char *) NULL);
@@ -944,6 +1421,7 @@ setup (void)
     }
     remove_tree (system_scripts_dir);
     remove_tree (user_scripts_dir);
+    remove_tree (legacy_user_scripts_dir);
     create_test_packages ();
     create_event_shape_script ();
     create_ui_script ();
@@ -964,7 +1442,12 @@ setup (void)
 static void
 teardown (void)
 {
+    char *indicators;
+
     mc_runtime_plugins_shutdown ();
+    indicators = mc_runtime_ui_indicators_compose ("editor", 80);
+    ck_assert_str_eq (indicators, "");
+    g_free (indicators);
     mc_runtime_events_deinit ();
     g_clear_error (&error);
     ck_assert_msg (mc_event_deinit (&error), "Failed to deinitialize event transport: %s",
@@ -1030,6 +1513,31 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+START_TEST (test_lua_runtime_discovers_legacy_config_scripts)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+    char *legacy_mc_scripts_dir;
+    char *contents = NULL;
+
+    legacy_mc_scripts_dir =
+        g_build_filename (legacy_user_scripts_dir, "mc", (char *) NULL);
+    create_script (legacy_mc_scripts_dir, "legacy", "legacy", FALSE);
+    g_free (legacy_mc_scripts_dir);
+
+    mctest_assert_true (mc_runtime_plugins_load (&error));
+    snapshot = startup_snapshot_new ();
+    mctest_assert_true (mc_runtime_event_publish (snapshot, &error));
+    mc_runtime_event_snapshot_free (snapshot);
+
+    mctest_assert_true (g_file_get_contents (output_path, &contents, NULL, &error));
+    g_clear_error (&error);
+    ck_assert_str_eq (contents, "user-alpha:full\nuser-beta:full\nlegacy:full\n");
+    g_free (contents);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 START_TEST (test_lua_runtime_requires_known_workspace_directory)
 {
     mc_runtime_event_snapshot_t *snapshot;
@@ -1069,6 +1577,20 @@ START_TEST (test_lua_runtime_uses_optional_ui_host_services)
     ck_assert_str_eq (ui_status_text, "Lua status");
     ck_assert_str_eq (ui_message_title, "Lua title");
     ck_assert_str_eq (ui_message_text, "Lua message");
+    {
+        char *indicators = mc_runtime_ui_indicators_compose ("editor", 80);
+
+        ck_assert_str_eq (indicators, "[UI]");
+        g_free (indicators);
+    }
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_KEY);
+    snapshot->data.editor_key.editor = (mc_runtime_handle_t) { MC_RUNTIME_HANDLE_EDITOR, 2, 1 };
+    snapshot->data.editor_key.key.name = g_strdup ("F11");
+    snapshot->data.editor_key.key.code = 11;
+    mctest_assert_true (mc_runtime_event_publish (snapshot, &error));
+    mc_runtime_event_snapshot_free (snapshot);
+    ck_assert_int_eq ((int) ui_dialog_count, 1);
     g_unsetenv ("MC_LUA_TEST_UI");
 }
 END_TEST
@@ -1086,7 +1608,13 @@ START_TEST (test_lua_runtime_isolates_callback_errors)
     mctest_assert_true (mc_runtime_event_publish (snapshot, &error));
     mc_runtime_event_snapshot_free (snapshot);
 
-    ck_assert_str_eq (ui_status_text, "Lua script error-test: startup failed");
+    ck_assert_int_eq ((int) runtime_error_count, 1);
+    ck_assert_str_eq (runtime_error_runtime, "lua");
+    ck_assert_str_eq (runtime_error_package, "error-test");
+    ck_assert_int_eq ((int) runtime_error_phase, (int) MC_RUNTIME_ERROR_PHASE_STARTUP);
+    ck_assert_str_eq (runtime_error_summary, "Lua startup callback failed");
+    ck_assert_msg (strstr (runtime_error_details, "expected test error") != NULL,
+                   "Lua traceback did not include the original error");
     g_unsetenv ("MC_LUA_TEST_ERROR");
 }
 END_TEST
@@ -1109,6 +1637,13 @@ START_TEST (test_lua_runtime_exposes_object_api_through_opaque_handles)
     ck_assert_int_eq ((int) object_editor_line, 3);
     ck_assert_int_eq ((int) object_editor_column, 4);
     ck_assert_str_eq (object_editor_insert_text, "!");
+    ck_assert_str_eq (object_editor_replacement, "BC\nGH");
+    ck_assert_uint_eq (object_editor_range_from, 1);
+    ck_assert_uint_eq (object_editor_range_to, 3);
+    ck_assert_str_eq (object_editor_range_replacement, "xy");
+    ck_assert_uint_eq (object_editor_selection_revision, 7);
+    ck_assert_uint_eq (object_editor_typed_revision, 10);
+    ck_assert_uint_eq (object_editor_typed_changes, 2);
     ck_assert_int_eq ((int) object_viewer_offset, 17);
 
     snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_PANEL_CHDIR);
@@ -1142,6 +1677,24 @@ START_TEST (test_lua_runtime_registers_editor_macros)
     g_setenv ("MC_LUA_TEST_MACRO", "1", TRUE);
     mctest_assert_true (mc_runtime_plugins_load (&error));
 
+    mc_runtime_plugins_enumerate_actions ("mcedit", test_enumerate_lua_action, NULL);
+    ck_assert_int_eq ((int) enumerated_lua_actions, 3);
+    mctest_assert_true (enumerated_lua_consume_action);
+    mc_runtime_plugins_enumerate_menu_actions ("mcedit", test_enumerate_lua_menu_action, NULL);
+    ck_assert_int_eq ((int) enumerated_lua_menu_actions, 1);
+    mctest_assert_true (enumerated_lua_drawing_action);
+    {
+        const char *action_error = NULL;
+
+        mctest_assert_true (mc_runtime_plugins_invoke_action (
+            "lua", "mcedit", "macro-test:pass-f10", &action_error));
+        ck_assert_ptr_null (action_error);
+        mctest_assert_true (mc_runtime_plugins_invoke_action (
+            "lua", "mcedit", "macro-test:menu-only", &action_error));
+        ck_assert_ptr_null (action_error);
+        ck_assert_str_eq (process_shell_command, "printf test");
+    }
+
     snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_KEY);
     snapshot->data.editor_key.editor = (mc_runtime_handle_t) { MC_RUNTIME_HANDLE_EDITOR, 2, 1 };
     snapshot->data.editor_key.key.name = g_strdup ("F11");
@@ -1160,7 +1713,7 @@ START_TEST (test_lua_runtime_registers_editor_macros)
 
     mctest_assert_true (g_file_get_contents (output_path, &contents, NULL, &error));
     g_clear_error (&error);
-    ck_assert_str_eq (contents, "macro-consume\nmacro-pass\n");
+    ck_assert_str_eq (contents, "macro-pass\nmenu-only\nmacro-consume\nmacro-pass\n");
     g_free (contents);
     g_unsetenv ("MC_LUA_TEST_MACRO");
 }
@@ -1285,29 +1838,13 @@ END_TEST
 START_TEST (test_lua_runtime_enumerates_editor_package_details)
 {
     mctest_assert_true (mc_runtime_plugins_load (&error));
+    mc_runtime_plugins_enumerate_runtimes (test_enumerate_lua_runtime, NULL);
     mc_runtime_plugins_enumerate_package_details (test_enumerate_lua_package_details, NULL);
 
+    ck_assert_int_eq ((int) enumerated_lua_runtimes, 1);
     ck_assert_int_eq ((int) enumerated_lua_editor_packages, 2);
     ck_assert (enumerated_lua_editor_global);
     ck_assert (enumerated_lua_editor_user);
-}
-END_TEST
-
-/* --------------------------------------------------------------------------------------------- */
-
-START_TEST (test_lua_runtime_honors_mcedit_workspace_disable)
-{
-    char *ini_path;
-
-    ini_path = g_build_filename (config_dir, "mc", "ini", (char *) NULL);
-    write_file (ini_path, "[Lua]\nmcedit_enabled=false\n");
-    g_free (ini_path);
-
-    mctest_assert_true (mc_runtime_plugins_load (&error));
-    mc_runtime_plugins_enumerate_package_details (test_enumerate_lua_package_details, NULL);
-
-    ck_assert_int_eq ((int) enumerated_lua_editor_packages, 2);
-    ck_assert_int_eq ((int) enumerated_disabled_lua_editor_packages, 2);
 }
 END_TEST
 
@@ -1362,6 +1899,7 @@ main (void)
     TCase *tc_core;
     int result;
 
+    str_init_strings ("UTF-8");
     test_root = g_dir_make_tmp ("mc-lua-runtime.XXXXXX", &error);
     if (test_root == NULL)
     {
@@ -1373,18 +1911,30 @@ main (void)
 
     config_dir = g_build_filename (test_root, "config", (char *) NULL);
     system_scripts_dir = g_build_filename (test_root, "system-scripts", (char *) NULL);
-    user_scripts_dir = g_build_filename (config_dir, "mc", "lua", "scripts", (char *) NULL);
+    data_dir = g_build_filename (test_root, "data", (char *) NULL);
+    user_scripts_dir = g_build_filename (data_dir, "mc", "lua", "scripts", (char *) NULL);
+    legacy_user_scripts_dir =
+        g_build_filename (config_dir, "mc", "lua", "scripts", (char *) NULL);
     system_mc_scripts_dir = g_build_filename (system_scripts_dir, "mc", (char *) NULL);
     user_mc_scripts_dir = g_build_filename (user_scripts_dir, "mc", (char *) NULL);
     system_editor_scripts_dir = g_build_filename (system_scripts_dir, "editor", (char *) NULL);
     user_editor_scripts_dir = g_build_filename (user_scripts_dir, "editor", (char *) NULL);
     output_path = g_build_filename (test_root, "events.log", (char *) NULL);
+    (void) g_mkdir_with_parents (config_dir, 0700);
+    {
+        char *mc_config_dir = g_build_filename (config_dir, "mc", (char *) NULL);
+
+        (void) g_mkdir_with_parents (mc_config_dir, 0700);
+        g_free (mc_config_dir);
+    }
     g_setenv ("XDG_CONFIG_HOME", config_dir, TRUE);
+    g_setenv ("XDG_DATA_HOME", data_dir, TRUE);
     g_setenv ("MC_LUA_TEST_SYSTEM_SCRIPTS_DIR", system_scripts_dir, TRUE);
 
     tc_core = tcase_create ("Core");
     tcase_add_checked_fixture (tc_core, setup, teardown);
     tcase_add_test (tc_core, test_lua_runtime_loads_user_override_and_callbacks);
+    tcase_add_test (tc_core, test_lua_runtime_discovers_legacy_config_scripts);
     tcase_add_test (tc_core, test_lua_runtime_requires_known_workspace_directory);
     tcase_add_test (tc_core, test_lua_runtime_uses_optional_ui_host_services);
     tcase_add_test (tc_core, test_lua_runtime_isolates_callback_errors);
@@ -1393,7 +1943,6 @@ main (void)
     tcase_add_test (tc_core, test_lua_runtime_converts_all_domain_event_snapshots);
     tcase_add_test (tc_core, test_lua_runtime_honors_per_package_disable);
     tcase_add_test (tc_core, test_lua_runtime_enumerates_editor_package_details);
-    tcase_add_test (tc_core, test_lua_runtime_honors_mcedit_workspace_disable);
     tcase_add_test (tc_core, test_lua_runtime_rejects_insecure_package_paths);
     tcase_add_test (tc_core, test_lua_runtime_honors_disable_environment);
 
@@ -1406,21 +1955,32 @@ main (void)
     g_unsetenv ("MC_LUA_TEST_OBJECTS");
     g_unsetenv ("MC_LUA_TEST_MACRO");
     g_unsetenv ("MC_LUA_TEST_SYSTEM_SCRIPTS_DIR");
+    g_unsetenv ("XDG_DATA_HOME");
     remove_tree (test_root);
     g_free (object_editor_insert_text);
+    g_free (object_editor_replacement);
+    g_free (process_shell_command);
+    g_free (object_editor_range_replacement);
     g_free (object_panel_chdir_path);
     g_free (ui_message_text);
     g_free (ui_message_title);
     g_free (ui_status_text);
+    g_free (runtime_error_details);
+    g_free (runtime_error_summary);
+    g_free (runtime_error_package);
+    g_free (runtime_error_runtime);
     g_free (output_path);
     g_free (user_editor_scripts_dir);
     g_free (system_editor_scripts_dir);
     g_free (user_mc_scripts_dir);
     g_free (system_mc_scripts_dir);
     g_free (user_scripts_dir);
+    g_free (legacy_user_scripts_dir);
     g_free (system_scripts_dir);
     g_free (config_dir);
+    g_free (data_dir);
     g_free (test_root);
+    str_uninit_strings ();
     return result;
 }
 

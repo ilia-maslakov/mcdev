@@ -411,7 +411,7 @@ START_TEST (test_runtime_event_unsubscribe_during_dispatch)
 
     snapshot = startup_snapshot_new ();
     mctest_assert_true (mc_runtime_event_publish (snapshot, &error));
-    mctest_assert_str_eq (calls->str, "ab");
+    mctest_assert_str_eq (calls->str, "a");
 
     g_string_truncate (calls, 0);
     mctest_assert_true (mc_runtime_event_publish (snapshot, &error));

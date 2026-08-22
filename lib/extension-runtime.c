@@ -32,6 +32,7 @@
 #include "lib/global.h"
 #include "lib/extension-runtime.h"
 #include "lib/runtime-events.h"
+#include "lib/strutil.h"
 #include "lib/util.h"
 
 #ifdef HAVE_GMODULE
@@ -52,16 +53,75 @@
 #define MC_RUNTIME_HOST_SERVICES_EDITOR_SELECTED_TEXT_SIZE                                         \
     (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_selected_text)                         \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_selected_text))
+#define MC_RUNTIME_HOST_SERVICES_RUNTIME_ERROR_SIZE                                                \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, runtime_error)                                \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->runtime_error))
+#define MC_RUNTIME_HOST_SERVICES_DIALOG_SIZE                                                       \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, dialog_result_free)                           \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->dialog_result_free))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_INFO_SIZE                                                  \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_info_free)                             \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_info_free))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_SELECTION_SIZE                                             \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_selection_free)                        \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_selection_free))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SELECTION_SIZE                                     \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_replace_selection)                     \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_replace_selection))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SIZE                                               \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_replace)                               \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_replace))
+#define MC_RUNTIME_HOST_SERVICES_PROCESS_SIZE                                                      \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, process_result_free)                          \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->process_result_free))
+#define MC_RUNTIME_HOST_SERVICES_UI_REFRESH_SIZE                                                   \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_refresh)                                  \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->ui_refresh))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_TAB_WIDTH_SIZE                                             \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_tab_width)                            \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_tab_width))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_TEXT_SIZE                                                  \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_text)                                 \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_text))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_EDIT_SIZE                                                  \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_edit)                                 \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_edit))
+#define MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SELECTION_V2_SIZE                                  \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_replace_selection_v2)                 \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_replace_selection_v2))
+#define MC_RUNTIME_HOST_SERVICES_UI_TEXT_WIDTH_SIZE                                                \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_text_width)                               \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->ui_text_width))
 #define MC_RUNTIME_PLUGIN_DESCRIPTOR_ENUMERATE_SIZE                                                \
     (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_packages)                       \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_packages))
 #define MC_RUNTIME_PLUGIN_DESCRIPTOR_ENUMERATE_DETAILS_SIZE                                        \
     (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_package_details)                \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_package_details))
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_ACTIONS_SIZE                                                 \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, invoke_action)                           \
+     + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->invoke_action))
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_MENU_ACTIONS_SIZE                                            \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_menu_actions)                  \
+     + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_menu_actions))
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_DISPLAY_NAME_SIZE                                            \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, display_name)                            \
+     + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->display_name))
 
 /*** file scope type declarations ****************************************************************/
 
 typedef struct mc_runtime_plugin_instance mc_runtime_plugin_instance_t;
+
+typedef struct
+{
+    mc_runtime_plugin_context_t *context;
+    char *owner;
+    char *area;
+    char *id;
+    char *text;
+    gint priority;
+    guint64 serial;
+} mc_runtime_ui_indicator_t;
 
 typedef struct
 {
@@ -77,12 +137,29 @@ typedef struct
     gpointer user_data;
 } mc_runtime_package_details_enumeration_t;
 
+typedef struct
+{
+    const char *runtime_name;
+    mc_runtime_loaded_action_callback_t callback;
+    gpointer user_data;
+} mc_runtime_action_enumeration_t;
+
+typedef struct
+{
+    const char *runtime_name;
+    mc_runtime_loaded_menu_action_callback_t callback;
+    gpointer user_data;
+} mc_runtime_menu_action_enumeration_t;
+
 struct mc_runtime_plugin_context
 {
     mc_runtime_plugin_instance_t *instance;
     gpointer data;
     GDestroyNotify data_destroy;
 };
+
+static GPtrArray *mc_runtime_ui_indicators = NULL;
+static guint64 mc_runtime_ui_indicator_serial = 0;
 
 struct mc_runtime_plugin_instance
 {
@@ -222,6 +299,224 @@ mc_runtime_host_ui_message (mc_runtime_plugin_context_t *context, const char *ti
 /* --------------------------------------------------------------------------------------------- */
 
 static void
+mc_runtime_ui_indicator_free (mc_runtime_ui_indicator_t *indicator)
+{
+    if (indicator == NULL)
+        return;
+
+    g_free (indicator->owner);
+    g_free (indicator->area);
+    g_free (indicator->id);
+    g_free (indicator->text);
+    g_free (indicator);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_ui_refresh (const char *area)
+{
+    if (mc_runtime_host_services != NULL
+        && mc_runtime_host_services->struct_size >= MC_RUNTIME_HOST_SERVICES_UI_REFRESH_SIZE
+        && mc_runtime_host_services->ui_refresh != NULL)
+        mc_runtime_host_services->ui_refresh (area);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_ui_indicator_set (mc_runtime_plugin_context_t *context, const char *owner,
+                                  const char *area, const char *id, const char *text,
+                                  gint priority, const char **error)
+{
+    guint i;
+    mc_runtime_ui_indicator_t *indicator = NULL;
+
+    if (!mc_runtime_plugin_context_is_known (context))
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (owner == NULL || owner[0] == '\0' || area == NULL || area[0] == '\0' || id == NULL
+        || id[0] == '\0' || text == NULL || text[0] == '\0')
+    {
+        if (error != NULL)
+            *error = "invalid_argument";
+        return FALSE;
+    }
+
+    if (mc_runtime_ui_indicators == NULL)
+        mc_runtime_ui_indicators =
+            g_ptr_array_new_with_free_func ((GDestroyNotify) mc_runtime_ui_indicator_free);
+
+    for (i = 0; i < mc_runtime_ui_indicators->len; i++)
+    {
+        mc_runtime_ui_indicator_t *candidate =
+            (mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators, i);
+
+        if (candidate->context == context && strcmp (candidate->owner, owner) == 0
+            && strcmp (candidate->area, area) == 0 && strcmp (candidate->id, id) == 0)
+        {
+            indicator = candidate;
+            break;
+        }
+    }
+
+    if (indicator == NULL)
+    {
+        indicator = g_new0 (mc_runtime_ui_indicator_t, 1);
+        indicator->context = context;
+        indicator->owner = g_strdup (owner);
+        indicator->area = g_strdup (area);
+        indicator->id = g_strdup (id);
+        indicator->serial = ++mc_runtime_ui_indicator_serial;
+        g_ptr_array_add (mc_runtime_ui_indicators, indicator);
+    }
+
+    g_free (indicator->text);
+    indicator->text = g_strdup (text);
+    indicator->priority = priority;
+    mc_runtime_ui_refresh (area);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_ui_indicator_clear (mc_runtime_plugin_context_t *context, const char *owner,
+                                    const char *area, const char *id, const char **error)
+{
+    guint i;
+
+    if (!mc_runtime_plugin_context_is_known (context))
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (owner == NULL || owner[0] == '\0' || area == NULL || area[0] == '\0' || id == NULL
+        || id[0] == '\0')
+    {
+        if (error != NULL)
+            *error = "invalid_argument";
+        return FALSE;
+    }
+
+    if (mc_runtime_ui_indicators != NULL)
+        for (i = 0; i < mc_runtime_ui_indicators->len; i++)
+        {
+            const mc_runtime_ui_indicator_t *indicator =
+                (const mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators, i);
+
+            if (indicator->context == context && strcmp (indicator->owner, owner) == 0
+                && strcmp (indicator->area, area) == 0 && strcmp (indicator->id, id) == 0)
+            {
+                g_ptr_array_remove_index (mc_runtime_ui_indicators, i);
+                mc_runtime_ui_refresh (area);
+                break;
+            }
+        }
+
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_ui_indicators_clear_owner (mc_runtime_plugin_context_t *context, const char *owner)
+{
+    guint i;
+    GHashTable *areas;
+
+    if (!mc_runtime_plugin_context_is_known (context) || owner == NULL || owner[0] == '\0'
+        || mc_runtime_ui_indicators == NULL)
+        return;
+
+    areas = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+    for (i = mc_runtime_ui_indicators->len; i > 0; i--)
+    {
+        const mc_runtime_ui_indicator_t *indicator =
+            (const mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators, i - 1);
+
+        if (indicator->context == context && strcmp (indicator->owner, owner) == 0)
+        {
+            g_hash_table_add (areas, g_strdup (indicator->area));
+            g_ptr_array_remove_index (mc_runtime_ui_indicators, i - 1);
+        }
+    }
+
+    {
+        GHashTableIter iter;
+        gpointer key;
+
+        g_hash_table_iter_init (&iter, areas);
+        while (g_hash_table_iter_next (&iter, &key, NULL))
+            mc_runtime_ui_refresh ((const char *) key);
+    }
+    g_hash_table_destroy (areas);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gint
+mc_runtime_ui_indicator_compare (gconstpointer left, gconstpointer right)
+{
+    const mc_runtime_ui_indicator_t *a = *(mc_runtime_ui_indicator_t *const *) left;
+    const mc_runtime_ui_indicator_t *b = *(mc_runtime_ui_indicator_t *const *) right;
+
+    if (a->priority != b->priority)
+        return a->priority > b->priority ? -1 : 1;
+    return a->serial < b->serial ? -1 : a->serial > b->serial ? 1 : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+char *
+mc_runtime_ui_indicators_compose (const char *area, int max_width)
+{
+    GPtrArray *matches;
+    GString *result;
+    guint i;
+    int used = 0;
+
+    if (area == NULL || max_width <= 0 || mc_runtime_ui_indicators == NULL)
+        return g_strdup ("");
+
+    matches = g_ptr_array_new ();
+    for (i = 0; i < mc_runtime_ui_indicators->len; i++)
+    {
+        mc_runtime_ui_indicator_t *indicator =
+            (mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators, i);
+
+        if (strcmp (indicator->area, area) == 0)
+            g_ptr_array_add (matches, indicator);
+    }
+    g_ptr_array_sort (matches, mc_runtime_ui_indicator_compare);
+
+    result = g_string_new ("");
+    for (i = 0; i < matches->len; i++)
+    {
+        const mc_runtime_ui_indicator_t *indicator =
+            (const mc_runtime_ui_indicator_t *) g_ptr_array_index (matches, i);
+        const int width = str_term_width1 (indicator->text);
+        const int separator = result->len == 0 ? 0 : 1;
+
+        if (width <= 0 || used + separator + width > max_width)
+            continue;
+        if (separator != 0)
+            g_string_append_c (result, ' ');
+        g_string_append (result, indicator->text);
+        used += separator + width;
+    }
+
+    g_ptr_array_free (matches, TRUE);
+    return g_string_free (result, FALSE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
 mc_runtime_host_log (mc_runtime_plugin_context_t *context, const char *source, const char *level,
                      const char *message)
 {
@@ -230,6 +525,53 @@ mc_runtime_host_log (mc_runtime_plugin_context_t *context, const char *source, c
         return;
 
     mc_runtime_host_services->log (source, level, message);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_runtime_error (mc_runtime_plugin_context_t *context, const char *runtime_name,
+                               const char *package_id, mc_runtime_error_phase_t phase,
+                               const char *summary, const char *details)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_RUNTIME_ERROR_SIZE
+        || mc_runtime_host_services->runtime_error == NULL)
+        return;
+
+    mc_runtime_host_services->runtime_error (runtime_name, package_id, phase, summary, details);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_ui_dialog (mc_runtime_plugin_context_t *context, const mc_runtime_dialog_t *dialog,
+                           mc_runtime_dialog_result_t *result, const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_DIALOG_SIZE
+        || mc_runtime_host_services->ui_dialog == NULL)
+    {
+        if (error != NULL)
+            *error = "not_ready";
+        return FALSE;
+    }
+
+    return mc_runtime_host_services->ui_dialog (dialog, result, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_dialog_result_free (mc_runtime_plugin_context_t *context,
+                                    mc_runtime_dialog_result_t *result)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_DIALOG_SIZE
+        || mc_runtime_host_services->dialog_result_free == NULL)
+        return;
+
+    mc_runtime_host_services->dialog_result_free (result);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -523,6 +865,110 @@ mc_runtime_host_editor_save (mc_runtime_plugin_context_t *context,
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
+mc_runtime_host_editor_tab_width (mc_runtime_plugin_context_t *context,
+                                  const mc_runtime_handle_t *editor, guint *tab_width,
+                                  const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_TAB_WIDTH_SIZE
+        || mc_runtime_host_services->editor_tab_width == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_tab_width (editor, tab_width, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_text (mc_runtime_plugin_context_t *context,
+                             const mc_runtime_handle_t *editor,
+                             const mc_runtime_editor_range_t *range, gboolean has_revision,
+                             guint64 revision, mc_runtime_string_t *text, const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_TEXT_SIZE
+        || mc_runtime_host_services->editor_text == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_text (editor, range, has_revision, revision, text,
+                                                  error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_edit (mc_runtime_plugin_context_t *context,
+                             const mc_runtime_handle_t *editor,
+                             const mc_runtime_editor_edit_t *edit_spec,
+                             mc_runtime_editor_edit_result_t *result, const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_EDIT_SIZE
+        || mc_runtime_host_services->editor_edit == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_edit (editor, edit_spec, result, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_replace_selection_v2 (
+    mc_runtime_plugin_context_t *context, const mc_runtime_handle_t *editor, guint64 revision,
+    const char *text, gsize text_length, mc_runtime_editor_edit_result_t *result,
+    const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size
+            < MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SELECTION_V2_SIZE
+        || mc_runtime_host_services->editor_replace_selection_v2 == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_replace_selection_v2 (editor, revision, text,
+                                                                  text_length, result, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_ui_text_width (mc_runtime_plugin_context_t *context, const char *text,
+                               gsize text_length, guint *width, const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_UI_TEXT_WIDTH_SIZE
+        || mc_runtime_host_services->ui_text_width == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->ui_text_width (text, text_length, width, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
 mc_runtime_host_editor_selected_text (mc_runtime_plugin_context_t *context,
                                       const mc_runtime_handle_t *editor, mc_runtime_string_t *text,
                                       const char **error)
@@ -538,6 +984,152 @@ mc_runtime_host_editor_selected_text (mc_runtime_plugin_context_t *context,
     }
 
     return mc_runtime_host_services->editor_selected_text (editor, text, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_info (mc_runtime_plugin_context_t *context,
+                             const mc_runtime_handle_t *editor, mc_runtime_editor_info_t *info,
+                             const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_INFO_SIZE
+        || mc_runtime_host_services->editor_info == NULL
+        || mc_runtime_host_services->editor_info_free == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_info (editor, info, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_editor_info_free (mc_runtime_plugin_context_t *context,
+                                  mc_runtime_editor_info_t *info)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_INFO_SIZE
+        || mc_runtime_host_services->editor_info_free == NULL)
+        return;
+    mc_runtime_host_services->editor_info_free (info);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_selection (mc_runtime_plugin_context_t *context,
+                                  const mc_runtime_handle_t *editor,
+                                  mc_runtime_editor_selection_t *selection, const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_SELECTION_SIZE
+        || mc_runtime_host_services->editor_selection == NULL
+        || mc_runtime_host_services->editor_selection_free == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_selection (editor, selection, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_editor_selection_free (mc_runtime_plugin_context_t *context,
+                                       mc_runtime_editor_selection_t *selection)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_SELECTION_SIZE
+        || mc_runtime_host_services->editor_selection_free == NULL)
+        return;
+    mc_runtime_host_services->editor_selection_free (selection);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_replace_selection (mc_runtime_plugin_context_t *context,
+                                          const mc_runtime_handle_t *editor, const char *text,
+                                          gsize text_length,
+                                          mc_runtime_editor_edit_result_t *result,
+                                          const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size
+            < MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SELECTION_SIZE
+        || mc_runtime_host_services->editor_replace_selection == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_replace_selection (editor, text, text_length, result,
+                                                               error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_editor_replace (mc_runtime_plugin_context_t *context,
+                                const mc_runtime_handle_t *editor, guint64 from, guint64 to,
+                                const char *text, gsize text_length,
+                                mc_runtime_editor_edit_result_t *result, const char **error)
+{
+    if (!mc_runtime_host_objects_prepare (context, error))
+        return FALSE;
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SIZE
+        || mc_runtime_host_services->editor_replace == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->editor_replace (editor, from, to, text, text_length, result,
+                                                     error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_process_run_shell (mc_runtime_plugin_context_t *context, const char *command,
+                                   gsize max_output, mc_runtime_process_result_t *result,
+                                   const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_PROCESS_SIZE
+        || mc_runtime_host_services->process_run_shell == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->process_run_shell (command, max_output, result, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_host_process_result_free (mc_runtime_plugin_context_t *context,
+                                     mc_runtime_process_result_t *result)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL
+        || mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_PROCESS_SIZE
+        || mc_runtime_host_services->process_result_free == NULL)
+        return;
+    mc_runtime_host_services->process_result_free (result);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -698,6 +1290,35 @@ mc_runtime_package_details_legacy_bridge (const char *id, const char *display_na
 
 /* --------------------------------------------------------------------------------------------- */
 
+static void
+mc_runtime_action_enumeration_bridge (const char *id, const char *label, const char *shortcut,
+                                      gpointer user_data)
+{
+    const mc_runtime_action_enumeration_t *enumeration =
+        (const mc_runtime_action_enumeration_t *) user_data;
+
+    if (enumeration != NULL && enumeration->callback != NULL)
+        enumeration->callback (enumeration->runtime_name, id, label, shortcut,
+                               enumeration->user_data);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mc_runtime_menu_action_enumeration_bridge (const char *id, const char *menu_path,
+                                           const char *label, const char *shortcut, gint position,
+                                           gpointer user_data)
+{
+    const mc_runtime_menu_action_enumeration_t *enumeration =
+        (const mc_runtime_menu_action_enumeration_t *) user_data;
+
+    if (enumeration != NULL && enumeration->callback != NULL)
+        enumeration->callback (enumeration->runtime_name, id, menu_path, label, shortcut, position,
+                               enumeration->user_data);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static mc_runtime_host_api_v1_t mc_runtime_host_api = {
     .abi_version = MC_RUNTIME_PLUGIN_ABI_VERSION,
     .struct_size = sizeof (mc_runtime_host_api_v1_t),
@@ -734,6 +1355,25 @@ static mc_runtime_host_api_v1_t mc_runtime_host_api = {
     .file_snapshot_free = mc_runtime_host_file_snapshot_free,
     .file_list_free = mc_runtime_host_file_list_free,
     .editor_selected_text = mc_runtime_host_editor_selected_text,
+    .runtime_error = mc_runtime_host_runtime_error,
+    .ui_dialog = mc_runtime_host_ui_dialog,
+    .dialog_result_free = mc_runtime_host_dialog_result_free,
+    .editor_info = mc_runtime_host_editor_info,
+    .editor_info_free = mc_runtime_host_editor_info_free,
+    .editor_selection = mc_runtime_host_editor_selection,
+    .editor_selection_free = mc_runtime_host_editor_selection_free,
+    .editor_replace_selection = mc_runtime_host_editor_replace_selection,
+    .editor_replace = mc_runtime_host_editor_replace,
+    .process_run_shell = mc_runtime_host_process_run_shell,
+    .process_result_free = mc_runtime_host_process_result_free,
+    .ui_indicator_set = mc_runtime_host_ui_indicator_set,
+    .ui_indicator_clear = mc_runtime_host_ui_indicator_clear,
+    .ui_indicators_clear_owner = mc_runtime_host_ui_indicators_clear_owner,
+    .editor_tab_width = mc_runtime_host_editor_tab_width,
+    .editor_text = mc_runtime_host_editor_text,
+    .editor_edit = mc_runtime_host_editor_edit,
+    .editor_replace_selection_v2 = mc_runtime_host_editor_replace_selection_v2,
+    .ui_text_width = mc_runtime_host_ui_text_width,
 };
 
 /* --------------------------------------------------------------------------------------------- */
@@ -833,8 +1473,21 @@ mc_runtime_plugin_is_disabled (const char *runtime_name)
 static void
 mc_runtime_plugin_context_destroy (mc_runtime_plugin_context_t *context)
 {
+    guint i;
+
     if (context == NULL)
         return;
+
+    if (mc_runtime_ui_indicators != NULL)
+        for (i = mc_runtime_ui_indicators->len; i > 0; i--)
+        {
+            const mc_runtime_ui_indicator_t *indicator =
+                (const mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators,
+                                                                        i - 1);
+
+            if (indicator->context == context)
+                g_ptr_array_remove_index (mc_runtime_ui_indicators, i - 1);
+        }
 
     if (context->data_destroy != NULL)
         context->data_destroy (context->data);
@@ -1056,6 +1709,13 @@ mc_runtime_plugins_shutdown (void)
     mc_runtime_plugin_instances = NULL;
     mc_runtime_plugins_loaded = FALSE;
 
+    if (mc_runtime_ui_indicators != NULL)
+    {
+        g_ptr_array_free (mc_runtime_ui_indicators, TRUE);
+        mc_runtime_ui_indicators = NULL;
+    }
+    mc_runtime_ui_indicator_serial = 0;
+
     if (mc_runtime_disabled_plugin_names != NULL)
     {
         g_hash_table_destroy (mc_runtime_disabled_plugin_names);
@@ -1077,6 +1737,35 @@ guint
 mc_runtime_plugins_count (void)
 {
     return mc_runtime_plugin_instances != NULL ? mc_runtime_plugin_instances->len : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mc_runtime_plugins_enumerate_runtimes (mc_runtime_loaded_runtime_callback_t callback,
+                                       gpointer user_data)
+{
+    guint i;
+
+    if (callback == NULL || mc_runtime_plugin_instances == NULL)
+        return;
+
+    for (i = 0; i < mc_runtime_plugin_instances->len; i++)
+    {
+        const mc_runtime_plugin_instance_t *instance =
+            (const mc_runtime_plugin_instance_t *) g_ptr_array_index (mc_runtime_plugin_instances,
+                                                                      i);
+        const mc_runtime_plugin_descriptor_v1_t *descriptor = instance->descriptor;
+        const char *display_name = descriptor->runtime_name;
+
+        if (descriptor->struct_size >= MC_RUNTIME_PLUGIN_DESCRIPTOR_DISPLAY_NAME_SIZE
+            && descriptor->display_name != NULL && descriptor->display_name[0] != '\0')
+            display_name = descriptor->display_name;
+
+        callback (descriptor->runtime_name, display_name, descriptor->abi_version,
+                  descriptor->capability_flags, descriptor->required_host_capabilities,
+                  user_data);
+    }
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1147,6 +1836,105 @@ mc_runtime_plugins_enumerate_package_details (mc_runtime_loaded_package_details_
 
 /* --------------------------------------------------------------------------------------------- */
 
+void
+mc_runtime_plugins_enumerate_actions (const char *workspace,
+                                      mc_runtime_loaded_action_callback_t callback,
+                                      gpointer user_data)
+{
+    guint i;
+
+    if (workspace == NULL || callback == NULL || mc_runtime_plugin_instances == NULL)
+        return;
+
+    for (i = 0; i < mc_runtime_plugin_instances->len; i++)
+    {
+        const mc_runtime_plugin_instance_t *instance =
+            (const mc_runtime_plugin_instance_t *) g_ptr_array_index (mc_runtime_plugin_instances,
+                                                                      i);
+        mc_runtime_action_enumeration_t enumeration;
+
+        if (instance->descriptor->struct_size < MC_RUNTIME_PLUGIN_DESCRIPTOR_ACTIONS_SIZE
+            || instance->descriptor->enumerate_actions == NULL)
+            continue;
+
+        enumeration.runtime_name = instance->descriptor->runtime_name;
+        enumeration.callback = callback;
+        enumeration.user_data = user_data;
+        instance->descriptor->enumerate_actions (instance->context, workspace,
+                                                 mc_runtime_action_enumeration_bridge,
+                                                 &enumeration);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mc_runtime_plugins_invoke_action (const char *runtime_name, const char *workspace,
+                                  const char *action_id, const char **error)
+{
+    guint i;
+
+    if (error != NULL)
+        *error = NULL;
+    if (runtime_name == NULL || workspace == NULL || action_id == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_argument";
+        return FALSE;
+    }
+
+    for (i = 0; mc_runtime_plugin_instances != NULL && i < mc_runtime_plugin_instances->len; i++)
+    {
+        const mc_runtime_plugin_instance_t *instance =
+            (const mc_runtime_plugin_instance_t *) g_ptr_array_index (mc_runtime_plugin_instances,
+                                                                      i);
+
+        if (g_strcmp0 (instance->descriptor->runtime_name, runtime_name) != 0)
+            continue;
+        if (instance->descriptor->struct_size < MC_RUNTIME_PLUGIN_DESCRIPTOR_ACTIONS_SIZE
+            || instance->descriptor->invoke_action == NULL)
+            break;
+        return instance->descriptor->invoke_action (instance->context, workspace, action_id, error);
+    }
+
+    if (error != NULL)
+        *error = "action_not_found";
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+mc_runtime_plugins_enumerate_menu_actions (const char *workspace,
+                                           mc_runtime_loaded_menu_action_callback_t callback,
+                                           gpointer user_data)
+{
+    guint i;
+
+    if (workspace == NULL || callback == NULL || mc_runtime_plugin_instances == NULL)
+        return;
+
+    for (i = 0; i < mc_runtime_plugin_instances->len; i++)
+    {
+        const mc_runtime_plugin_instance_t *instance =
+            (const mc_runtime_plugin_instance_t *) g_ptr_array_index (mc_runtime_plugin_instances,
+                                                                      i);
+        mc_runtime_menu_action_enumeration_t enumeration;
+
+        if (instance->descriptor->struct_size < MC_RUNTIME_PLUGIN_DESCRIPTOR_MENU_ACTIONS_SIZE
+            || instance->descriptor->enumerate_menu_actions == NULL)
+            continue;
+
+        enumeration.runtime_name = instance->descriptor->runtime_name;
+        enumeration.callback = callback;
+        enumeration.user_data = user_data;
+        instance->descriptor->enumerate_menu_actions (
+            instance->context, workspace, mc_runtime_menu_action_enumeration_bridge, &enumeration);
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static gboolean
 mc_runtime_host_has_panel_services (void)
 {
@@ -1178,6 +1966,17 @@ mc_runtime_host_has_editor_services (void)
         && mc_runtime_host_services->editor_insert != NULL
         && mc_runtime_host_services->editor_save != NULL
         && mc_runtime_host_services->string_free != NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_has_process_services (void)
+{
+    return mc_runtime_host_services != NULL
+        && mc_runtime_host_services->struct_size >= MC_RUNTIME_HOST_SERVICES_PROCESS_SIZE
+        && mc_runtime_host_services->process_run_shell != NULL
+        && mc_runtime_host_services->process_result_free != NULL;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1238,6 +2037,8 @@ mc_runtime_plugins_set_host_services (const mc_runtime_host_services_v1_t *servi
         mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_EDITOR;
     if (mc_runtime_host_has_viewer_services ())
         mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_VIEWER;
+    if (mc_runtime_host_has_process_services ())
+        mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_PROCESS;
 }
 
 /* --------------------------------------------------------------------------------------------- */

@@ -34,6 +34,7 @@
 
 #include <ctype.h>
 #include <errno.h>
+#include <inttypes.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/types.h>
@@ -50,10 +51,12 @@
 #include "lib/util.h"     // mc_build_filename()
 #include "lib/plugin-prefs.h"
 #include "lib/widget.h"
+#include "lib/widget/table.h"
 #include "lib/mcconfig.h"
 #include "lib/event.h"  // mc_event_raise()
 #include "lib/charsets.h"
 #include "lib/editor-plugin.h"
+#include "lib/extension-runtime.h"
 #include "lib/runtime-events.h"
 
 #include "src/keymap.h"  // keybind_lookup_keymap_command()
@@ -122,8 +125,7 @@ edit_publish_runtime_open (WEdit *edit)
     snapshot->data.editor_open.path = edit->filename_vpath != NULL
         ? vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD)
         : g_strdup ("");
-    snapshot->data.editor_open.readonly =
-        (edit->stat1.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0;
+    snapshot->data.editor_open.readonly = FALSE;
     snapshot->data.editor_open.line = (guint) MAX (edit->buffer.curs_line, 0) + 1;
     snapshot->data.editor_open.column = (guint) MAX (edit->curs_col, 0) + 1;
 
@@ -748,71 +750,253 @@ edit_about (void)
  * Show info about loaded editor plugins.
  */
 
+typedef struct
+{
+    char *kind;
+    char *name;
+    char *id;
+    char *api;
+    char *flags;
+    char *capabilities;
+    long configure_command;
+} edit_plugin_info_row_t;
+
+static void
+edit_plugin_info_row_destroy (edit_plugin_info_row_t *row)
+{
+    g_free (row->kind);
+    g_free (row->name);
+    g_free (row->id);
+    g_free (row->api);
+    g_free (row->flags);
+    g_free (row->capabilities);
+    g_free (row);
+}
+
+static void
+edit_plugin_info_append_capability (GString *text, const char *name)
+{
+    if (text->len != 0)
+        g_string_append (text, ", ");
+    g_string_append (text, name);
+}
+
+static void
+edit_runtime_info_collect (const char *runtime_name, const char *display_name, guint abi_version,
+                           guint64 capability_flags, guint64 required_host_capabilities,
+                           gpointer user_data)
+{
+    GPtrArray *rows = (GPtrArray *) user_data;
+    edit_plugin_info_row_t *row = g_new0 (edit_plugin_info_row_t, 1);
+    GString *capabilities = g_string_new (NULL);
+    static const struct
+    {
+        guint64 flag;
+        const char *name;
+    } host_capabilities[] = {
+        { MC_RUNTIME_HOST_CAP_EVENTS, "events" },
+        { MC_RUNTIME_HOST_CAP_CONTEXT_DATA, "context" },
+        { MC_RUNTIME_HOST_CAP_UI, "ui" },
+        { MC_RUNTIME_HOST_CAP_LOG, "log" },
+        { MC_RUNTIME_HOST_CAP_PANEL, "panel" },
+        { MC_RUNTIME_HOST_CAP_EDITOR, "editor" },
+        { MC_RUNTIME_HOST_CAP_VIEWER, "viewer" },
+        { MC_RUNTIME_HOST_CAP_PROCESS, "process" },
+    };
+    guint i;
+
+    for (i = 0; i < G_N_ELEMENTS (host_capabilities); i++)
+        if ((required_host_capabilities & host_capabilities[i].flag) != 0)
+            edit_plugin_info_append_capability (capabilities, host_capabilities[i].name);
+
+    row->kind = g_strdup ("runtime");
+    row->name = g_strdup (display_name);
+    row->id = g_strdup (runtime_name);
+    row->api = g_strdup_printf ("%u", abi_version);
+    row->flags = g_strdup_printf ("0x%" PRIx64, capability_flags);
+    row->capabilities = g_string_free (capabilities, FALSE);
+    row->configure_command = CK_IgnoreKey;
+    g_ptr_array_add (rows, row);
+}
+
+static int
+edit_plugin_info_get_nrows (const void *data)
+{
+    const GPtrArray *rows = (const GPtrArray *) data;
+
+    return rows != NULL ? (int) rows->len : 0;
+}
+
+static const char *
+edit_plugin_info_get_text (const void *data, int row_index, int column)
+{
+    const GPtrArray *rows = (const GPtrArray *) data;
+    const edit_plugin_info_row_t *row;
+
+    if (rows == NULL || row_index < 0 || row_index >= (int) rows->len)
+        return "";
+    row = (const edit_plugin_info_row_t *) g_ptr_array_index (rows, (guint) row_index);
+
+    switch (column)
+    {
+    case 1:
+        return row->kind;
+    case 2:
+        return row->name;
+    case 3:
+        return row->id;
+    case 4:
+        return row->api;
+    case 5:
+        return row->flags;
+    case 6:
+        return row->capabilities;
+    default:
+        return "";
+    }
+}
+
+static gboolean
+edit_plugin_info_get_checked (const void *data, int row, int column)
+{
+    (void) data;
+    (void) row;
+    (void) column;
+    return TRUE;
+}
+
+static int
+edit_plugin_info_header_get_nrows (const void *data)
+{
+    (void) data;
+    return 1;
+}
+
+static const char *
+edit_plugin_info_header_get_text (const void *data, int row, int column)
+{
+    static const char *const headings[] = { "On", "Kind", "Name", "ID", "API", "Flags",
+                                             "Capabilities" };
+
+    (void) data;
+    return row == 0 && column >= 0 && column < (int) G_N_ELEMENTS (headings) ? headings[column]
+                                                                            : "";
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 static void
 edit_plugins_info (WDialog *h)
 {
     const GSList *plugins;
-    Listbox *listbox;
+    GPtrArray *rows;
+    WDialog *dlg;
+    WTable *header;
+    WTable *table;
     WEdit *edit = NULL;
-    int lines, cols;
-    int selected;
-    long selected_command = CK_IgnoreKey;
+    int table_height, dialog_height, dialog_width, table_width, capabilities_width;
+    int selected, action;
+    table_column_def_t columns[7];
+    table_column_def_t header_columns[7];
+    table_datasource_t header_datasource = { 0 };
+    table_datasource_t datasource = { 0 };
 
     plugins = mc_editor_plugin_list ();
-    if (plugins == NULL)
-    {
-        message (D_NORMAL, _ ("Plugin info"), "%s", _ ("No editor plugins are loaded."));
-        return;
-    }
-
-    lines = MIN ((int) g_slist_length ((GSList *) plugins) + 2, LINES * 2 / 3);
-    cols = COLS * 3 / 4;
-    listbox = listbox_window_new (lines, cols, _ ("Plugin info"), "[Plugin info]");
-
-    if (h != NULL)
-    {
-        WGroup *g = GROUP (h);
-
-        if (g != NULL && g->current != NULL && g->current->data != NULL
-            && edit_widget_is_editor (CONST_WIDGET (g->current->data)))
-            edit = EDIT (g->current->data);
-    }
-
-    if (edit == NULL && h != NULL)
-        edit = edit_find_editor (h);
-
+    rows = g_ptr_array_new_with_free_func ((GDestroyNotify) edit_plugin_info_row_destroy);
     for (; plugins != NULL; plugins = g_slist_next (plugins))
     {
         const mc_editor_plugin_t *p = (const mc_editor_plugin_t *) plugins->data;
-        const char *activate = (p->activate != NULL) ? "yes" : "no";
-        const char *configure = (p->configure != NULL) ? "yes" : "no";
-        const char *state = (p->query_state != NULL) ? "yes" : "no";
-        const char *action = (p->handle_action != NULL) ? "yes" : "no";
-        const char *key = (p->handle_key != NULL) ? "yes" : "no";
-        const char *event = (p->handle_event != NULL) ? "yes" : "no";
-        const char *open = (p->open != NULL) ? "yes" : "no";
-        const char *close = (p->close != NULL) ? "yes" : "no";
-        char *line;
+        edit_plugin_info_row_t *row = g_new0 (edit_plugin_info_row_t, 1);
+        GString *capabilities = g_string_new (NULL);
 
-        line = g_strdup_printf (
-            "%s (%s): api=%d flags=0x%x callbacks: activate=%s configure=%s query=%s action=%s "
-            "key=%s event=%s open=%s close=%s",
-            p->display_name != NULL ? p->display_name : "-", p->name != NULL ? p->name : "-",
-            p->api_version, (unsigned int) p->flags, activate, configure, state, action, key, event,
-            open, close);
-        listbox_add_item (listbox->list, LISTBOX_APPEND_AT_END, 0, line, NULL, FALSE);
-        g_free (line);
+        if (p->activate != NULL) edit_plugin_info_append_capability (capabilities, "activate");
+        if (p->configure != NULL) edit_plugin_info_append_capability (capabilities, "configure");
+        if (p->query_state != NULL) edit_plugin_info_append_capability (capabilities, "query");
+        if (p->handle_action != NULL) edit_plugin_info_append_capability (capabilities, "action");
+        if (p->handle_key != NULL) edit_plugin_info_append_capability (capabilities, "key");
+        if (p->handle_event != NULL) edit_plugin_info_append_capability (capabilities, "event");
+        if (p->open != NULL) edit_plugin_info_append_capability (capabilities, "open");
+        if (p->close != NULL) edit_plugin_info_append_capability (capabilities, "close");
+
+        row->kind = g_strdup ("editor");
+        row->name = g_strdup (p->display_name != NULL ? p->display_name : "-");
+        row->id = g_strdup (p->name != NULL ? p->name : "-");
+        row->api = g_strdup_printf ("%d", p->api_version);
+        row->flags = g_strdup_printf ("0x%x", (unsigned int) p->flags);
+        row->capabilities = g_string_free (capabilities, FALSE);
+        row->configure_command = MC_EDITOR_PLUGIN_CMD_BASE + (long) rows->len;
+        g_ptr_array_add (rows, row);
     }
 
-    selected = listbox_run (listbox);
-    if (selected >= 0)
+    mc_runtime_plugins_enumerate_runtimes (edit_runtime_info_collect, rows);
+    if (rows->len == 0)
     {
-        selected_command = MC_EDITOR_PLUGIN_CMD_BASE + selected;
-
-        if (!edit_plugin_configure (h, selected_command, edit))
-            message (D_NORMAL, _ ("Plugin info"), "%s",
-                     _ ("Selected plugin has no configuration callback."));
+        message (D_NORMAL, _ ("Plugin info"), "%s", _ ("No plugins are loaded."));
+        g_ptr_array_free (rows, TRUE);
+        return;
     }
+
+    dialog_width = MIN (COLS - 4, 110);
+    table_width = dialog_width - 2;
+    capabilities_width = MAX (10, table_width - 63);
+    columns[0] = (table_column_def_t) { 4, J_CENTER, TABLE_COL_CHECK };
+    columns[1] = (table_column_def_t) { 8, J_LEFT, TABLE_COL_TEXT };
+    columns[2] = (table_column_def_t) { 18, J_LEFT, TABLE_COL_TEXT };
+    columns[3] = (table_column_def_t) { 12, J_LEFT, TABLE_COL_TEXT };
+    columns[4] = (table_column_def_t) { 5, J_CENTER, TABLE_COL_TEXT };
+    columns[5] = (table_column_def_t) { 8, J_CENTER, TABLE_COL_TEXT };
+    columns[6] = (table_column_def_t) { capabilities_width, J_LEFT_FIT, TABLE_COL_TEXT };
+    memcpy (header_columns, columns, sizeof (columns));
+    header_columns[0].type = TABLE_COL_TEXT;
+    table_height = MAX (4, MIN ((int) rows->len, 16));
+    dialog_height = table_height + 4;
+    dlg = dlg_create (TRUE, (LINES - dialog_height) / 2, (COLS - dialog_width) / 2, dialog_height,
+                      dialog_width, WPOS_KEEP_DEFAULT, TRUE, dialog_colors, NULL, NULL,
+                      "[Plugin info]", _ ("Plugin info"));
+    header = table_new (1, 1, 1, table_width, 7, header_columns);
+    header->scrollbar = FALSE;
+    header->scrollbar_on_frame = FALSE;
+    widget_set_options (WIDGET (header), WOP_SELECTABLE, FALSE);
+    header_datasource.get_nrows = edit_plugin_info_header_get_nrows;
+    header_datasource.get_text = edit_plugin_info_header_get_text;
+    table_set_datasource (header, header_datasource);
+    header->current = -1;
+    group_add_widget (GROUP (dlg), header);
+    group_add_widget (GROUP (dlg), hline_new (2, -1, -1));
+    table = table_new (3, 1, table_height, table_width, 7, columns);
+    table->scrollbar = TRUE;
+    table->scrollbar_on_frame = FALSE;
+    datasource.get_nrows = edit_plugin_info_get_nrows;
+    datasource.get_text = edit_plugin_info_get_text;
+    datasource.get_checked = edit_plugin_info_get_checked;
+    datasource.data = rows;
+    table_set_datasource (table, datasource);
+    group_add_widget (GROUP (dlg), table);
+    widget_select (WIDGET (table));
+
+    action = dlg_run (dlg);
+    selected = table_get_current (table);
+    widget_destroy (WIDGET (dlg));
+
+    if (action == B_ENTER && selected >= 0 && selected < (int) rows->len)
+    {
+        const edit_plugin_info_row_t *row =
+            (const edit_plugin_info_row_t *) g_ptr_array_index (rows, (guint) selected);
+
+        if (row->configure_command == CK_IgnoreKey)
+            message (D_NORMAL, _ ("Plugin info"), "%s",
+                     _ ("Selected runtime has no configuration callback."));
+        else
+        {
+            if (h != NULL)
+                edit = edit_find_editor (h);
+            if (!edit_plugin_configure (h, row->configure_command, edit))
+                message (D_NORMAL, _ ("Plugin info"), "%s",
+                         _ ("Selected plugin has no configuration callback."));
+        }
+    }
+
+    g_ptr_array_free (rows, TRUE);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1963,6 +2147,12 @@ edit_mouse_callback (Widget *w, mouse_msg_t msg, mouse_event_t *event)
     case MSG_MOUSE_DRAG:
         edit_update_cursor (edit, event);
         edit_total_update (edit);
+        /* edit_update_screen() coalesces redraws while more input is pending.  A stream of
+         * mouse-motion reports therefore used to leave the selection invisible until the
+         * button was released.  Render and flush the current drag position immediately. */
+        if (!is_idle ())
+            edit_render_keypress (edit);
+        tty_refresh ();
         break;
 
     case MSG_MOUSE_SCROLL_UP:
