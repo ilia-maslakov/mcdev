@@ -39,7 +39,7 @@
 #include "lib/plugin-prefs.h"
 
 #include "src/editor-plugins/builtin-plugins.h"  // editor_plugins_register_all
-#include "src/filemanager/cmd.h"  // edit_file_at_line()
+#include "src/filemanager/cmd.h"                 // edit_file_at_line()
 #include "src/filemanager/magic.h"
 
 #include "manage_plugins.h"
@@ -456,9 +456,9 @@ mp_lua_editor_scripts_dialog (void)
     group_add_widget (GROUP (dlg),
                       button_new (dlg_h - 2, (dlg_w - 20) / 2, MP_LUA_RUN_SCRIPT, DEFPUSH_BUTTON,
                                   _ ("&Run"), mp_lua_editor_script_run));
-    group_add_widget (GROUP (dlg),
-                      button_new (dlg_h - 2, (dlg_w - 20) / 2 + 10, B_CANCEL, NORMAL_BUTTON,
-                                  _ ("&Close"), NULL));
+    group_add_widget (
+        GROUP (dlg),
+        button_new (dlg_h - 2, (dlg_w - 20) / 2 + 10, B_CANCEL, NORMAL_BUTTON, _ ("&Close"), NULL));
     widget_select (WIDGET (tbl));
 
     if (dlg_run (dlg) == MP_LUA_EDIT_SCRIPT)
@@ -562,37 +562,33 @@ mp_lua_editor_action_invoke (const mp_lua_action_t *action)
 static void
 mp_lua_editor_actions_dialog (const char *package_id)
 {
-    GPtrArray *actions =
-        g_ptr_array_new_with_free_func ((GDestroyNotify) mp_lua_action_destroy);
+    GPtrArray *actions = g_ptr_array_new_with_free_func ((GDestroyNotify) mp_lua_action_destroy);
     mp_lua_action_collection_t collection = { actions, package_id };
     Listbox *listbox;
     int selected;
     guint i;
 
-    mc_runtime_plugins_enumerate_actions (MP_LUA_MCEDIT_WORKSPACE,
-                                          mp_collect_lua_editor_action, &collection);
+    mc_runtime_plugins_enumerate_actions (MP_LUA_MCEDIT_WORKSPACE, mp_collect_lua_editor_action,
+                                          &collection);
     if (actions->len == 0)
     {
-        message (D_NORMAL, _ ("Lua"), "%s",
-                 _ ("The selected script has no runnable actions."));
+        message (D_NORMAL, _ ("Lua"), "%s", _ ("The selected script has no runnable actions."));
         g_ptr_array_free (actions, TRUE);
         return;
     }
 
     if (actions->len == 1)
     {
-        mp_lua_editor_action_invoke (
-            (const mp_lua_action_t *) g_ptr_array_index (actions, 0));
+        mp_lua_editor_action_invoke ((const mp_lua_action_t *) g_ptr_array_index (actions, 0));
         g_ptr_array_free (actions, TRUE);
         return;
     }
 
-    listbox = listbox_window_new (MIN ((int) actions->len, MP_LIST_MAX_H),
-                                  MIN (COLS - 6, 64), _ ("Run Lua action"), NULL);
+    listbox = listbox_window_new (MIN ((int) actions->len, MP_LIST_MAX_H), MIN (COLS - 6, 64),
+                                  _ ("Run Lua action"), NULL);
     for (i = 0; i < actions->len; i++)
     {
-        const mp_lua_action_t *action =
-            (const mp_lua_action_t *) g_ptr_array_index (actions, i);
+        const mp_lua_action_t *action = (const mp_lua_action_t *) g_ptr_array_index (actions, i);
         char *line = action->shortcut != NULL && action->shortcut[0] != '\0'
             ? g_strdup_printf ("%s  [%s]", action->label, action->shortcut)
             : g_strdup (action->label);

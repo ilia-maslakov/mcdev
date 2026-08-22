@@ -1622,7 +1622,8 @@ runtime_host_ui_open_diff (const char *left, gsize left_length, const char *righ
         goto out;
     }
     ok = diff_view (left_path, right_path, left_label != NULL ? left_label : "before",
-                    right_label != NULL ? right_label : "after") != 0;
+                    right_label != NULL ? right_label : "after")
+        != 0;
     if (!ok && error != NULL)
         *error = "open_failed";
 out:

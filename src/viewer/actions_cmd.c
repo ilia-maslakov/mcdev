@@ -369,12 +369,10 @@ mcview_load_file_from_history (WView *view)
 static void
 mcview_help (const WView *view)
 {
-    ev_help_t event_data = {
-        view->source_spec != NULL ? view->source_spec->help_file : NULL,
-        view->source_spec != NULL && view->source_spec->help_node != NULL
-            ? view->source_spec->help_node
-            : "[Internal File Viewer]"
-    };
+    ev_help_t event_data = { view->source_spec != NULL ? view->source_spec->help_file : NULL,
+                             view->source_spec != NULL && view->source_spec->help_node != NULL
+                                 ? view->source_spec->help_node
+                                 : "[Internal File Viewer]" };
 
     mc_event_raise (MCEVENT_GROUP_CORE, "help", &event_data);
 }

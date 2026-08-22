@@ -596,8 +596,8 @@ typedef struct
                                         const mc_runtime_viewer_controller_t *controller,
                                         const char **error);
     gboolean (*ui_open_diff) (const char *left, gsize left_length, const char *right,
-                              gsize right_length, const char *left_label,
-                              const char *right_label, const char **error);
+                              gsize right_length, const char *left_label, const char *right_label,
+                              const char **error);
 } mc_runtime_host_services_v1_t;
 
 typedef struct
@@ -759,8 +759,7 @@ typedef struct
                                         const char **error);
     gboolean (*ui_open_diff) (mc_runtime_plugin_context_t *context, const char *left,
                               gsize left_length, const char *right, gsize right_length,
-                              const char *left_label, const char *right_label,
-                              const char **error);
+                              const char *left_label, const char *right_label, const char **error);
 } mc_runtime_host_api_v1_t;
 
 typedef struct

@@ -510,29 +510,29 @@ edit_init_menu (WMenuBar *menubar)
 
     edit_runtime_menu_reload ();
 
-    menubar_add_menu (
-        menubar,
-        menu_new (_ ("&File"), append_runtime_menu_entries (create_file_menu (), "File"),
-                  "[Internal File Editor]"));
+    menubar_add_menu (menubar,
+                      menu_new (_ ("&File"),
+                                append_runtime_menu_entries (create_file_menu (), "File"),
+                                "[Internal File Editor]"));
     menu_idx_file = idx++;
 
-    menubar_add_menu (
-        menubar,
-        menu_new (_ ("&Edit"), append_runtime_menu_entries (create_edit_menu (), "Edit"),
-                  "[Internal File Editor]"));
+    menubar_add_menu (menubar,
+                      menu_new (_ ("&Edit"),
+                                append_runtime_menu_entries (create_edit_menu (), "Edit"),
+                                "[Internal File Editor]"));
     menu_idx_edit = idx++;
 
-    menubar_add_menu (menubar,
-                      menu_new (_ ("&Search"),
-                                append_runtime_menu_entries (create_search_replace_menu (),
-                                                             "Search"),
-                                "[Internal File Editor]"));
-    menu_idx_search = idx++;
-
     menubar_add_menu (
         menubar,
-        menu_new (_ ("&Command"), append_runtime_menu_entries (create_command_menu (), "Command"),
+        menu_new (_ ("&Search"),
+                  append_runtime_menu_entries (create_search_replace_menu (), "Search"),
                   "[Internal File Editor]"));
+    menu_idx_search = idx++;
+
+    menubar_add_menu (menubar,
+                      menu_new (_ ("&Command"),
+                                append_runtime_menu_entries (create_command_menu (), "Command"),
+                                "[Internal File Editor]"));
     menu_idx_command = idx++;
 
     navigate_entries = create_plugin_menu_entries (MC_EP_MENU_NAVIGATE);
@@ -555,34 +555,33 @@ edit_init_menu (WMenuBar *menubar)
         if (edit_runtime_menu_is_builtin (action->menu_path)
             || (i > 0
                 && g_strcmp0 (((const edit_runtime_menu_action_t *) g_ptr_array_index (
-                                  runtime_menu_actions, i - 1))
-                                 ->menu_path,
+                                   runtime_menu_actions, i - 1))
+                                  ->menu_path,
                               action->menu_path)
-                       == 0))
+                    == 0))
             continue;
 
         entries = create_runtime_menu_entries (action->menu_path);
-        menubar_add_menu (
-            menubar, menu_new (action->menu_path, entries, "[Internal File Editor]"));
+        menubar_add_menu (menubar, menu_new (action->menu_path, entries, "[Internal File Editor]"));
         idx++;
     }
 
-    menubar_add_menu (
-        menubar,
-        menu_new (_ ("&Window"), append_runtime_menu_entries (create_window_menu (), "Window"),
-                  "[Internal File Editor]"));
+    menubar_add_menu (menubar,
+                      menu_new (_ ("&Window"),
+                                append_runtime_menu_entries (create_window_menu (), "Window"),
+                                "[Internal File Editor]"));
     menu_idx_window = idx++;
 
-    menubar_add_menu (
-        menubar,
-        menu_new (_ ("Pl&ugins"), append_runtime_menu_entries (create_plugins_menu (), "Plugins"),
-                  "[Internal File Editor]"));
+    menubar_add_menu (menubar,
+                      menu_new (_ ("Pl&ugins"),
+                                append_runtime_menu_entries (create_plugins_menu (), "Plugins"),
+                                "[Internal File Editor]"));
     menu_idx_plugins = idx++;
 
-    menubar_add_menu (
-        menubar,
-        menu_new (_ ("&Options"), append_runtime_menu_entries (create_options_menu (), "Options"),
-                  "[Internal File Editor]"));
+    menubar_add_menu (menubar,
+                      menu_new (_ ("&Options"),
+                                append_runtime_menu_entries (create_options_menu (), "Options"),
+                                "[Internal File Editor]"));
     menu_idx_options = idx++;
 }
 

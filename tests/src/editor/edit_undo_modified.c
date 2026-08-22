@@ -310,8 +310,8 @@ START_TEST (test_runtime_column_replace_pads_short_lines)
     edit_set_markers (test_edit, 0, test_edit->buffer.size, 3, 4);
     test_edit->column_highlight = 1;
 
-    ck_assert_msg (runtime_host_editor_replace_selection (&handle, "X", 1, &result, &error),
-                   "%s", error != NULL ? error : "replace selection failed");
+    ck_assert_msg (runtime_host_editor_replace_selection (&handle, "X", 1, &result, &error), "%s",
+                   error != NULL ? error : "replace selection failed");
     test_assert_text ("a  X\nbb X");
     ck_assert_int_eq (test_edit->column_highlight, 0);
 }

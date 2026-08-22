@@ -794,14 +794,10 @@ edit_runtime_info_collect (const char *runtime_name, const char *display_name, g
         guint64 flag;
         const char *name;
     } host_capabilities[] = {
-        { MC_RUNTIME_HOST_CAP_EVENTS, "events" },
-        { MC_RUNTIME_HOST_CAP_CONTEXT_DATA, "context" },
-        { MC_RUNTIME_HOST_CAP_UI, "ui" },
-        { MC_RUNTIME_HOST_CAP_LOG, "log" },
-        { MC_RUNTIME_HOST_CAP_PANEL, "panel" },
-        { MC_RUNTIME_HOST_CAP_EDITOR, "editor" },
-        { MC_RUNTIME_HOST_CAP_VIEWER, "viewer" },
-        { MC_RUNTIME_HOST_CAP_PROCESS, "process" },
+        { MC_RUNTIME_HOST_CAP_EVENTS, "events" }, { MC_RUNTIME_HOST_CAP_CONTEXT_DATA, "context" },
+        { MC_RUNTIME_HOST_CAP_UI, "ui" },         { MC_RUNTIME_HOST_CAP_LOG, "log" },
+        { MC_RUNTIME_HOST_CAP_PANEL, "panel" },   { MC_RUNTIME_HOST_CAP_EDITOR, "editor" },
+        { MC_RUNTIME_HOST_CAP_VIEWER, "viewer" }, { MC_RUNTIME_HOST_CAP_PROCESS, "process" },
     };
     guint i;
 
@@ -875,12 +871,12 @@ edit_plugin_info_header_get_nrows (const void *data)
 static const char *
 edit_plugin_info_header_get_text (const void *data, int row, int column)
 {
-    static const char *const headings[] = { "On", "Kind", "Name", "ID", "API", "Flags",
-                                             "Capabilities" };
+    static const char *const headings[] = { "On",  "Kind",  "Name",        "ID",
+                                            "API", "Flags", "Capabilities" };
 
     (void) data;
     return row == 0 && column >= 0 && column < (int) G_N_ELEMENTS (headings) ? headings[column]
-                                                                            : "";
+                                                                             : "";
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -909,14 +905,22 @@ edit_plugins_info (WDialog *h)
         edit_plugin_info_row_t *row = g_new0 (edit_plugin_info_row_t, 1);
         GString *capabilities = g_string_new (NULL);
 
-        if (p->activate != NULL) edit_plugin_info_append_capability (capabilities, "activate");
-        if (p->configure != NULL) edit_plugin_info_append_capability (capabilities, "configure");
-        if (p->query_state != NULL) edit_plugin_info_append_capability (capabilities, "query");
-        if (p->handle_action != NULL) edit_plugin_info_append_capability (capabilities, "action");
-        if (p->handle_key != NULL) edit_plugin_info_append_capability (capabilities, "key");
-        if (p->handle_event != NULL) edit_plugin_info_append_capability (capabilities, "event");
-        if (p->open != NULL) edit_plugin_info_append_capability (capabilities, "open");
-        if (p->close != NULL) edit_plugin_info_append_capability (capabilities, "close");
+        if (p->activate != NULL)
+            edit_plugin_info_append_capability (capabilities, "activate");
+        if (p->configure != NULL)
+            edit_plugin_info_append_capability (capabilities, "configure");
+        if (p->query_state != NULL)
+            edit_plugin_info_append_capability (capabilities, "query");
+        if (p->handle_action != NULL)
+            edit_plugin_info_append_capability (capabilities, "action");
+        if (p->handle_key != NULL)
+            edit_plugin_info_append_capability (capabilities, "key");
+        if (p->handle_event != NULL)
+            edit_plugin_info_append_capability (capabilities, "event");
+        if (p->open != NULL)
+            edit_plugin_info_append_capability (capabilities, "open");
+        if (p->close != NULL)
+            edit_plugin_info_append_capability (capabilities, "close");
 
         row->kind = g_strdup ("editor");
         row->name = g_strdup (p->display_name != NULL ? p->display_name : "-");

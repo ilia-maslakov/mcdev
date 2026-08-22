@@ -115,7 +115,8 @@ runtime_process_stream_read (mc_pp_input_stream_t *stream, void *handle, void *b
         count = read (opened->fd, buf, size);
     while (count < 0 && errno == EINTR);
     if (count < 0)
-        g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errno), "%s", g_strerror (errno));
+        g_set_error (error, G_FILE_ERROR, g_file_error_from_errno (errno), "%s",
+                     g_strerror (errno));
     return count;
 }
 
@@ -173,8 +174,7 @@ runtime_panel_stream_from_source (const mc_runtime_viewer_source_t *source)
 }
 
 static mc_pp_result_t
-runtime_panel_get_input_stream (void *plugin_data, const char *name,
-                                mc_pp_input_stream_t **stream)
+runtime_panel_get_input_stream (void *plugin_data, const char *name, mc_pp_input_stream_t **stream)
 {
     runtime_panel_instance_t *instance = plugin_data;
     mc_runtime_panel_provider_request_t request = { 0 };
@@ -219,8 +219,7 @@ runtime_panel_create_item (void *plugin_data)
         g_free (instance->host->focus_after);
         instance->host->focus_after = g_strdup (name != NULL ? name : response.focus_id);
     }
-    if (ok && response.status != NULL && instance->host != NULL
-        && instance->host->set_hint != NULL)
+    if (ok && response.status != NULL && instance->host != NULL && instance->host->set_hint != NULL)
         instance->host->set_hint (instance->host, response.status);
     runtime_panel_response_clear (instance->provider, &response);
     return ok ? MC_PPR_OK : MC_PPR_SKIPPED;
@@ -284,8 +283,7 @@ runtime_panel_delete_items (void *plugin_data, const char **names, int count)
     {
         mc_runtime_panel_provider_request_t request = { 0 };
         mc_runtime_panel_provider_response_t response;
-        const char *connection_id =
-            g_hash_table_lookup (instance->name_to_connection_id, names[i]);
+        const char *connection_id = g_hash_table_lookup (instance->name_to_connection_id, names[i]);
 
         if (connection_id == NULL)
             return MC_PPR_NOT_SUPPORTED;
@@ -384,7 +382,8 @@ runtime_panel_open (const mc_panel_plugin_t *plugin, mc_panel_host_t *host, cons
         if (host != NULL && host->message != NULL)
             host->message (host, 1, "Lua panel",
                            response.status != NULL ? response.status
-                                                   : error != NULL ? error : "Cannot open provider");
+                               : error != NULL     ? error
+                                                   : "Cannot open provider");
         runtime_panel_response_clear (provider, &response);
         return NULL;
     }
@@ -804,8 +803,8 @@ runtime_panel_provider_register (mc_runtime_plugin_context_t *context,
     guint i;
 
     if (source == NULL || registration == NULL
-        || source->struct_size < G_STRUCT_OFFSET (mc_runtime_panel_provider_t,
-                                                   supports_new_connection)
+        || source->struct_size
+            < G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_new_connection)
         || source->api_version != 1 || source->id == NULL || source->id[0] == '\0'
         || source->title == NULL || source->prefix == NULL || source->dispatch == NULL
         || source->response_free == NULL)
@@ -882,7 +881,7 @@ runtime_panel_provider_register (mc_runtime_plugin_context_t *context,
     };
     if (source->struct_size
             >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_new_connection)
-                   + sizeof (source->supports_new_connection)
+                + sizeof (source->supports_new_connection)
         && source->supports_new_connection)
     {
         provider->plugin.flags |= MC_PPF_CREATE;
@@ -891,30 +890,29 @@ runtime_panel_provider_register (mc_runtime_plugin_context_t *context,
     }
     if (source->struct_size
             >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_edit_connection)
-                   + sizeof (source->supports_edit_connection)
+                + sizeof (source->supports_edit_connection)
         && source->supports_edit_connection)
         provider->plugin.handle_key = runtime_panel_handle_key;
     if (source->struct_size
             >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_copy_connection)
-                   + sizeof (source->supports_copy_connection)
+                + sizeof (source->supports_copy_connection)
         && source->supports_copy_connection)
         provider->plugin.handle_key = runtime_panel_handle_key;
     if (source->struct_size
             >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_rename_connection)
-                   + sizeof (source->supports_rename_connection)
+                + sizeof (source->supports_rename_connection)
         && source->supports_rename_connection)
         provider->plugin.handle_key = runtime_panel_handle_key;
     if (source->struct_size
             >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_delete_connection)
-                   + sizeof (source->supports_delete_connection)
+                + sizeof (source->supports_delete_connection)
         && source->supports_delete_connection)
     {
         provider->plugin.flags |= MC_PPF_DELETE;
         provider->plugin.delete_items = runtime_panel_delete_items;
     }
-    if (source->struct_size
-            >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_open_read)
-                   + sizeof (source->supports_open_read)
+    if (source->struct_size >= G_STRUCT_OFFSET (mc_runtime_panel_provider_t, supports_open_read)
+                + sizeof (source->supports_open_read)
         && source->supports_open_read)
         provider->plugin.get_input_stream = runtime_panel_get_input_stream;
     if (!mc_panel_plugin_add (&provider->plugin))

@@ -116,8 +116,8 @@
 #define MC_LUA_HOST_API_VIEWER_SOURCE_SIZE                                                         \
     (G_STRUCT_OFFSET (mc_runtime_host_api_v1_t, viewer_controller_open)                            \
      + sizeof (((mc_runtime_host_api_v1_t *) NULL)->viewer_controller_open))
-#define MC_LUA_HOST_API_OPEN_DIFF_SIZE                                                              \
-    (G_STRUCT_OFFSET (mc_runtime_host_api_v1_t, ui_open_diff)                                       \
+#define MC_LUA_HOST_API_OPEN_DIFF_SIZE                                                             \
+    (G_STRUCT_OFFSET (mc_runtime_host_api_v1_t, ui_open_diff)                                      \
      + sizeof (((mc_runtime_host_api_v1_t *) NULL)->ui_open_diff))
 #define MC_LUA_DIALOG_MAX_CONTROLS  32
 #define MC_LUA_DIALOG_MAX_OPTIONS   64
@@ -215,7 +215,7 @@ struct mc_lua_panel_provider
 
 static void mc_lua_cache_connection (mc_lua_panel_provider_t *provider, int source);
 static gboolean mc_lua_parse_viewer_source (lua_State *lua, int table,
-                                             mc_runtime_viewer_source_t *source);
+                                            mc_runtime_viewer_source_t *source);
 static void mc_lua_viewer_source_clear (mc_runtime_viewer_source_t *source);
 
 struct mc_lua_package
@@ -2593,9 +2593,8 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         }
         if (lua_isnil (lua, -2))
         {
-            response->status = lua_isstring (lua, -1)
-                ? g_strdup (lua_tostring (lua, -1))
-                : g_strdup ("Cannot open provider");
+            response->status = lua_isstring (lua, -1) ? g_strdup (lua_tostring (lua, -1))
+                                                      : g_strdup ("Cannot open provider");
             lua_pop (lua, 2);
             return FALSE;
         }
@@ -2778,20 +2777,18 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         || operation == MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION)
     {
         int callback_ref = operation == MC_RUNTIME_PANEL_PROVIDER_EDIT_CONNECTION
-                ? provider->edit_connection_ref
-            : operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION
-                ? provider->copy_connection_ref
+            ? provider->edit_connection_ref
+            : operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION ? provider->copy_connection_ref
             : operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION
-                ? provider->rename_connection_ref
-                : provider->delete_connection_ref;
+            ? provider->rename_connection_ref
+            : provider->delete_connection_ref;
 
         if (callback_ref == LUA_NOREF)
             return FALSE;
         lua_rawgeti (lua, LUA_REGISTRYINDEX, callback_ref);
         lua_pushnil (lua); /* Reserved host object. */
         lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->connections_ref);
-        lua_getfield (lua, -1,
-                      request->connection_id != NULL ? request->connection_id : "");
+        lua_getfield (lua, -1, request->connection_id != NULL ? request->connection_id : "");
         lua_remove (lua, -2);
         if (operation == MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION)
         {
@@ -2841,9 +2838,9 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         response->refresh = TRUE;
         response->focus_id = mc_lua_dup_table_string (lua, -1, "title");
         response->status = g_strdup (
-            operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION ? "Connection copied"
-            : operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION ? "Connection renamed"
-                                                                       : "Connection updated");
+            operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION         ? "Connection copied"
+                : operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION ? "Connection renamed"
+                                                                           : "Connection updated");
         response->handled = TRUE;
         lua_pop (lua, 1);
         return TRUE;

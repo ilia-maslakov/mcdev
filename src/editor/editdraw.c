@@ -199,7 +199,7 @@ edit_status_fullscreen (WEdit *edit, int color)
 {
     Widget *h = WIDGET (WIDGET (edit)->owner);
     const int w = h->rect.cols;
-    const int gap = 3;        // between the filename and the status
+    const int gap = 3;  // between the filename and the status
     const int preferred_fname_len = 16;
     char *indicator;
     int indicator_len;
@@ -215,8 +215,8 @@ edit_status_fullscreen (WEdit *edit, int color)
     status = g_malloc (status_size);
     status_string (edit, status, status_size);
     status_len = (int) str_term_width1 (status);
-    right_reserved = 6
-        + (edit_options.simple_statusbar && w > EDITOR_MINIMUM_TERMINAL_WIDTH ? 6 : 0);
+    right_reserved =
+        6 + (edit_options.simple_statusbar && w > EDITOR_MINIMUM_TERMINAL_WIDTH ? 6 : 0);
     indicator_space = MAX (0, w - preferred_fname_len - gap - right_reserved - 1);
     indicator = mc_runtime_ui_indicators_compose ("editor", MIN (24, indicator_space));
     indicator_len = (int) str_term_width1 (indicator);

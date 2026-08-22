@@ -214,8 +214,8 @@ mcview_display_status (WView *view)
             && view->source_spec->title[0] != '\0'
         ? view->source_spec->title
         : view->filename_vpath != NULL ? vfs_path_get_last_path_str (view->filename_vpath)
-        : view->command != NULL         ? view->command
-                                        : "";
+        : view->command != NULL        ? view->command
+                                       : "";
 
     if (r->cols > 40)
     {
