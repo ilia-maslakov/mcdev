@@ -656,6 +656,9 @@ AM_CONDITIONAL(USE_DIFF, [test -n "$use_diff"])
 AM_CONDITIONAL(CONS_SAVER, [test -n "$cons_saver"])
 dnl Enable GModule when available (used for X11, aspell, and dynamic VFS plugins)
 AM_CONDITIONAL([HAVE_GMODULE], [test -n "$g_module_supported"])
+dnl Runtime module tests require both GModule and an actual shared module.
+AM_CONDITIONAL([HAVE_RUNTIME_MODULES],
+               [test -n "$g_module_supported" && test x"$enable_shared" = xyes])
 
 dnl Optional libmagic for mctree content detection
 have_mctree_magic=no

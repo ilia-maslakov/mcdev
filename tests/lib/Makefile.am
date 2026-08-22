@@ -34,7 +34,7 @@ TESTS = \
 
 TESTS += mc_realpath
 
-if HAVE_GMODULE
+if HAVE_RUNTIME_MODULES
 TESTS += extension_runtime
 noinst_LTLIBRARIES = runtime-plugin-fixture.la
 
@@ -44,8 +44,10 @@ runtime_plugin_fixture_la_LDFLAGS = -module -avoid-version -rpath $(abs_builddir
 runtime_plugin_fixture_la_LIBADD = $(GLIB_LIBS)
 endif
 
+if HAVE_RUNTIME_MODULES
 if ENABLE_LUA_PLUGIN
 TESTS += lua_runtime
+endif
 endif
 
 check_PROGRAMS = $(TESTS)
