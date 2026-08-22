@@ -75,37 +75,43 @@
     (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, process_result_free)                          \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->process_result_free))
 #define MC_RUNTIME_HOST_SERVICES_UI_REFRESH_SIZE                                                   \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_refresh)                                  \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_refresh)                                   \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->ui_refresh))
 #define MC_RUNTIME_HOST_SERVICES_EDITOR_TAB_WIDTH_SIZE                                             \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_tab_width)                            \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_tab_width)                             \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_tab_width))
 #define MC_RUNTIME_HOST_SERVICES_EDITOR_TEXT_SIZE                                                  \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_text)                                 \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_text)                                  \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_text))
 #define MC_RUNTIME_HOST_SERVICES_EDITOR_EDIT_SIZE                                                  \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_edit)                                 \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_edit)                                  \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_edit))
 #define MC_RUNTIME_HOST_SERVICES_EDITOR_REPLACE_SELECTION_V2_SIZE                                  \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_replace_selection_v2)                 \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, editor_replace_selection_v2)                  \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->editor_replace_selection_v2))
 #define MC_RUNTIME_HOST_SERVICES_UI_TEXT_WIDTH_SIZE                                                \
-    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_text_width)                               \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_text_width)                                \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->ui_text_width))
+#define MC_RUNTIME_HOST_SERVICES_PANEL_PROVIDER_SIZE                                               \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, panel_provider_unregister)                    \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->panel_provider_unregister))
+#define MC_RUNTIME_HOST_SERVICES_VIEWER_SOURCE_SIZE                                                \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, viewer_controller_open)                       \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->viewer_controller_open))
 #define MC_RUNTIME_PLUGIN_DESCRIPTOR_ENUMERATE_SIZE                                                \
     (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_packages)                       \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_packages))
 #define MC_RUNTIME_PLUGIN_DESCRIPTOR_ENUMERATE_DETAILS_SIZE                                        \
     (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_package_details)                \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_package_details))
-#define MC_RUNTIME_PLUGIN_DESCRIPTOR_ACTIONS_SIZE                                                 \
-    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, invoke_action)                           \
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_ACTIONS_SIZE                                                  \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, invoke_action)                            \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->invoke_action))
-#define MC_RUNTIME_PLUGIN_DESCRIPTOR_MENU_ACTIONS_SIZE                                            \
-    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_menu_actions)                  \
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_MENU_ACTIONS_SIZE                                             \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_menu_actions)                   \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_menu_actions))
-#define MC_RUNTIME_PLUGIN_DESCRIPTOR_DISPLAY_NAME_SIZE                                            \
-    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, display_name)                            \
+#define MC_RUNTIME_PLUGIN_DESCRIPTOR_DISPLAY_NAME_SIZE                                             \
+    (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, display_name)                             \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->display_name))
 
 /*** file scope type declarations ****************************************************************/
@@ -326,8 +332,8 @@ mc_runtime_ui_refresh (const char *area)
 
 static gboolean
 mc_runtime_host_ui_indicator_set (mc_runtime_plugin_context_t *context, const char *owner,
-                                  const char *area, const char *id, const char *text,
-                                  gint priority, const char **error)
+                                  const char *area, const char *id, const char *text, gint priority,
+                                  const char **error)
 {
     guint i;
     mc_runtime_ui_indicator_t *indicator = NULL;
@@ -925,10 +931,11 @@ mc_runtime_host_editor_edit (mc_runtime_plugin_context_t *context,
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-mc_runtime_host_editor_replace_selection_v2 (
-    mc_runtime_plugin_context_t *context, const mc_runtime_handle_t *editor, guint64 revision,
-    const char *text, gsize text_length, mc_runtime_editor_edit_result_t *result,
-    const char **error)
+mc_runtime_host_editor_replace_selection_v2 (mc_runtime_plugin_context_t *context,
+                                             const mc_runtime_handle_t *editor, guint64 revision,
+                                             const char *text, gsize text_length,
+                                             mc_runtime_editor_edit_result_t *result,
+                                             const char **error)
 {
     if (!mc_runtime_host_objects_prepare (context, error))
         return FALSE;
@@ -964,6 +971,76 @@ mc_runtime_host_ui_text_width (mc_runtime_plugin_context_t *context, const char 
         return FALSE;
     }
     return mc_runtime_host_services->ui_text_width (text, text_length, width, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_panel_provider_register (mc_runtime_plugin_context_t *context,
+                                         const mc_runtime_panel_provider_t *provider,
+                                         mc_runtime_handle_t *registration, const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_PANEL_PROVIDER_SIZE
+        || mc_runtime_host_services->panel_provider_register == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->panel_provider_register (context, provider, registration,
+                                                              error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_panel_provider_unregister (mc_runtime_plugin_context_t *context,
+                                           const mc_runtime_handle_t *registration,
+                                           const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_PANEL_PROVIDER_SIZE
+        || mc_runtime_host_services->panel_provider_unregister == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->panel_provider_unregister (registration, error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mc_runtime_host_viewer_controller_open (mc_runtime_plugin_context_t *context,
+                                        const mc_runtime_viewer_controller_t *controller,
+                                        const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_VIEWER_SOURCE_SIZE
+        || mc_runtime_host_services->viewer_controller_open == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->viewer_controller_open (context, controller, error);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1305,9 +1382,8 @@ mc_runtime_action_enumeration_bridge (const char *id, const char *label, const c
 /* --------------------------------------------------------------------------------------------- */
 
 static void
-mc_runtime_menu_action_enumeration_bridge (const char *id, const char *menu_path,
-                                           const char *label, const char *shortcut, gint position,
-                                           gpointer user_data)
+mc_runtime_menu_action_enumeration_bridge (const char *id, const char *menu_path, const char *label,
+                                           const char *shortcut, gint position, gpointer user_data)
 {
     const mc_runtime_menu_action_enumeration_t *enumeration =
         (const mc_runtime_menu_action_enumeration_t *) user_data;
@@ -1374,6 +1450,9 @@ static mc_runtime_host_api_v1_t mc_runtime_host_api = {
     .editor_edit = mc_runtime_host_editor_edit,
     .editor_replace_selection_v2 = mc_runtime_host_editor_replace_selection_v2,
     .ui_text_width = mc_runtime_host_ui_text_width,
+    .panel_provider_register = mc_runtime_host_panel_provider_register,
+    .panel_provider_unregister = mc_runtime_host_panel_provider_unregister,
+    .viewer_controller_open = mc_runtime_host_viewer_controller_open,
 };
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1483,7 +1562,7 @@ mc_runtime_plugin_context_destroy (mc_runtime_plugin_context_t *context)
         {
             const mc_runtime_ui_indicator_t *indicator =
                 (const mc_runtime_ui_indicator_t *) g_ptr_array_index (mc_runtime_ui_indicators,
-                                                                        i - 1);
+                                                                       i - 1);
 
             if (indicator->context == context)
                 g_ptr_array_remove_index (mc_runtime_ui_indicators, i - 1);
@@ -1763,8 +1842,7 @@ mc_runtime_plugins_enumerate_runtimes (mc_runtime_loaded_runtime_callback_t call
             display_name = descriptor->display_name;
 
         callback (descriptor->runtime_name, display_name, descriptor->abi_version,
-                  descriptor->capability_flags, descriptor->required_host_capabilities,
-                  user_data);
+                  descriptor->capability_flags, descriptor->required_host_capabilities, user_data);
     }
 }
 
@@ -1860,9 +1938,8 @@ mc_runtime_plugins_enumerate_actions (const char *workspace,
         enumeration.runtime_name = instance->descriptor->runtime_name;
         enumeration.callback = callback;
         enumeration.user_data = user_data;
-        instance->descriptor->enumerate_actions (instance->context, workspace,
-                                                 mc_runtime_action_enumeration_bridge,
-                                                 &enumeration);
+        instance->descriptor->enumerate_actions (
+            instance->context, workspace, mc_runtime_action_enumeration_bridge, &enumeration);
     }
 }
 
@@ -1982,6 +2059,25 @@ mc_runtime_host_has_process_services (void)
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
+mc_runtime_host_has_panel_provider_services (void)
+{
+    return mc_runtime_host_services != NULL
+        && mc_runtime_host_services->struct_size >= MC_RUNTIME_HOST_SERVICES_PANEL_PROVIDER_SIZE
+        && mc_runtime_host_services->panel_provider_register != NULL
+        && mc_runtime_host_services->panel_provider_unregister != NULL;
+}
+
+static gboolean
+mc_runtime_host_has_viewer_source_services (void)
+{
+    return mc_runtime_host_services != NULL
+        && mc_runtime_host_services->struct_size >= MC_RUNTIME_HOST_SERVICES_VIEWER_SOURCE_SIZE
+        && mc_runtime_host_services->viewer_controller_open != NULL;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
 mc_runtime_host_has_viewer_services (void)
 {
     return mc_runtime_host_objects_are_available ()
@@ -2039,6 +2135,10 @@ mc_runtime_plugins_set_host_services (const mc_runtime_host_services_v1_t *servi
         mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_VIEWER;
     if (mc_runtime_host_has_process_services ())
         mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_PROCESS;
+    if (mc_runtime_host_has_panel_provider_services ())
+        mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_PANEL_PROVIDER;
+    if (mc_runtime_host_has_viewer_source_services ())
+        mc_runtime_host_api.capability_flags |= MC_RUNTIME_HOST_CAP_VIEWER_SOURCE;
 }
 
 /* --------------------------------------------------------------------------------------------- */

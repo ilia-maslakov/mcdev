@@ -101,6 +101,8 @@ libinternal_la_SOURCES = \
 	key_learn.c key_learn.h \
 	manage_plugins.c manage_plugins.h \
 	runtime-host.c runtime-host.h \
+	runtime-panel-provider.c runtime-panel-provider.h \
+	runtime-viewer-source.c runtime-viewer-source.h \
 	selcodepage.c selcodepage.h \
 	setup.c setup.h \
 	textconf.c textconf.h \

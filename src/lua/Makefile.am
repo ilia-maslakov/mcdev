@@ -13,6 +13,11 @@ mc_lua_la_SOURCES = \
 mc_lua_la_LDFLAGS = -module -avoid-version
 mc_lua_la_LIBADD = $(GLIB_LIBS) $(LUA_LIBS)
 
+lua_demo_paneldir = $(lua_scripts_dir)/mc/demo-panel
+dist_lua_demo_panel_DATA = \
+	examples/mc/demo-panel/lua.ini \
+	examples/mc/demo-panel/init.lua
+
 lua_notify_editor_savedir = $(lua_scripts_dir)/editor/notify-editor-save
 dist_lua_notify_editor_save_DATA = \
 	examples/editor/notify-editor-save/lua.ini \

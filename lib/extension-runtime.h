@@ -10,17 +10,19 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_RUNTIME_PLUGIN_ABI_VERSION    1
-#define MC_RUNTIME_PLUGIN_ENTRY_V1       "mc_runtime_plugin_register_v1"
+#define MC_RUNTIME_PLUGIN_ABI_VERSION      1
+#define MC_RUNTIME_PLUGIN_ENTRY_V1         "mc_runtime_plugin_register_v1"
 
-#define MC_RUNTIME_HOST_CAP_EVENTS       (G_GUINT64_CONSTANT (1) << 0)
-#define MC_RUNTIME_HOST_CAP_CONTEXT_DATA (G_GUINT64_CONSTANT (1) << 1)
-#define MC_RUNTIME_HOST_CAP_UI           (G_GUINT64_CONSTANT (1) << 2)
-#define MC_RUNTIME_HOST_CAP_LOG          (G_GUINT64_CONSTANT (1) << 3)
-#define MC_RUNTIME_HOST_CAP_PANEL        (G_GUINT64_CONSTANT (1) << 4)
-#define MC_RUNTIME_HOST_CAP_EDITOR       (G_GUINT64_CONSTANT (1) << 5)
-#define MC_RUNTIME_HOST_CAP_VIEWER       (G_GUINT64_CONSTANT (1) << 6)
-#define MC_RUNTIME_HOST_CAP_PROCESS      (G_GUINT64_CONSTANT (1) << 7)
+#define MC_RUNTIME_HOST_CAP_EVENTS         (G_GUINT64_CONSTANT (1) << 0)
+#define MC_RUNTIME_HOST_CAP_CONTEXT_DATA   (G_GUINT64_CONSTANT (1) << 1)
+#define MC_RUNTIME_HOST_CAP_UI             (G_GUINT64_CONSTANT (1) << 2)
+#define MC_RUNTIME_HOST_CAP_LOG            (G_GUINT64_CONSTANT (1) << 3)
+#define MC_RUNTIME_HOST_CAP_PANEL          (G_GUINT64_CONSTANT (1) << 4)
+#define MC_RUNTIME_HOST_CAP_EDITOR         (G_GUINT64_CONSTANT (1) << 5)
+#define MC_RUNTIME_HOST_CAP_VIEWER         (G_GUINT64_CONSTANT (1) << 6)
+#define MC_RUNTIME_HOST_CAP_PROCESS        (G_GUINT64_CONSTANT (1) << 7)
+#define MC_RUNTIME_HOST_CAP_PANEL_PROVIDER (G_GUINT64_CONSTANT (1) << 8)
+#define MC_RUNTIME_HOST_CAP_VIEWER_SOURCE  (G_GUINT64_CONSTANT (1) << 9)
 
 /*** enums ***************************************************************************************/
 
@@ -162,6 +164,238 @@ typedef struct
 
 typedef enum
 {
+    MC_RUNTIME_PANEL_ENTRY_FILE,
+    MC_RUNTIME_PANEL_ENTRY_DIRECTORY,
+    MC_RUNTIME_PANEL_ENTRY_SYMLINK,
+    MC_RUNTIME_PANEL_ENTRY_SPECIAL
+} mc_runtime_panel_entry_kind_t;
+
+typedef struct
+{
+    const char *id;
+    const char *value;
+} mc_runtime_panel_column_value_t;
+
+typedef struct
+{
+    const char *id;
+    const char *name;
+    const char *role;
+    mc_runtime_panel_entry_kind_t kind;
+    guint mode;
+    guint64 size;
+    gint64 mtime;
+    gint64 atime;
+    gint64 ctime;
+    guint64 uid;
+    guint64 gid;
+    const char *link_target;
+    const mc_runtime_panel_column_value_t *columns;
+    guint columns_count;
+    const char *const *actions;
+    guint actions_count;
+    const char *help_node;
+} mc_runtime_panel_entry_t;
+
+typedef enum
+{
+    MC_RUNTIME_PANEL_ALIGN_LEFT,
+    MC_RUNTIME_PANEL_ALIGN_RIGHT,
+    MC_RUNTIME_PANEL_ALIGN_CENTER
+} mc_runtime_panel_align_t;
+
+typedef struct
+{
+    const char *id;
+    const char *title;
+    guint min_width;
+    gboolean expands;
+    mc_runtime_panel_align_t align;
+    gboolean user_format;
+} mc_runtime_panel_column_t;
+
+typedef enum
+{
+    MC_RUNTIME_PANEL_ACTION_VIEW,
+    MC_RUNTIME_PANEL_ACTION_CURRENT,
+    MC_RUNTIME_PANEL_ACTION_SELECTION
+} mc_runtime_panel_action_targets_t;
+
+typedef struct
+{
+    const char *id;
+    const char *title;
+    const char *key;
+    const char *menu_path;
+    const char *menu_label;
+    gint menu_position;
+    mc_runtime_panel_action_targets_t targets;
+    const char *help_node;
+    const char *open_path; /* Non-NULL actions open a named connection. */
+} mc_runtime_panel_action_t;
+
+typedef struct
+{
+    const char *file;
+    const char *node;
+} mc_runtime_panel_help_t;
+
+typedef struct
+{
+    guint64 revision;
+    const char *location;
+    const char *title;
+    const char *footer;
+    const char *focus_id;
+    const char *help_node;
+    const char *const *actions;
+    guint actions_count;
+    const mc_runtime_panel_column_t *columns;
+    guint columns_count;
+    const char *default_format;
+    const char *default_sort_id;
+    gboolean default_sort_reverse;
+    const mc_runtime_panel_entry_t *entries;
+    guint entries_count;
+} mc_runtime_panel_view_t;
+
+typedef enum
+{
+    MC_RUNTIME_PANEL_PROVIDER_OPEN,
+    MC_RUNTIME_PANEL_PROVIDER_CLOSE,
+    MC_RUNTIME_PANEL_PROVIDER_LIST,
+    MC_RUNTIME_PANEL_PROVIDER_NAVIGATE_ENTRY,
+    MC_RUNTIME_PANEL_PROVIDER_NAVIGATE_PARENT,
+    MC_RUNTIME_PANEL_PROVIDER_NAVIGATE_HISTORY,
+    MC_RUNTIME_PANEL_PROVIDER_ENTER,
+    MC_RUNTIME_PANEL_PROVIDER_RELOAD,
+    MC_RUNTIME_PANEL_PROVIDER_INVOKE_ACTION,
+    MC_RUNTIME_PANEL_PROVIDER_VIEW,
+    MC_RUNTIME_PANEL_PROVIDER_GET_LOCAL_COPY,
+    MC_RUNTIME_PANEL_PROVIDER_GET_HELP
+} mc_runtime_panel_provider_operation_t;
+
+typedef struct
+{
+    gsize struct_size;
+    guint operation_version;
+    guint64 instance_id;
+    guint64 revision;
+    const char *path;
+    const char *entry_id;
+    const char *action_id;
+    const char *const *selected_ids;
+    guint selected_count;
+} mc_runtime_panel_provider_request_t;
+
+typedef struct
+{
+    gsize struct_size;
+    guint operation_version;
+    guint64 instance_id;
+    mc_runtime_panel_view_t view;
+    gboolean handled;
+    gboolean refresh;
+    gboolean close;
+    const char *location;
+    const char *focus_id;
+    const char *status;
+    const char *local_path;
+    gboolean local_path_temporary;
+} mc_runtime_panel_provider_response_t;
+
+typedef gboolean (*mc_runtime_panel_provider_dispatch_t) (
+    mc_runtime_plugin_context_t *context, guint64 runtime_provider_id,
+    mc_runtime_panel_provider_operation_t operation,
+    const mc_runtime_panel_provider_request_t *request,
+    mc_runtime_panel_provider_response_t *response, const char **error);
+typedef void (*mc_runtime_panel_provider_response_free_t) (
+    mc_runtime_plugin_context_t *context, mc_runtime_panel_provider_response_t *response);
+
+typedef struct
+{
+    gsize struct_size;
+    guint api_version;
+    guint64 runtime_provider_id;
+    const char *id;
+    const char *title;
+    const char *prefix;
+    const mc_runtime_panel_action_t *actions;
+    guint actions_count;
+    const mc_runtime_panel_help_t *help;
+    mc_runtime_panel_provider_dispatch_t dispatch;
+    mc_runtime_panel_provider_response_free_t response_free;
+} mc_runtime_panel_provider_t;
+
+typedef enum
+{
+    MC_RUNTIME_VIEWER_SOURCE_BYTES,
+    MC_RUNTIME_VIEWER_SOURCE_FILE,
+    MC_RUNTIME_VIEWER_SOURCE_PROCESS,
+    MC_RUNTIME_VIEWER_SOURCE_PIPELINE
+} mc_runtime_viewer_source_kind_t;
+
+typedef struct
+{
+    const char *const *argv;
+    guint argc;
+    const char *cwd;
+} mc_runtime_viewer_process_t;
+
+typedef struct mc_runtime_viewer_source_t mc_runtime_viewer_source_t;
+struct mc_runtime_viewer_source_t
+{
+    gsize struct_size;
+    mc_runtime_viewer_source_kind_t kind;
+    const char *bytes;
+    gsize bytes_length;
+    const char *path;
+    gboolean unlink_on_close;
+    mc_runtime_viewer_process_t process;
+    const mc_runtime_viewer_source_t *stages;
+    guint stages_count;
+};
+
+typedef struct
+{
+    gsize struct_size;
+    const mc_runtime_viewer_source_t *source;
+    const char *title;
+    const char *help_node;
+    gboolean auto_scroll_bottom;
+} mc_runtime_viewer_spec_t;
+
+typedef enum
+{
+    MC_RUNTIME_VIEWER_CONTROLLER_OPTIONS,
+    MC_RUNTIME_VIEWER_CONTROLLER_PREPARE,
+    MC_RUNTIME_VIEWER_CONTROLLER_COMMIT,
+    MC_RUNTIME_VIEWER_CONTROLLER_ROLLBACK,
+    MC_RUNTIME_VIEWER_CONTROLLER_CLOSE,
+    MC_RUNTIME_VIEWER_CONTROLLER_KEY
+} mc_runtime_viewer_controller_operation_t;
+
+typedef gboolean (*mc_runtime_viewer_controller_dispatch_t) (
+    mc_runtime_plugin_context_t *context, guint64 controller_id,
+    mc_runtime_viewer_controller_operation_t operation, int key, mc_runtime_viewer_spec_t *spec,
+    gboolean *handled, const char **error);
+typedef void (*mc_runtime_viewer_spec_free_t) (mc_runtime_plugin_context_t *context,
+                                               mc_runtime_viewer_spec_t *spec);
+
+typedef struct
+{
+    gsize struct_size;
+    guint api_version;
+    guint64 controller_id;
+    const mc_runtime_viewer_spec_t *initial_spec;
+    mc_runtime_viewer_controller_dispatch_t dispatch;
+    mc_runtime_viewer_spec_free_t spec_free;
+    const char *help_file;
+    const char *help_node;
+} mc_runtime_viewer_controller_t;
+
+typedef enum
+{
     MC_RUNTIME_ERROR_PHASE_STARTUP,
     MC_RUNTIME_ERROR_PHASE_EVENT,
     MC_RUNTIME_ERROR_PHASE_MACRO
@@ -180,9 +414,11 @@ typedef void (*mc_runtime_package_details_callback_t) (const char *id, const cha
 typedef void (*mc_runtime_loaded_package_callback_t) (const char *runtime_name, const char *id,
                                                       const char *display_name, gboolean enabled,
                                                       gpointer user_data);
-typedef void (*mc_runtime_loaded_runtime_callback_t) (
-    const char *runtime_name, const char *display_name, guint abi_version,
-    guint64 capability_flags, guint64 required_host_capabilities, gpointer user_data);
+typedef void (*mc_runtime_loaded_runtime_callback_t) (const char *runtime_name,
+                                                      const char *display_name, guint abi_version,
+                                                      guint64 capability_flags,
+                                                      guint64 required_host_capabilities,
+                                                      gpointer user_data);
 typedef void (*mc_runtime_loaded_package_details_callback_t) (
     const char *runtime_name, const char *id, const char *display_name, const char *workspace,
     const char *origin, const char *directory, gboolean enabled, gpointer user_data);
@@ -197,9 +433,10 @@ typedef void (*mc_runtime_loaded_action_callback_t) (const char *runtime_name, c
 typedef void (*mc_runtime_menu_action_callback_t) (const char *id, const char *menu_path,
                                                    const char *label, const char *shortcut,
                                                    gint position, gpointer user_data);
-typedef void (*mc_runtime_loaded_menu_action_callback_t) (
-    const char *runtime_name, const char *id, const char *menu_path, const char *label,
-    const char *shortcut, gint position, gpointer user_data);
+typedef void (*mc_runtime_loaded_menu_action_callback_t) (const char *runtime_name, const char *id,
+                                                          const char *menu_path, const char *label,
+                                                          const char *shortcut, gint position,
+                                                          gpointer user_data);
 
 /* A host-owned byte string.  Runtime extensions must release it with the
    paired string_free callback once they have copied the contents. */
@@ -332,6 +569,17 @@ typedef struct
                                              const char **error);
     gboolean (*ui_text_width) (const char *text, gsize text_length, guint *width,
                                const char **error);
+
+    /* Runtime-defined panel content providers.  Registration copies the
+     * descriptor; callback results remain runtime-owned until response_free. */
+    gboolean (*panel_provider_register) (mc_runtime_plugin_context_t *context,
+                                         const mc_runtime_panel_provider_t *provider,
+                                         mc_runtime_handle_t *registration, const char **error);
+    gboolean (*panel_provider_unregister) (const mc_runtime_handle_t *registration,
+                                           const char **error);
+    gboolean (*viewer_controller_open) (mc_runtime_plugin_context_t *context,
+                                        const mc_runtime_viewer_controller_t *controller,
+                                        const char **error);
 } mc_runtime_host_services_v1_t;
 
 typedef struct
@@ -432,8 +680,7 @@ typedef struct
     gboolean (*editor_info) (mc_runtime_plugin_context_t *context,
                              const mc_runtime_handle_t *editor, mc_runtime_editor_info_t *info,
                              const char **error);
-    void (*editor_info_free) (mc_runtime_plugin_context_t *context,
-                              mc_runtime_editor_info_t *info);
+    void (*editor_info_free) (mc_runtime_plugin_context_t *context, mc_runtime_editor_info_t *info);
     gboolean (*editor_selection) (mc_runtime_plugin_context_t *context,
                                   const mc_runtime_handle_t *editor,
                                   mc_runtime_editor_selection_t *selection, const char **error);
@@ -457,8 +704,8 @@ typedef struct
     /* Optional v1 extension. Indicators are owned by runtime package @owner;
      * setting the same owner/area/id replaces it. */
     gboolean (*ui_indicator_set) (mc_runtime_plugin_context_t *context, const char *owner,
-                                  const char *area, const char *id, const char *text,
-                                  gint priority, const char **error);
+                                  const char *area, const char *id, const char *text, gint priority,
+                                  const char **error);
     gboolean (*ui_indicator_clear) (mc_runtime_plugin_context_t *context, const char *owner,
                                     const char *area, const char *id, const char **error);
     void (*ui_indicators_clear_owner) (mc_runtime_plugin_context_t *context, const char *owner);
@@ -475,12 +722,23 @@ typedef struct
                              const mc_runtime_handle_t *editor,
                              const mc_runtime_editor_edit_t *edit,
                              mc_runtime_editor_edit_result_t *result, const char **error);
-    gboolean (*editor_replace_selection_v2) (
-        mc_runtime_plugin_context_t *context, const mc_runtime_handle_t *editor, guint64 revision,
-        const char *text, gsize text_length, mc_runtime_editor_edit_result_t *result,
-        const char **error);
+    gboolean (*editor_replace_selection_v2) (mc_runtime_plugin_context_t *context,
+                                             const mc_runtime_handle_t *editor, guint64 revision,
+                                             const char *text, gsize text_length,
+                                             mc_runtime_editor_edit_result_t *result,
+                                             const char **error);
     gboolean (*ui_text_width) (mc_runtime_plugin_context_t *context, const char *text,
                                gsize text_length, guint *width, const char **error);
+
+    gboolean (*panel_provider_register) (mc_runtime_plugin_context_t *context,
+                                         const mc_runtime_panel_provider_t *provider,
+                                         mc_runtime_handle_t *registration, const char **error);
+    gboolean (*panel_provider_unregister) (mc_runtime_plugin_context_t *context,
+                                           const mc_runtime_handle_t *registration,
+                                           const char **error);
+    gboolean (*viewer_controller_open) (mc_runtime_plugin_context_t *context,
+                                        const mc_runtime_viewer_controller_t *controller,
+                                        const char **error);
 } mc_runtime_host_api_v1_t;
 
 typedef struct
@@ -514,8 +772,7 @@ typedef struct
     /* Optional append-only v1 extension.  Menu entries invoke the same named
      * actions exposed through invoke_action(). */
     void (*enumerate_menu_actions) (mc_runtime_plugin_context_t *context, const char *workspace,
-                                    mc_runtime_menu_action_callback_t callback,
-                                    gpointer user_data);
+                                    mc_runtime_menu_action_callback_t callback, gpointer user_data);
 
     /* Optional append-only display metadata. */
     const char *display_name;
@@ -548,8 +805,9 @@ void mc_runtime_plugins_enumerate_actions (const char *workspace,
                                            gpointer user_data);
 gboolean mc_runtime_plugins_invoke_action (const char *runtime_name, const char *workspace,
                                            const char *action_id, const char **error);
-void mc_runtime_plugins_enumerate_menu_actions (
-    const char *workspace, mc_runtime_loaded_menu_action_callback_t callback, gpointer user_data);
+void mc_runtime_plugins_enumerate_menu_actions (const char *workspace,
+                                                mc_runtime_loaded_menu_action_callback_t callback,
+                                                gpointer user_data);
 
 #ifdef HAVE_TESTS
 void mc_runtime_plugins_set_directory_for_tests (const char *directory);

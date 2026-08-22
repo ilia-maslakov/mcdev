@@ -83,6 +83,11 @@ static guint enumerated_lua_actions = 0;
 static gboolean enumerated_lua_consume_action = FALSE;
 static guint enumerated_lua_menu_actions = 0;
 static gboolean enumerated_lua_drawing_action = FALSE;
+static mc_runtime_panel_provider_t registered_panel_provider;
+static mc_runtime_panel_help_t registered_panel_help;
+static gboolean panel_provider_registered = FALSE;
+static guint viewer_controller_open_count = 0;
+static guint viewer_controller_close_count = 0;
 
 /*** file scope macro definitions ****************************************************************/
 
@@ -127,6 +132,129 @@ write_file (const char *path, const char *contents)
 {
     mctest_assert_true (g_file_set_contents (path, contents, -1, &error));
     g_clear_error (&error);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+test_panel_provider_register (mc_runtime_plugin_context_t *context,
+                              const mc_runtime_panel_provider_t *provider,
+                              mc_runtime_handle_t *registration, const char **provider_error)
+{
+    (void) context;
+    (void) provider_error;
+    registered_panel_provider = *provider;
+    if (provider->help != NULL)
+    {
+        registered_panel_help = *provider->help;
+        registered_panel_provider.help = &registered_panel_help;
+    }
+    panel_provider_registered = TRUE;
+    *registration = (mc_runtime_handle_t) { MC_RUNTIME_HANDLE_PANEL_PROVIDER, 91, 1 };
+    return TRUE;
+}
+
+static gboolean
+test_panel_provider_unregister (const mc_runtime_handle_t *registration,
+                                const char **provider_error)
+{
+    (void) provider_error;
+    ck_assert_int_eq (registration->kind, MC_RUNTIME_HANDLE_PANEL_PROVIDER);
+    panel_provider_registered = FALSE;
+    return TRUE;
+}
+
+static void
+create_panel_provider_script (void)
+{
+    char *root = g_build_filename (user_mc_scripts_dir, "panel-provider", (char *) NULL);
+    char *ini_path = g_build_filename (root, "lua.ini", (char *) NULL);
+    char *entry_path = g_build_filename (root, "init.lua", (char *) NULL);
+
+    ck_assert_int_eq (g_mkdir_with_parents (root, 0700), 0);
+    write_file (ini_path,
+                "[Lua]\nid=panel-provider\napi_version=1\nname=Panel provider\nentry=init.lua\n");
+    write_file (
+        entry_path,
+        "assert(mc.panel_provider.register {\n"
+        " id='test-panel', title='Test panel', prefix='test-panel:',\n"
+        " help={file='help/test.hlp',node='provider'},\n"
+        " open=function(host,path) assert(host==nil); return {path=path, revision=1} end,\n"
+        " close=function(instance) instance.closed=true end,\n"
+        " list=function(instance) return {revision=instance.revision, location=instance.path,"
+        " title='Lua panel', help_node='view', entries={{id='dir:one',name='one',"
+        "kind='directory',help_node='entry'}}} end,\n"
+        " actions={{id='refresh',title='Refresh',targets='selection',"
+        " menu={path='Command',label='Refresh Lua panel'}}},\n"
+        " connections=function()return {{id='saved',title='Saved connection',"
+        " location='/saved'}}end,\n"
+        " invoke_action=function(instance,id,selection) assert(id=='refresh');"
+        " assert(selection[1]=='dir:one'); return {refresh=true,status='refreshed'} end,\n"
+        " navigate=function(instance,request) instance.path='/one'; instance.revision=2;"
+        " return {refresh=true,location=instance.path,focus='dir:one'} end,\n"
+        "})\n");
+    g_free (entry_path);
+    g_free (ini_path);
+    g_free (root);
+}
+
+static gboolean
+test_viewer_controller_open (mc_runtime_plugin_context_t *context,
+                             const mc_runtime_viewer_controller_t *controller,
+                             const char **viewer_error)
+{
+    mc_runtime_viewer_spec_t draft = { .struct_size = sizeof (draft) };
+    gboolean handled = FALSE;
+
+    (void) viewer_error;
+    ck_assert_ptr_nonnull (controller->initial_spec);
+    ck_assert_int_eq (controller->initial_spec->source->kind, MC_RUNTIME_VIEWER_SOURCE_BYTES);
+    ck_assert_str_eq (controller->initial_spec->title, "revision 1");
+    ck_assert_str_eq (controller->help_node, "controller-help");
+    viewer_controller_open_count++;
+    mctest_assert_true (controller->dispatch (context, controller->controller_id,
+                                              MC_RUNTIME_VIEWER_CONTROLLER_OPTIONS, 0, &draft,
+                                              &handled, viewer_error));
+    mctest_assert_true (handled);
+    mctest_assert_true (controller->dispatch (context, controller->controller_id,
+                                              MC_RUNTIME_VIEWER_CONTROLLER_PREPARE, 0, &draft,
+                                              &handled, viewer_error));
+    ck_assert_str_eq (draft.title, "revision 2");
+    controller->spec_free (context, &draft);
+    mctest_assert_true (controller->dispatch (context, controller->controller_id,
+                                              MC_RUNTIME_VIEWER_CONTROLLER_COMMIT, 0, &draft,
+                                              &handled, viewer_error));
+    mctest_assert_true (controller->dispatch (context, controller->controller_id,
+                                              MC_RUNTIME_VIEWER_CONTROLLER_CLOSE, 0, &draft,
+                                              &handled, viewer_error));
+    viewer_controller_close_count++;
+    return TRUE;
+}
+
+static void
+create_viewer_controller_script (void)
+{
+    char *root = g_build_filename (user_mc_scripts_dir, "viewer-controller", (char *) NULL);
+    char *ini_path = g_build_filename (root, "lua.ini", (char *) NULL);
+    char *entry_path = g_build_filename (root, "init.lua", (char *) NULL);
+
+    ck_assert_int_eq (g_mkdir_with_parents (root, 0700), 0);
+    write_file (
+        ini_path,
+        "[Lua]\nid=viewer-controller\napi_version=1\nname=Viewer controller\nentry=init.lua\n");
+    write_file (entry_path,
+                "local d=assert(mc.viewer_source.define {id='test',"
+                "help={node='controller-help'},"
+                "open=function(identity)return {name=identity.name}end,"
+                "prepare=function(session,p)return {source=mc.source.bytes(p.text),"
+                "title='revision '..p.revision}end,"
+                "options=function(session,p)return {text='two',revision=2}end,"
+                "close=function(session)session.closed=true end})\n"
+                "local c=assert(d:create({name='demo'},{text='one',revision=1}))\n"
+                "assert(mc.ui.open_viewer {controller=c})\n");
+    g_free (entry_path);
+    g_free (ini_path);
+    g_free (root);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -320,38 +448,43 @@ create_ui_script (void)
                 "api_version=1\n"
                 "name=UI host service check\n"
                 "entry=init.lua\n");
-    write_file (entry_path,
-                "if os.getenv(\"MC_LUA_TEST_UI\") ~= \"1\" then return end\n"
-                "mc.on(\"startup\", function()\n"
-                "    assert(mc.ui.status(\"Lua status\"))\n"
-                "    assert(mc.ui.message(\"Lua title\", \"Lua message\"))\n"
-                "    assert(mc.ui.indicator { id = \"ui-test\", area = \"editor\", text = \"[UI]\", priority = 25 })\n"
-                "end)\n"
-                "mc.on(\"editor.key\", function()\n"
-                "    local result = assert(mc.ui.dialog {\n"
-                "        title = \"Base64 tools\",\n"
-                "        controls = {\n"
-                "            { type = \"label\", text = \"Selected text\" },\n"
-                "            { id = \"operation\", type = \"select\", label = \"Operation\", value = \"decode\", options = {\n"
-                "                { id = \"decode\", label = \"Decode\" },\n"
-                "                { id = \"encode\", label = \"Encode\" },\n"
-                "            } },\n"
-                "            { id = \"line_width\", type = \"input\", value = \"0\",\n"
-                "              history = \"lua-test-input\",\n"
-                "              complete_on_tab = true,\n"
-                "              completion = { \"commands\", \"files\", \"shell\" } },\n"
-                "            { id = \"omit_padding\", type = \"checkbox\", label = \"Omit padding\", value = false },\n"
-                "            { type = \"hbox\", controls = {\n"
-                "                { id = \"run\", type = \"button\", label = \"&Run\", default = true },\n"
-                "                { id = \"close\", type = \"button\", label = \"&Close\", cancel = true },\n"
-                "            } },\n"
-                "        },\n"
-                "    })\n"
-                "    assert(result.button == \"run\")\n"
-                "    assert(result.values.operation == \"encode\")\n"
-                "    assert(result.values.line_width == \"76\")\n"
-                "    assert(result.values.omit_padding == true)\n"
-                "end)\n");
+    write_file (
+        entry_path,
+        "if os.getenv(\"MC_LUA_TEST_UI\") ~= \"1\" then return end\n"
+        "mc.on(\"startup\", function()\n"
+        "    assert(mc.ui.status(\"Lua status\"))\n"
+        "    assert(mc.ui.message(\"Lua title\", \"Lua message\"))\n"
+        "    assert(mc.ui.indicator { id = \"ui-test\", area = \"editor\", text = \"[UI]\", "
+        "priority = 25 })\n"
+        "end)\n"
+        "mc.on(\"editor.key\", function()\n"
+        "    local result = assert(mc.ui.dialog {\n"
+        "        title = \"Base64 tools\",\n"
+        "        controls = {\n"
+        "            { type = \"label\", text = \"Selected text\" },\n"
+        "            { id = \"operation\", type = \"select\", label = \"Operation\", value = "
+        "\"decode\", options = {\n"
+        "                { id = \"decode\", label = \"Decode\" },\n"
+        "                { id = \"encode\", label = \"Encode\" },\n"
+        "            } },\n"
+        "            { id = \"line_width\", type = \"input\", value = \"0\",\n"
+        "              history = \"lua-test-input\",\n"
+        "              complete_on_tab = true,\n"
+        "              completion = { \"commands\", \"files\", \"shell\" } },\n"
+        "            { id = \"omit_padding\", type = \"checkbox\", label = \"Omit padding\", value "
+        "= false },\n"
+        "            { type = \"hbox\", controls = {\n"
+        "                { id = \"run\", type = \"button\", label = \"&Run\", default = true },\n"
+        "                { id = \"close\", type = \"button\", label = \"&Close\", cancel = true "
+        "},\n"
+        "            } },\n"
+        "        },\n"
+        "    })\n"
+        "    assert(result.button == \"run\")\n"
+        "    assert(result.values.operation == \"encode\")\n"
+        "    assert(result.values.line_width == \"76\")\n"
+        "    assert(result.values.omit_padding == true)\n"
+        "end)\n");
 
     g_free (entry_path);
     g_free (ini_path);
@@ -405,66 +538,67 @@ create_object_script (void)
                 "api_version=1\n"
                 "name=Object API checks\n"
                 "entry=init.lua\n");
-    write_file (entry_path,
-                "if os.getenv(\"MC_LUA_TEST_OBJECTS\") ~= \"1\" then return end\n"
-                "local unavailable, unavailable_error = mc.panel.active()\n"
-                "assert(unavailable == nil and unavailable_error == \"no active MC context\")\n"
-                "mc.on(\"startup\", function()\n"
-                "    local panel = assert(mc.panel.active())\n"
-                "    assert(panel:cwd() == \"/panel\")\n"
-                "    assert(panel:current().name == \"current\")\n"
-                "    assert(#panel:selected() == 1 and panel:selected()[1].name == \"marked\")\n"
-                "    assert(panel:refresh())\n"
-                "    assert(panel:chdir(\"/other\"))\n"
-                "    local editor = assert(mc.editor.current())\n"
-                "    assert(editor:path() == \"/editor\")\n"
-                "    local info = editor:info()\n"
-                "    assert(info.path == \"/editor\" and info.name == \"editor\")\n"
-                "    assert(info.modified and not info.readonly and info.revision == 7)\n"
-                "    assert(info.byte_length == 4 and info.line_count == 1)\n"
-                "    local selection = editor:selection()\n"
-                "    assert(selection.kind == \"column\" and selection.revision == 7)\n"
-                "    assert(selection.anchor.offset == 1 and selection.anchor.line == 1)\n"
-                "    assert(selection.cursor.offset == 8 and selection.cursor.column == 4)\n"
-                "    assert(#selection.ranges == 2)\n"
-                "    assert(selection.ranges[1].from == 1 and selection.ranges[1].to == 3)\n"
-                "    assert(selection.ranges[2].from == 6 and selection.ranges[2].to == 8)\n"
-                "    assert(selection.text == \"bc\\ngh\" and not selection.text_truncated)\n"
-                "    local edit_result = assert(editor:replace_selection(\"BC\\nGH\"))\n"
-                "    assert(edit_result.revision == 8 and edit_result.cursor.offset == 5)\n"
-                "    local range_result = assert(editor:replace(1, 3, \"xy\"))\n"
-                "    assert(range_result.revision == 9 and range_result.cursor.offset == 3)\n"
-                "    local line, column = editor:cursor()\n"
-                "    assert(line == 2 and column == 3 and not editor:is_readonly())\n"
-                "    assert(editor:tab_width() == 8)\n"
-                "    assert(editor:get_text(1, 4) == \"text\")\n"
-                "    assert(editor:text { from = 1, to = 3, revision = 7 } == \"yp\")\n"
-                "    local typed = assert(editor:replace({ from = 1, to = 3, revision = 7 }, \"zz\"))\n"
-                "    assert(typed.revision == 10)\n"
-                "    local transaction = assert(editor:edit { revision = 10, changes = {\n"
-                "        { from = 0, to = 1, text = \"A\" },\n"
-                "        { from = 3, to = 4, text = \"Z\" },\n"
-                "    }, cursor = { offset = 2 } })\n"
-                "    assert(transaction.revision == 11 and transaction.cursor.offset == 2)\n"
-                "    assert(mc.ui.text_width(\"漢\") == 2)\n"
-                "    assert(editor:selected_text() == \"U2V0\")\n"
-                "    assert(editor:set_cursor(3, 4))\n"
-                "    assert(editor:insert(\"!\"))\n"
-                "    assert(editor:save())\n"
-                "    local viewer = assert(mc.viewer.current())\n"
-                "    assert(viewer:path() == \"/viewer\")\n"
-                "    assert(viewer:position() == 12 and viewer:mode() == \"text\")\n"
-                "    assert(viewer[\"goto\"](viewer, 17))\n"
-                "end)\n"
-                "mc.on(\"panel.chdir\", function(ev)\n"
-                "    local path, closed_error = ev.panel:cwd()\n"
-                "    assert(path == nil and closed_error == \"closed\")\n"
-                "end)\n"
-                "mc.on(\"panel.file_open\", function(ev)\n"
-                "    local ok, phase_error = ev.panel:refresh()\n"
-                "    assert(ok == nil and phase_error == \"forbidden_in_phase\")\n"
-                "    assert(mc.ui.status(\"phase status\"))\n"
-                "end)\n");
+    write_file (
+        entry_path,
+        "if os.getenv(\"MC_LUA_TEST_OBJECTS\") ~= \"1\" then return end\n"
+        "local unavailable, unavailable_error = mc.panel.active()\n"
+        "assert(unavailable == nil and unavailable_error == \"no active MC context\")\n"
+        "mc.on(\"startup\", function()\n"
+        "    local panel = assert(mc.panel.active())\n"
+        "    assert(panel:cwd() == \"/panel\")\n"
+        "    assert(panel:current().name == \"current\")\n"
+        "    assert(#panel:selected() == 1 and panel:selected()[1].name == \"marked\")\n"
+        "    assert(panel:refresh())\n"
+        "    assert(panel:chdir(\"/other\"))\n"
+        "    local editor = assert(mc.editor.current())\n"
+        "    assert(editor:path() == \"/editor\")\n"
+        "    local info = editor:info()\n"
+        "    assert(info.path == \"/editor\" and info.name == \"editor\")\n"
+        "    assert(info.modified and not info.readonly and info.revision == 7)\n"
+        "    assert(info.byte_length == 4 and info.line_count == 1)\n"
+        "    local selection = editor:selection()\n"
+        "    assert(selection.kind == \"column\" and selection.revision == 7)\n"
+        "    assert(selection.anchor.offset == 1 and selection.anchor.line == 1)\n"
+        "    assert(selection.cursor.offset == 8 and selection.cursor.column == 4)\n"
+        "    assert(#selection.ranges == 2)\n"
+        "    assert(selection.ranges[1].from == 1 and selection.ranges[1].to == 3)\n"
+        "    assert(selection.ranges[2].from == 6 and selection.ranges[2].to == 8)\n"
+        "    assert(selection.text == \"bc\\ngh\" and not selection.text_truncated)\n"
+        "    local edit_result = assert(editor:replace_selection(\"BC\\nGH\"))\n"
+        "    assert(edit_result.revision == 8 and edit_result.cursor.offset == 5)\n"
+        "    local range_result = assert(editor:replace(1, 3, \"xy\"))\n"
+        "    assert(range_result.revision == 9 and range_result.cursor.offset == 3)\n"
+        "    local line, column = editor:cursor()\n"
+        "    assert(line == 2 and column == 3 and not editor:is_readonly())\n"
+        "    assert(editor:tab_width() == 8)\n"
+        "    assert(editor:get_text(1, 4) == \"text\")\n"
+        "    assert(editor:text { from = 1, to = 3, revision = 7 } == \"yp\")\n"
+        "    local typed = assert(editor:replace({ from = 1, to = 3, revision = 7 }, \"zz\"))\n"
+        "    assert(typed.revision == 10)\n"
+        "    local transaction = assert(editor:edit { revision = 10, changes = {\n"
+        "        { from = 0, to = 1, text = \"A\" },\n"
+        "        { from = 3, to = 4, text = \"Z\" },\n"
+        "    }, cursor = { offset = 2 } })\n"
+        "    assert(transaction.revision == 11 and transaction.cursor.offset == 2)\n"
+        "    assert(mc.ui.text_width(\"漢\") == 2)\n"
+        "    assert(editor:selected_text() == \"U2V0\")\n"
+        "    assert(editor:set_cursor(3, 4))\n"
+        "    assert(editor:insert(\"!\"))\n"
+        "    assert(editor:save())\n"
+        "    local viewer = assert(mc.viewer.current())\n"
+        "    assert(viewer:path() == \"/viewer\")\n"
+        "    assert(viewer:position() == 12 and viewer:mode() == \"text\")\n"
+        "    assert(viewer[\"goto\"](viewer, 17))\n"
+        "end)\n"
+        "mc.on(\"panel.chdir\", function(ev)\n"
+        "    local path, closed_error = ev.panel:cwd()\n"
+        "    assert(path == nil and closed_error == \"closed\")\n"
+        "end)\n"
+        "mc.on(\"panel.file_open\", function(ev)\n"
+        "    local ok, phase_error = ev.panel:refresh()\n"
+        "    assert(ok == nil and phase_error == \"forbidden_in_phase\")\n"
+        "    assert(mc.ui.status(\"phase status\"))\n"
+        "end)\n");
 
     g_free (entry_path);
     g_free (ini_path);
@@ -493,58 +627,58 @@ create_macro_script (void)
                 "entry=init.lua\n"
                 "provides=macros\n");
 
-    script =
-        g_strdup_printf ("if os.getenv(\"MC_LUA_TEST_MACRO\") ~= \"1\" then return end\n"
-                         "local function record(value)\n"
-                         "    local stream = assert(io.open(\"%s\", \"a\"))\n"
-                         "    stream:write(value .. \"\\n\")\n"
-                         "    stream:close()\n"
-                         "end\n"
-                         "assert(mc.macro {\n"
-                         "    id = \"consume-f11\",\n"
-                         "    area = \"editor\",\n"
-                         "    key = \"F11\",\n"
-                         "    description = \"Consume F11\",\n"
-                         "    action = function(ev)\n"
-                         "        assert(ev.name == \"editor.key\" and ev.key.name == \"F11\")\n"
-                         "        assert(type(ev.editor) == \"userdata\" and "
-                         "ev.editor:selected_text() == \"U2V0\")\n"
-                         "        record(\"macro-consume\")\n"
-                         "        return mc.CONSUME\n"
-                         "    end,\n"
-                         "})\n"
-                         "assert(mc.macro {\n"
-                         "    id = \"pass-f10\",\n"
-                         "    area = \"editor\",\n"
-                         "    key = \"F10\",\n"
-                         "    description = \"Pass F10\",\n"
-                         "    action = function()\n"
-                         "        record(\"macro-pass\")\n"
-                         "        return mc.PASS\n"
-                         "    end,\n"
-                         "})\n"
-                         "assert(mc.macro {\n"
-                         "    id = \"menu-only\",\n"
-                         "    area = \"editor\",\n"
-                         "    description = \"Menu only\",\n"
-                         "    menu = { path = \"Drawing\", label = \"Draw test line\", "
-                         "position = 25 },\n"
-                         "    action = function()\n"
-                         "        local result = assert(mc.process.run { command = \"printf test\" })\n"
-                         "        assert(result.stdout == \"process output\" and "
-                         "result.stderr == \"warning\" and result.exit_code == 7)\n"
-                         "        record(\"menu-only\") return mc.CONSUME\n"
-                         "    end,\n"
-                         "})\n"
-                         "assert(mc.macro {\n"
-                         "    id = \"hidden-f9\",\n"
-                         "    area = \"editor\",\n"
-                         "    key = \"F9\",\n"
-                         "    description = \"Hidden F9\",\n"
-                         "    listed = false,\n"
-                         "    action = function() return mc.CONSUME end,\n"
-                         "})\n",
-                         output_path);
+    script = g_strdup_printf (
+        "if os.getenv(\"MC_LUA_TEST_MACRO\") ~= \"1\" then return end\n"
+        "local function record(value)\n"
+        "    local stream = assert(io.open(\"%s\", \"a\"))\n"
+        "    stream:write(value .. \"\\n\")\n"
+        "    stream:close()\n"
+        "end\n"
+        "assert(mc.macro {\n"
+        "    id = \"consume-f11\",\n"
+        "    area = \"editor\",\n"
+        "    key = \"F11\",\n"
+        "    description = \"Consume F11\",\n"
+        "    action = function(ev)\n"
+        "        assert(ev.name == \"editor.key\" and ev.key.name == \"F11\")\n"
+        "        assert(type(ev.editor) == \"userdata\" and "
+        "ev.editor:selected_text() == \"U2V0\")\n"
+        "        record(\"macro-consume\")\n"
+        "        return mc.CONSUME\n"
+        "    end,\n"
+        "})\n"
+        "assert(mc.macro {\n"
+        "    id = \"pass-f10\",\n"
+        "    area = \"editor\",\n"
+        "    key = \"F10\",\n"
+        "    description = \"Pass F10\",\n"
+        "    action = function()\n"
+        "        record(\"macro-pass\")\n"
+        "        return mc.PASS\n"
+        "    end,\n"
+        "})\n"
+        "assert(mc.macro {\n"
+        "    id = \"menu-only\",\n"
+        "    area = \"editor\",\n"
+        "    description = \"Menu only\",\n"
+        "    menu = { path = \"Drawing\", label = \"Draw test line\", "
+        "position = 25 },\n"
+        "    action = function()\n"
+        "        local result = assert(mc.process.run { command = \"printf test\" })\n"
+        "        assert(result.stdout == \"process output\" and "
+        "result.stderr == \"warning\" and result.exit_code == 7)\n"
+        "        record(\"menu-only\") return mc.CONSUME\n"
+        "    end,\n"
+        "})\n"
+        "assert(mc.macro {\n"
+        "    id = \"hidden-f9\",\n"
+        "    area = \"editor\",\n"
+        "    key = \"F9\",\n"
+        "    description = \"Hidden F9\",\n"
+        "    listed = false,\n"
+        "    action = function() return mc.CONSUME end,\n"
+        "})\n",
+        output_path);
     write_file (entry_path, script);
 
     g_free (script);
@@ -644,8 +778,8 @@ test_dialog_result_free (mc_runtime_dialog_result_t *result)
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-test_process_run_shell (const char *command, gsize max_output,
-                        mc_runtime_process_result_t *result, const char **out_error)
+test_process_run_shell (const char *command, gsize max_output, mc_runtime_process_result_t *result,
+                        const char **out_error)
 {
     (void) max_output;
     if (out_error != NULL)
@@ -986,8 +1120,7 @@ test_object_editor_info_free (mc_runtime_editor_info_t *info)
 
 static gboolean
 test_object_editor_selection (const mc_runtime_handle_t *editor,
-                              mc_runtime_editor_selection_t *selection,
-                              const char **object_error)
+                              mc_runtime_editor_selection_t *selection, const char **object_error)
 {
     if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
         return test_object_fail (object_error, "closed");
@@ -1021,8 +1154,7 @@ test_object_editor_selection_free (mc_runtime_editor_selection_t *selection)
 
 static gboolean
 test_object_editor_replace_selection (const mc_runtime_handle_t *editor, const char *text,
-                                      gsize text_length,
-                                      mc_runtime_editor_edit_result_t *result,
+                                      gsize text_length, mc_runtime_editor_edit_result_t *result,
                                       const char **object_error)
 {
     if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
@@ -1057,9 +1189,9 @@ test_object_editor_replace (const mc_runtime_handle_t *editor, guint64 from, gui
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
-test_object_editor_text (const mc_runtime_handle_t *editor,
-                         const mc_runtime_editor_range_t *range, gboolean has_revision,
-                         guint64 revision, mc_runtime_string_t *text, const char **object_error)
+test_object_editor_text (const mc_runtime_handle_t *editor, const mc_runtime_editor_range_t *range,
+                         gboolean has_revision, guint64 revision, mc_runtime_string_t *text,
+                         const char **object_error)
 {
     if (!test_object_handle_is (editor, MC_RUNTIME_HANDLE_EDITOR, 2))
         return test_object_fail (object_error, "closed");
@@ -1080,9 +1212,9 @@ test_object_editor_edit (const mc_runtime_handle_t *editor,
     object_editor_typed_revision = edit_spec->revision;
     object_editor_typed_changes = edit_spec->changes_count;
     result->revision = edit_spec->changes_count == 1 ? 10 : 11;
-    result->cursor = (mc_runtime_editor_position_t) {
-        edit_spec->has_cursor ? edit_spec->cursor.offset : 3, 1, 3
-    };
+    result->cursor =
+        (mc_runtime_editor_position_t) { edit_spec->has_cursor ? edit_spec->cursor.offset : 3, 1,
+                                         3 };
     return TRUE;
 }
 
@@ -1366,6 +1498,9 @@ setup (void)
         .editor_edit = test_object_editor_edit,
         .editor_replace_selection_v2 = test_object_editor_replace_selection_v2,
         .ui_text_width = test_ui_text_width,
+        .panel_provider_register = test_panel_provider_register,
+        .panel_provider_unregister = test_panel_provider_unregister,
+        .viewer_controller_open = test_viewer_controller_open,
     };
 
     error = NULL;
@@ -1410,6 +1545,10 @@ setup (void)
     enumerated_lua_consume_action = FALSE;
     enumerated_lua_menu_actions = 0;
     enumerated_lua_drawing_action = FALSE;
+    memset (&registered_panel_provider, 0, sizeof (registered_panel_provider));
+    panel_provider_registered = FALSE;
+    viewer_controller_open_count = 0;
+    viewer_controller_close_count = 0;
     {
         char *prefs_path = g_build_filename (config_dir, "mc", "plugins.ini", (char *) NULL);
         char *ini_path = g_build_filename (config_dir, "mc", "ini", (char *) NULL);
@@ -1513,14 +1652,95 @@ END_TEST
 
 /* --------------------------------------------------------------------------------------------- */
 
+START_TEST (test_lua_runtime_panel_provider_dispatch)
+{
+    mc_runtime_panel_provider_request_t request = { 0 };
+    mc_runtime_panel_provider_response_t response = { 0 };
+    guint64 instance_id;
+    const char *provider_error = NULL;
+
+    create_panel_provider_script ();
+    ck_assert_msg (mc_runtime_plugins_load (&error), "Failed to load runtime: %s",
+                   error != NULL ? error->message : "unknown error");
+    mctest_assert_true (panel_provider_registered);
+    ck_assert_str_eq (registered_panel_provider.id, "test-panel");
+    ck_assert_uint_eq (registered_panel_provider.actions_count, 2);
+    ck_assert_str_eq (registered_panel_provider.help->node, "provider");
+    ck_assert_str_eq (registered_panel_provider.actions[1].open_path, "test-panel:/saved");
+
+    request.struct_size = sizeof (request);
+    request.operation_version = 1;
+    request.path = "/";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_OPEN,
+        &request, &response, &provider_error));
+    ck_assert_uint_ne (response.instance_id, 0);
+    instance_id = response.instance_id;
+    registered_panel_provider.response_free (NULL, &response);
+
+    request.instance_id = instance_id;
+    request.path = NULL;
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_LIST,
+        &request, &response, &provider_error));
+    ck_assert_uint_eq (response.view.revision, 1);
+    ck_assert_uint_eq (response.view.entries_count, 1);
+    ck_assert_str_eq (response.view.entries[0].id, "dir:one");
+    registered_panel_provider.response_free (NULL, &response);
+
+    request.revision = 1;
+    request.entry_id = "dir:one";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id,
+        MC_RUNTIME_PANEL_PROVIDER_NAVIGATE_ENTRY, &request, &response, &provider_error));
+    mctest_assert_true (response.refresh);
+    ck_assert_str_eq (response.location, "/one");
+    registered_panel_provider.response_free (NULL, &response);
+
+    {
+        const char *selected[] = { "dir:one" };
+
+        request.action_id = "refresh";
+        request.selected_ids = selected;
+        request.selected_count = 1;
+        mctest_assert_true (registered_panel_provider.dispatch (
+            NULL, registered_panel_provider.runtime_provider_id,
+            MC_RUNTIME_PANEL_PROVIDER_INVOKE_ACTION, &request, &response, &provider_error));
+        mctest_assert_true (response.refresh);
+        ck_assert_str_eq (response.status, "refreshed");
+        registered_panel_provider.response_free (NULL, &response);
+        request.action_id = NULL;
+        request.selected_ids = NULL;
+        request.selected_count = 0;
+    }
+
+    request.entry_id = NULL;
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_CLOSE,
+        &request, &response, &provider_error));
+    registered_panel_provider.response_free (NULL, &response);
+}
+END_TEST
+
+START_TEST (test_lua_runtime_viewer_source_controller)
+{
+    create_viewer_controller_script ();
+    ck_assert_msg (mc_runtime_plugins_load (&error), "Failed to load runtime: %s",
+                   error != NULL ? error->message : "unknown error");
+    ck_assert_uint_eq (viewer_controller_open_count, 1);
+    ck_assert_uint_eq (viewer_controller_close_count, 1);
+}
+END_TEST
+
+/* --------------------------------------------------------------------------------------------- */
+
 START_TEST (test_lua_runtime_discovers_legacy_config_scripts)
 {
     mc_runtime_event_snapshot_t *snapshot;
     char *legacy_mc_scripts_dir;
     char *contents = NULL;
 
-    legacy_mc_scripts_dir =
-        g_build_filename (legacy_user_scripts_dir, "mc", (char *) NULL);
+    legacy_mc_scripts_dir = g_build_filename (legacy_user_scripts_dir, "mc", (char *) NULL);
     create_script (legacy_mc_scripts_dir, "legacy", "legacy", FALSE);
     g_free (legacy_mc_scripts_dir);
 
@@ -1913,8 +2133,7 @@ main (void)
     system_scripts_dir = g_build_filename (test_root, "system-scripts", (char *) NULL);
     data_dir = g_build_filename (test_root, "data", (char *) NULL);
     user_scripts_dir = g_build_filename (data_dir, "mc", "lua", "scripts", (char *) NULL);
-    legacy_user_scripts_dir =
-        g_build_filename (config_dir, "mc", "lua", "scripts", (char *) NULL);
+    legacy_user_scripts_dir = g_build_filename (config_dir, "mc", "lua", "scripts", (char *) NULL);
     system_mc_scripts_dir = g_build_filename (system_scripts_dir, "mc", (char *) NULL);
     user_mc_scripts_dir = g_build_filename (user_scripts_dir, "mc", (char *) NULL);
     system_editor_scripts_dir = g_build_filename (system_scripts_dir, "editor", (char *) NULL);
@@ -1945,6 +2164,8 @@ main (void)
     tcase_add_test (tc_core, test_lua_runtime_enumerates_editor_package_details);
     tcase_add_test (tc_core, test_lua_runtime_rejects_insecure_package_paths);
     tcase_add_test (tc_core, test_lua_runtime_honors_disable_environment);
+    tcase_add_test (tc_core, test_lua_runtime_panel_provider_dispatch);
+    tcase_add_test (tc_core, test_lua_runtime_viewer_source_controller);
 
     result = mctest_run_all (tc_core);
 

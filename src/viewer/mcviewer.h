@@ -40,6 +40,8 @@ typedef struct
     char *file;                  /* local path -> mc_open + file load */
     gboolean auto_scroll_bottom; /* after load, position at bottom */
     char *title;                 /* optional override for status title */
+    char *help_file;
+    char *help_node;
 } mcview_source_spec_t;
 
 /* Result of offering an unhandled viewer key to a source controller. */

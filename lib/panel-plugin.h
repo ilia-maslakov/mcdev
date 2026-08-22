@@ -15,7 +15,7 @@
 
 /*** typedefs(not structures) and defined constants **********************************************/
 
-#define MC_PANEL_PLUGIN_API_VERSION 12
+#define MC_PANEL_PLUGIN_API_VERSION 13
 #define MC_PANEL_PLUGIN_ENTRY       "mc_panel_plugin_register"
 
 /* Well-known target menu names for mc_pp_cmd_menu_entry_t.menu_name.
@@ -325,6 +325,16 @@ typedef struct mc_panel_plugin_t
        nothing. */
     mc_pp_result_t (*get_quick_view) (void *plugin_data, const char *fname, const struct stat *st,
                                       char **local_path);
+
+    /* API 13: host-owned proxy plugins need descriptor identity during open.
+       Native plugins normally keep using open(); a proxy sets open_with_plugin
+       and may leave open NULL.  @plugin_context is descriptor-owned. */
+    void *plugin_context;
+    void *(*open_with_plugin) (const struct mc_panel_plugin_t *plugin, mc_panel_host_t *host,
+                               const char *open_path);
+    void *(*run_action_with_plugin) (const struct mc_panel_plugin_t *plugin, void *plugin_data,
+                                     mc_panel_host_t *host, const char *open_path,
+                                     int action_index);
 } mc_panel_plugin_t;
 
 typedef const mc_panel_plugin_t *(*mc_panel_plugin_register_fn) (void);
@@ -363,6 +373,7 @@ const char *mc_pp_input_stream_local_path (const mc_pp_input_stream_t *stream,
 
 /* Registry */
 gboolean mc_panel_plugin_add (const mc_panel_plugin_t *plugin);
+gboolean mc_panel_plugin_remove (const mc_panel_plugin_t *plugin);
 const GSList *mc_panel_plugin_list (void);
 const mc_panel_plugin_t *mc_panel_plugin_find_by_name (const char *name);
 const mc_panel_plugin_t *mc_panel_plugin_find_by_prefix (const char *prefix);

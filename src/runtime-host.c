@@ -46,6 +46,8 @@
 #include "viewer/internal.h"
 
 #include "runtime-host.h"
+#include "runtime-panel-provider.h"
+#include "runtime-viewer-source.h"
 
 /* --------------------------------------------------------------------------------------------- */
 
@@ -67,8 +69,8 @@ static GHashTable *runtime_host_errors = NULL;
 static gboolean runtime_host_dialog_active = FALSE;
 static struct runtime_host_dialog_builder *runtime_host_active_dialog_builder = NULL;
 
-#define RUNTIME_HOST_EDITOR_SELECTION_TEXT_LIMIT (1024U * 1024U)
-#define RUNTIME_HOST_EDITOR_TEXT_LIMIT           (64U * 1024U * 1024U)
+#define RUNTIME_HOST_EDITOR_SELECTION_TEXT_LIMIT  (1024U * 1024U)
+#define RUNTIME_HOST_EDITOR_TEXT_LIMIT            (64U * 1024U * 1024U)
 #define RUNTIME_HOST_EDITOR_EDIT_CHANGES_MAX      1024U
 #define RUNTIME_HOST_EDITOR_EDIT_TEXT_LIMIT       (64U * 1024U * 1024U)
 #define RUNTIME_HOST_PROCESS_OUTPUT_LIMIT_DEFAULT (8U * 1024U * 1024U)
@@ -229,8 +231,7 @@ runtime_host_process_run_shell (const char *command, gsize max_output,
             runtime_host_process_append (out, pipe->out.buf, (gsize) pipe->out.len, max_output,
                                          &result->out_truncated);
         else if (!out_done
-                 && (pipe->out.len == MC_PIPE_STREAM_EOF
-                     || pipe->out.len == MC_PIPE_ERROR_READ))
+                 && (pipe->out.len == MC_PIPE_STREAM_EOF || pipe->out.len == MC_PIPE_ERROR_READ))
         {
             out_done = TRUE;
             close (pipe->out.fd);
@@ -243,8 +244,7 @@ runtime_host_process_run_shell (const char *command, gsize max_output,
             runtime_host_process_append (err, pipe->err.buf, (gsize) pipe->err.len, max_output,
                                          &result->err_truncated);
         else if (!err_done
-                 && (pipe->err.len == MC_PIPE_STREAM_EOF
-                     || pipe->err.len == MC_PIPE_ERROR_READ))
+                 && (pipe->err.len == MC_PIPE_STREAM_EOF || pipe->err.len == MC_PIPE_ERROR_READ))
         {
             err_done = TRUE;
             close (pipe->err.fd);
@@ -862,9 +862,9 @@ runtime_host_editor_replace (const mc_runtime_handle_t *handle, guint64 from, gu
 /* --------------------------------------------------------------------------------------------- */
 
 gboolean
-runtime_host_editor_text (const mc_runtime_handle_t *handle,
-                          const mc_runtime_editor_range_t *range, gboolean has_revision,
-                          guint64 revision, mc_runtime_string_t *text, const char **error)
+runtime_host_editor_text (const mc_runtime_handle_t *handle, const mc_runtime_editor_range_t *range,
+                          gboolean has_revision, guint64 revision, mc_runtime_string_t *text,
+                          const char **error)
 {
 #ifdef USE_INTERNAL_EDIT
     WEdit *editor = runtime_host_editor_resolve (handle, error);
@@ -947,8 +947,7 @@ runtime_host_editor_edit (const mc_runtime_handle_t *handle,
     if (edit_spec->revision != MAX (editor->runtime_revision, 1))
         return runtime_host_set_error (error, "stale_revision");
 
-    changes = g_memdup2 (edit_spec->changes,
-                         sizeof (*changes) * (gsize) edit_spec->changes_count);
+    changes = g_memdup2 (edit_spec->changes, sizeof (*changes) * (gsize) edit_spec->changes_count);
     qsort (changes, edit_spec->changes_count, sizeof (*changes),
            runtime_host_editor_change_compare);
     final_size = (guint64) editor->buffer.size;
@@ -1614,9 +1613,9 @@ runtime_host_dialog_add_button (runtime_host_dialog_builder_t *builder,
     runtime_host_dialog_button_t button;
     quick_widget_t widget = { 0 };
 
-    button.action = control->cancel_button ? B_CANCEL
-                                          : (control->default_button ? B_ENTER
-                                                                     : builder->next_action++);
+    button.action = control->cancel_button
+        ? B_CANCEL
+        : (control->default_button ? B_ENTER : builder->next_action++);
     button.id = control->id;
     g_array_append_val (builder->buttons, button);
 
@@ -1819,8 +1818,7 @@ runtime_host_dialog_callback (Widget *w, Widget *sender, widget_msg_t msg, int p
                     (const runtime_host_dialog_field_t *) g_ptr_array_index (builder->fields, i);
 
                 if (field->widget_id == current_id
-                    && field->control->type == MC_RUNTIME_DIALOG_INPUT
-                    && field->control->checked)
+                    && field->control->type == MC_RUNTIME_DIALOG_INPUT && field->control->checked)
                     return send_message (WIDGET (group->current->data), NULL, MSG_ACTION,
                                          CK_Complete, NULL);
             }
@@ -1879,10 +1877,12 @@ runtime_host_ui_dialog (const mc_runtime_dialog_t *dialog, mc_runtime_dialog_res
 
     memset (result, 0, sizeof (*result));
     builder.widgets = g_array_new (FALSE, TRUE, sizeof (quick_widget_t));
-    builder.fields = g_ptr_array_new_with_free_func ((GDestroyNotify) runtime_host_dialog_field_free);
+    builder.fields =
+        g_ptr_array_new_with_free_func ((GDestroyNotify) runtime_host_dialog_field_free);
     builder.buttons = g_array_new (FALSE, TRUE, sizeof (runtime_host_dialog_button_t));
     builder.next_action = B_USER;
-    if (!runtime_host_dialog_add_controls (&builder, dialog->controls, dialog->controls_count, error))
+    if (!runtime_host_dialog_add_controls (&builder, dialog->controls, dialog->controls_count,
+                                           error))
         goto fail;
     end.widget_type = quick_end;
     runtime_host_dialog_add_widget (&builder, end);
@@ -2134,6 +2134,9 @@ runtime_host_services_init (void)
         .editor_edit = runtime_host_editor_edit,
         .editor_replace_selection_v2 = runtime_host_editor_replace_selection_v2,
         .ui_text_width = runtime_host_ui_text_width,
+        .panel_provider_register = runtime_panel_provider_register,
+        .panel_provider_unregister = runtime_panel_provider_unregister,
+        .viewer_controller_open = runtime_viewer_controller_open,
     };
 
     /* Capabilities describe what this invocation can actually open, rather
@@ -2147,6 +2150,9 @@ runtime_host_services_init (void)
         services.panel_selected = NULL;
         services.panel_refresh = NULL;
         services.panel_chdir = NULL;
+        services.panel_provider_register = NULL;
+        services.panel_provider_unregister = NULL;
+        services.viewer_controller_open = NULL;
     }
 
 #ifdef USE_INTERNAL_EDIT
