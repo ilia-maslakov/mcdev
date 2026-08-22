@@ -54,12 +54,14 @@
 #include "lib/util.h"     // load_file_position(), save_file_position()
 #include "lib/timefmt.h"  // time formatting
 #include "lib/lock.h"
+#include "lib/runtime-events.h"
 #include "lib/widget.h"
 #include "lib/charsets.h"  // get_codepage_id
 
 #include "src/usermenu.h"  // user_menu_cmd()
 
 #include "src/keymap.h"
+#include "src/runtime-host.h"
 #include "src/util.h"  // file_error_message()
 
 #include "edit-impl.h"
@@ -2638,6 +2640,9 @@ edit_clean (WEdit *edit)
 {
     if (edit == NULL)
         return FALSE;
+
+    runtime_host_clear_current_editor (edit);
+    mc_runtime_handle_invalidate_object (MC_RUNTIME_HANDLE_EDITOR, edit);
 
     // a stale lock, remove it
     if (edit->locked)

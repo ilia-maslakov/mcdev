@@ -54,13 +54,17 @@
 #include "lib/event.h"  // mc_event_raise()
 #include "lib/charsets.h"
 #include "lib/editor-plugin.h"
+#include "lib/runtime-events.h"
 
-#include "src/keymap.h"                      // keybind_lookup_keymap_command()
+#include "src/keymap.h"  // keybind_lookup_keymap_command()
+#include "src/runtime-host.h"
 #include "src/setup.h"                       // home_dir
 #include "src/execute.h"                     // toggle_terminal()
 #include "src/filemanager/mcterm_overlay.h"  // mcterm_overlay_show_terminal()
-#include "src/filemanager/cmd.h"             // save_setup_cmd()
-#include "src/key_learn.h"                   // key_learn()
+#include "src/events_init.h"
+#include "src/filemanager/cmd.h"  // save_setup_cmd()
+#include "src/key_learn.h"        // key_learn()
+#include "src/manage_plugins.h"   // manage_lua_editor_scripts_dialog()
 
 #include "edit-impl.h"
 #include "editwidget.h"
@@ -100,6 +104,75 @@ static unsigned int edit_dlg_init_refcounter = 0;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_publish_runtime_open (WEdit *edit)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+
+    runtime_host_set_current_editor (edit);
+    events_publish_runtime_startup ();
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_OPEN);
+    snapshot->data.editor_open.editor =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, edit);
+    snapshot->data.editor_open.path = edit->filename_vpath != NULL
+        ? vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD)
+        : g_strdup ("");
+    snapshot->data.editor_open.readonly =
+        (edit->stat1.st_mode & (S_IWUSR | S_IWGRP | S_IWOTH)) == 0;
+    snapshot->data.editor_open.line = (guint) MAX (edit->buffer.curs_line, 0) + 1;
+    snapshot->data.editor_open.column = (guint) MAX (edit->curs_col, 0) + 1;
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+edit_publish_runtime_key (WEdit *edit, int keycode)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+    gboolean consumed;
+    unsigned int plain_key;
+
+    runtime_host_set_current_editor (edit);
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return FALSE;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_KEY);
+    snapshot->data.editor_key.editor =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, edit);
+    snapshot->data.editor_key.key.name = tty_keycode_to_keyname (keycode);
+    if (snapshot->data.editor_key.key.name == NULL)
+    {
+        mc_runtime_event_snapshot_free (snapshot);
+        return FALSE;
+    }
+
+    snapshot->data.editor_key.key.code = keycode;
+    snapshot->data.editor_key.key.shift = (keycode & KEY_M_SHIFT) != 0;
+    snapshot->data.editor_key.key.ctrl = (keycode & KEY_M_CTRL) != 0;
+    snapshot->data.editor_key.key.alt = (keycode & KEY_M_ALT) != 0;
+    plain_key = (unsigned int) keycode & ~KEY_M_MASK;
+    if ((keycode & (KEY_M_CTRL | KEY_M_ALT)) == 0 && plain_key >= ' ' && plain_key <= '~')
+    {
+        char text[2] = { (char) plain_key, '\0' };
+
+        snapshot->data.editor_key.key.text = g_strdup (text);
+    }
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    consumed = snapshot->consumed;
+    mc_runtime_event_snapshot_free (snapshot);
+
+    return consumed;
+}
+
 /* --------------------------------------------------------------------------------------------- */
 /**
  * Host callback: request redraw/refresh.
@@ -1057,6 +1130,11 @@ edit_dialog_command_execute (WDialog *h, long command)
     case CK_EditPluginsInfo:
         edit_plugins_info (h);
         break;
+#ifdef ENABLE_LUA_PLUGIN
+    case CK_EditLuaScripts:
+        (void) manage_lua_editor_scripts_dialog ();
+        break;
+#endif
     case CK_OptionsSaveMode:
         edit_save_mode_cmd ();
         break;
@@ -1421,6 +1499,9 @@ edit_dialog_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, voi
         {
             gboolean ext_mode;
             long command;
+
+            if (edit_publish_runtime_key (EDIT (we), parm))
+                return MSG_HANDLED;
 
             // keep and then extmod flag
             ext_mode = we->ext_mode;
@@ -1993,7 +2074,10 @@ edit_files (const GList *files)
     }
 
     if (ok)
+    {
+        events_publish_runtime_startup ();
         dlg_run (edit_dlg);
+    }
 
     if (!ok || widget_get_state (wd, WST_CLOSED))
         widget_destroy (wd);
@@ -2093,6 +2177,7 @@ edit_add_window (WDialog *h, const WRect *r, const edit_arg_t *arg)
 
     group_add_widget_autopos (GROUP (h), w, WPOS_KEEP_ALL, NULL);
     edit_set_buttonbar (edit, buttonbar_find (h));
+    edit_publish_runtime_open (edit);
     widget_draw (WIDGET (h));
 
     return TRUE;

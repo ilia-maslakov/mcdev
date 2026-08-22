@@ -53,7 +53,8 @@ typedef enum
 enum cd_enum
 {
     cd_parse_command,
-    cd_exact
+    cd_exact,
+    cd_runtime_plugin
 };
 
 /*** structures declarations (and typedefs of structures)*****************************************/
@@ -190,6 +191,8 @@ void panel_set_current_by_name (WPanel *panel, const char *name);
 
 void unmark_files (WPanel *panel);
 void select_item (WPanel *panel);
+void panel_runtime_publish_file_open (WPanel *panel, const file_entry_t *entry,
+                                      const char *open_mode);
 
 void recalculate_panel_summary (WPanel *panel);
 void file_mark (WPanel *panel, int idx, int val);

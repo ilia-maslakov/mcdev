@@ -4,6 +4,9 @@ SUBDIRS = . mcconfig search strutil vfs widget
 
 AM_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir) @CHECK_CFLAGS@
 
+AM_CPPFLAGS += -DTEST_RUNTIME_PLUGIN_DIR=\"$(abs_builddir)/.libs\"
+AM_CPPFLAGS += -DTEST_LUA_RUNTIME_DIR=\"$(abs_top_builddir)/src/lua/.libs\"
+
 LIBS = @CHECK_LIBS@ \
 	$(top_builddir)/lib/libmc.la
 
@@ -20,6 +23,7 @@ TESTS = \
 	mc_build_filename \
 	name_quote \
 	serialize \
+	runtime_events \
 	terminal \
 	tty \
 	utilunix__mc_pstream_get_string \
@@ -29,6 +33,20 @@ TESTS = \
 	x_basename
 
 TESTS += mc_realpath
+
+if HAVE_GMODULE
+TESTS += extension_runtime
+noinst_LTLIBRARIES = runtime-plugin-fixture.la
+
+runtime_plugin_fixture_la_SOURCES = \
+	runtime_plugin_fixture.c
+runtime_plugin_fixture_la_LDFLAGS = -module -avoid-version -rpath $(abs_builddir)/.libs
+runtime_plugin_fixture_la_LIBADD = $(GLIB_LIBS)
+endif
+
+if ENABLE_LUA_PLUGIN
+TESTS += lua_runtime
+endif
 
 check_PROGRAMS = $(TESTS)
 
@@ -50,6 +68,19 @@ name_quote_SOURCES = \
 serialize_SOURCES = \
 	serialize.c
 
+runtime_events_SOURCES = \
+	runtime_events.c
+
+extension_runtime_SOURCES = \
+	extension_runtime.c
+extension_runtime_DEPENDENCIES = runtime-plugin-fixture.la
+extension_runtime_LDADD = $(GMODULE_LIBS)
+
+lua_runtime_SOURCES = \
+	lua_runtime.c
+lua_runtime_DEPENDENCIES = $(top_builddir)/src/lua/mc-lua.la
+lua_runtime_LDADD = $(GMODULE_LIBS)
+
 terminal_SOURCES = \
 	terminal.c
 
@@ -70,4 +101,3 @@ utilunix__my_system_fork_child_SOURCES = \
 
 x_basename_SOURCES = \
 	x_basename.c
-

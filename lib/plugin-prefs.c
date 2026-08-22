@@ -1,5 +1,5 @@
 /*
-   Per-user enable/disable state for editor and panel plugins.
+   Per-user enable/disable state for editor and panel plugins, and Lua scripts.
 
    Copyright (C) 2025-2026
    Free Software Foundation, Inc.
@@ -83,6 +83,8 @@ kind_prefix (mc_plugin_kind_t kind)
         return "editor/";
     case MC_PLUGIN_KIND_PANEL:
         return "panel/";
+    case MC_PLUGIN_KIND_LUA:
+        return "lua/";
     default:
         return "?/";
     }

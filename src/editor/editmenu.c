@@ -244,6 +244,9 @@ create_options_menu (void)
         g_list_prepend (entries, menu_entry_new (_ ("Syntax &highlighting..."), CK_SyntaxChoose));
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("Pl&ugin info..."), CK_EditPluginsInfo));
+#ifdef ENABLE_LUA_PLUGIN
+    entries = g_list_prepend (entries, menu_entry_new (_ ("&Lua scripts..."), CK_EditLuaScripts));
+#endif
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("S&yntax file"), CK_EditSyntaxFile));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Menu file"), CK_EditUserMenu));

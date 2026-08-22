@@ -1,5 +1,9 @@
 SUBDIRS = mctree filemanager man2hlp vfs viewer panel-plugins
 
+if ENABLE_LUA_PLUGIN
+SUBDIRS += lua
+endif
+
 if ENABLE_MCTERM
 SUBDIRS += mcterm
 endif
@@ -89,6 +93,7 @@ libinternal_la_SOURCES = \
 	keymap.c keymap.h \
 	key_learn.c key_learn.h \
 	manage_plugins.c manage_plugins.h \
+	runtime-host.c runtime-host.h \
 	selcodepage.c selcodepage.h \
 	setup.c setup.h \
 	textconf.c textconf.h \

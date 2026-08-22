@@ -1,5 +1,5 @@
 /*
-   Manage Plugins dialog: enable/disable individual editor and panel plugins.
+   Manage Plugins dialog: enable/disable runtime extensions and editor/panel plugins.
 
    Copyright (C) 2025-2026
    Free Software Foundation, Inc.
@@ -28,30 +28,44 @@
 #include "lib/global.h"
 #include "lib/tty/tty.h"
 #include "lib/keybind.h"  // CK_Enter
+#include "lib/mcconfig.h"
 #include "lib/widget.h"
 #include "lib/widget/table.h"
 #include "lib/editor-plugin.h"
+#include "lib/extension-runtime.h"
 #include "lib/panel-plugin.h"
 #include "lib/plugin-prefs.h"
 
 #include "src/editor-plugins/builtin-plugins.h"  // editor_plugins_register_all
+#include "src/filemanager/cd.h"
 #include "src/filemanager/magic.h"
 
 #include "manage_plugins.h"
 
 /*** file scope macro definitions ****************************************************************/
 
-#define MP_LIST_MAX_H 16
+#define MP_LIST_MAX_H           16
+#define MP_LUA_CONFIG_GROUP     "Lua"
+#define MP_LUA_MCEDIT_WORKSPACE "mcedit"
+#define MP_LUA_MANIFEST_FILE    "lua.ini"
+#define MP_LUA_MANIFEST_GROUP   "Lua"
 
 /*** file scope type declarations ****************************************************************/
 
+typedef gboolean (*mp_enabled_getter_t) (void);
+typedef void (*mp_enabled_setter_t) (gboolean enabled);
+typedef gboolean (*mp_settings_callback_t) (void);
+
 typedef struct
 {
-    const char *kind;                      /* "mcedit" or "panel" (display only) */
+    const char *kind;                      /* plugin type (display only) */
     mc_plugin_kind_t kind_id;              /* prefs namespace */
     const char *name;                      /* plugin id */
     const char *desc;                      /* display name */
     const mc_panel_plugin_t *panel_plugin; /* panel plugin for settings, else NULL */
+    mp_enabled_getter_t get_enabled;       /* NULL: use plugin-prefs */
+    mp_enabled_setter_t set_enabled;       /* NULL: use plugin-prefs */
+    mp_settings_callback_t settings;       /* runtime-owned settings */
 } mp_row_t;
 
 /* Passed to the dialog callback so Enter/F4 can reach the selected row. */
@@ -60,6 +74,20 @@ typedef struct
     WTable *tbl;
     const GArray *rows;
 } mp_ctx_t;
+
+typedef struct
+{
+    char *id;
+    char *name;
+    char *provides;
+    char *origin;
+    char *directory;
+} mp_lua_editor_script_t;
+
+typedef struct
+{
+    WTable *tbl;
+} mp_lua_scripts_ctx_t;
 
 /*** file scope functions ************************************************************************/
 
@@ -78,6 +106,352 @@ mp_row_exists (const GArray *rows, mc_plugin_kind_t kind_id, const char *name)
     return FALSE;
 }
 
+/* --------------------------------------------------------------------------------------------- */
+
+#ifdef ENABLE_LUA_PLUGIN
+
+static gboolean
+mp_lua_core_enabled (void)
+{
+    return mc_global.main_config == NULL
+        || mc_config_get_bool (mc_global.main_config, MP_LUA_CONFIG_GROUP, "enabled", TRUE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_lua_set_config_enabled (const char *key, gboolean enabled)
+{
+    if (mc_global.main_config == NULL)
+        return;
+
+    mc_config_set_bool (mc_global.main_config, MP_LUA_CONFIG_GROUP, key, enabled);
+    (void) mc_config_save_file (mc_global.main_config, NULL);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_lua_set_core_enabled (gboolean enabled)
+{
+    mp_lua_set_config_enabled ("enabled", enabled);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mp_lua_mcedit_enabled (void)
+{
+    const char *key = "mcedit_enabled";
+
+    if (mc_global.main_config != NULL
+        && !mc_config_has_param (mc_global.main_config, MP_LUA_CONFIG_GROUP, key))
+        key = "editor_enabled";
+
+    return mp_lua_core_enabled ()
+        && (mc_global.main_config == NULL
+            || mc_config_get_bool (mc_global.main_config, MP_LUA_CONFIG_GROUP, key, TRUE));
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_lua_set_mcedit_enabled (gboolean enabled)
+{
+    mp_lua_set_config_enabled ("mcedit_enabled", enabled);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_lua_editor_script_destroy (mp_lua_editor_script_t *script)
+{
+    if (script == NULL)
+        return;
+
+    g_free (script->id);
+    g_free (script->name);
+    g_free (script->provides);
+    g_free (script->origin);
+    g_free (script->directory);
+    g_free (script);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static char *
+mp_lua_editor_script_provides (const char *directory)
+{
+    GKeyFile *ini;
+    char *path;
+    char *provides;
+
+    if (directory == NULL || directory[0] == '\0')
+        return g_strdup (_ ("unspecified"));
+
+    path = g_build_filename (directory, MP_LUA_MANIFEST_FILE, (char *) NULL);
+    ini = g_key_file_new ();
+    if (!g_key_file_load_from_file (ini, path, G_KEY_FILE_NONE, NULL))
+    {
+        g_key_file_free (ini);
+        g_free (path);
+        return g_strdup (_ ("unspecified"));
+    }
+
+    provides = g_key_file_get_string (ini, MP_LUA_MANIFEST_GROUP, "provides", NULL);
+    g_key_file_free (ini);
+    g_free (path);
+
+    if (provides == NULL || provides[0] == '\0')
+    {
+        g_free (provides);
+        return g_strdup (_ ("unspecified"));
+    }
+
+    return provides;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_collect_lua_editor_script (const char *runtime_name, const char *id, const char *display_name,
+                              const char *workspace, const char *origin, const char *directory,
+                              gboolean enabled, gpointer user_data)
+{
+    GPtrArray *scripts = (GPtrArray *) user_data;
+    mp_lua_editor_script_t *script;
+
+    (void) enabled;
+
+    if (scripts == NULL || g_strcmp0 (runtime_name, "lua") != 0
+        || g_strcmp0 (workspace, MP_LUA_MCEDIT_WORKSPACE) != 0 || id == NULL || id[0] == '\0'
+        || directory == NULL || directory[0] == '\0')
+        return;
+
+    script = g_new0 (mp_lua_editor_script_t, 1);
+    script->id = g_strdup (id);
+    script->name = g_strdup (display_name != NULL && display_name[0] != '\0' ? display_name : id);
+    script->provides = mp_lua_editor_script_provides (directory);
+    script->origin = g_strdup (origin != NULL && origin[0] != '\0' ? origin : "unknown");
+    script->directory = g_strdup (directory);
+    g_ptr_array_add (scripts, script);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static int
+mp_lua_editor_scripts_get_nrows (const void *data)
+{
+    const GPtrArray *scripts = (const GPtrArray *) data;
+
+    return scripts != NULL ? (int) scripts->len : 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static const char *
+mp_lua_editor_scripts_get_text (const void *data, int row, int col)
+{
+    const GPtrArray *scripts = (const GPtrArray *) data;
+    const mp_lua_editor_script_t *script;
+
+    if (scripts == NULL || row < 0 || row >= (int) scripts->len)
+        return "";
+
+    script = (const mp_lua_editor_script_t *) g_ptr_array_index (scripts, (guint) row);
+    switch (col)
+    {
+    case 1:
+        return script->origin != NULL ? script->origin : "";
+    case 2:
+        return script->id != NULL ? script->id : "";
+    case 3:
+        return script->provides != NULL ? script->provides : "";
+    case 4:
+        return script->name != NULL ? script->name : "";
+    default:
+        return "";
+    }
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mp_lua_editor_scripts_get_checked (const void *data, int row, int col)
+{
+    const GPtrArray *scripts = (const GPtrArray *) data;
+    const mp_lua_editor_script_t *script;
+
+    (void) col;
+
+    if (scripts == NULL || row < 0 || row >= (int) scripts->len)
+        return FALSE;
+
+    script = (const mp_lua_editor_script_t *) g_ptr_array_index (scripts, (guint) row);
+    return !mc_plugin_prefs_is_disabled (MC_PLUGIN_KIND_LUA, script->id);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mp_lua_editor_scripts_set_checked (void *data, int row, int col, gboolean val)
+{
+    GPtrArray *scripts = (GPtrArray *) data;
+    const mp_lua_editor_script_t *script;
+
+    (void) col;
+
+    if (scripts == NULL || row < 0 || row >= (int) scripts->len)
+        return;
+
+    script = (const mp_lua_editor_script_t *) g_ptr_array_index (scripts, (guint) row);
+    mc_plugin_prefs_set_disabled (MC_PLUGIN_KIND_LUA, script->id, !val);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static cb_ret_t
+mp_lua_editor_scripts_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm,
+                                    void *data)
+{
+    const mp_lua_scripts_ctx_t *ctx = (const mp_lua_scripts_ctx_t *) DIALOG (w)->data.p;
+
+    (void) data;
+
+    if (ctx != NULL
+        && ((msg == MSG_NOTIFY && sender == WIDGET (ctx->tbl) && parm == CK_Enter)
+            || (msg == MSG_UNHANDLED_KEY && parm == KEY_F (4))))
+    {
+        DIALOG (w)->ret_value = B_ENTER;
+        dlg_close (DIALOG (w));
+        return MSG_HANDLED;
+    }
+
+    return dlg_default_callback (w, sender, msg, parm, data);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+mp_lua_editor_scripts_dialog (void)
+{
+    GPtrArray *scripts;
+    WDialog *dlg;
+    WTable *tbl;
+    int n_rows, table_h, dlg_h, dlg_w, table_w;
+    int check_w, origin_w, id_w, provides_w, desc_w;
+    table_column_def_t col_defs[5];
+    table_datasource_t ds;
+    mp_lua_scripts_ctx_t ctx;
+    char *directory = NULL;
+
+    scripts = g_ptr_array_new_with_free_func ((GDestroyNotify) mp_lua_editor_script_destroy);
+    mc_runtime_plugins_enumerate_package_details (mp_collect_lua_editor_script, scripts);
+
+    if (scripts->len == 0)
+    {
+        message (D_NORMAL, _ ("Lua editor scripts"), "%s",
+                 mc_runtime_plugins_are_loaded ()
+                     ? _ ("No global or user Lua editor scripts were found.")
+                     : _ ("Lua runtime is disabled. Enable lua-core and restart MC."));
+        g_ptr_array_free (scripts, TRUE);
+        return FALSE;
+    }
+
+    n_rows = (int) scripts->len;
+    table_h = MAX (3, MIN (n_rows, MP_LIST_MAX_H));
+    dlg_h = table_h + 4;
+    dlg_w = MIN (COLS - 4, 78);
+    table_w = dlg_w - 1;
+    check_w = 4;
+    origin_w = 9;
+    id_w = 16;
+    provides_w = 14;
+    desc_w = table_w - check_w - origin_w - id_w - provides_w - 6;
+    if (desc_w < 10)
+        desc_w = 10;
+
+    col_defs[0].width = check_w;
+    col_defs[0].align = J_CENTER;
+    col_defs[0].type = TABLE_COL_CHECK;
+    col_defs[1].width = origin_w;
+    col_defs[1].align = J_LEFT;
+    col_defs[1].type = TABLE_COL_TEXT;
+    col_defs[2].width = id_w;
+    col_defs[2].align = J_LEFT;
+    col_defs[2].type = TABLE_COL_TEXT;
+    col_defs[3].width = provides_w;
+    col_defs[3].align = J_LEFT;
+    col_defs[3].type = TABLE_COL_TEXT;
+    col_defs[4].width = desc_w;
+    col_defs[4].align = J_LEFT;
+    col_defs[4].type = TABLE_COL_TEXT;
+
+    dlg = dlg_create (TRUE, (LINES - dlg_h) / 2, (COLS - dlg_w) / 2, dlg_h, dlg_w,
+                      WPOS_KEEP_DEFAULT, TRUE, dialog_colors, mp_lua_editor_scripts_dlg_callback,
+                      NULL, "[Lua editor scripts]", _ ("Lua editor scripts"));
+    tbl = table_new (1, 1, table_h, table_w, 5, col_defs);
+    tbl->scrollbar = TRUE;
+    tbl->scrollbar_on_frame = TRUE;
+
+    ctx.tbl = tbl;
+    dlg->data.p = &ctx;
+
+    ds.get_nrows = mp_lua_editor_scripts_get_nrows;
+    ds.get_text = mp_lua_editor_scripts_get_text;
+    ds.get_checked = mp_lua_editor_scripts_get_checked;
+    ds.set_checked = mp_lua_editor_scripts_set_checked;
+    ds.data = scripts;
+    ds.cycle_choice = NULL;
+    table_set_datasource (tbl, ds);
+
+    group_add_widget (GROUP (dlg), tbl);
+    group_add_widget (GROUP (dlg), hline_new (dlg_h - 3, -1, -1));
+    group_add_widget (GROUP (dlg),
+                      button_new (dlg_h - 2, MAX (2, (dlg_w - 32) / 2), B_ENTER, DEFPUSH_BUTTON,
+                                  _ ("&Open directory"), NULL));
+    group_add_widget (GROUP (dlg),
+                      button_new (dlg_h - 2, MAX (18, (dlg_w - 32) / 2 + 18), B_CANCEL,
+                                  NORMAL_BUTTON, _ ("&Close"), NULL));
+    widget_select (WIDGET (tbl));
+
+    if (dlg_run (dlg) == B_ENTER)
+    {
+        int row = table_get_current (tbl);
+
+        if (row >= 0 && row < (int) scripts->len)
+        {
+            const mp_lua_editor_script_t *script =
+                (const mp_lua_editor_script_t *) g_ptr_array_index (scripts, (guint) row);
+            directory = g_strdup (script->directory);
+        }
+    }
+
+    widget_destroy (WIDGET (dlg));
+    g_ptr_array_free (scripts, TRUE);
+
+    if (directory != NULL)
+    {
+        cd_to (directory);
+        g_free (directory);
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+manage_lua_editor_scripts_dialog (void)
+{
+    return mp_lua_editor_scripts_dialog ();
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+#endif /* ENABLE_LUA_PLUGIN */
+
 static GArray *
 mp_collect_rows (GPtrArray *strpool)
 {
@@ -94,6 +468,31 @@ mp_collect_rows (GPtrArray *strpool)
 
     rows = g_array_new (FALSE, FALSE, sizeof (mp_row_t));
 
+#ifdef ENABLE_LUA_PLUGIN
+    {
+        mp_row_t r = {
+            .kind = "core",
+            .kind_id = MC_PLUGIN_KIND_LUA,
+            .name = "lua-core",
+            .desc = "Lua runtime engine",
+            .panel_plugin = NULL,
+            .get_enabled = mp_lua_core_enabled,
+            .set_enabled = mp_lua_set_core_enabled,
+            .settings = NULL,
+        };
+
+        g_array_append_val (rows, r);
+
+        r.kind = "mcedit";
+        r.name = "lua-edidor";
+        r.desc = "Lua editor scripts";
+        r.get_enabled = mp_lua_mcedit_enabled;
+        r.set_enabled = mp_lua_set_mcedit_enabled;
+        r.settings = mp_lua_editor_scripts_dialog;
+        g_array_append_val (rows, r);
+    }
+#endif
+
     for (l = mc_editor_plugin_list (); l != NULL; l = g_slist_next (l))
     {
         const mc_editor_plugin_t *p = (const mc_editor_plugin_t *) l->data;
@@ -107,6 +506,9 @@ mp_collect_rows (GPtrArray *strpool)
         r.name = p->name;
         r.desc = p->display_name != NULL ? p->display_name : p->name;
         r.panel_plugin = NULL;
+        r.get_enabled = NULL;
+        r.set_enabled = NULL;
+        r.settings = NULL;
         g_array_append_val (rows, r);
     }
 
@@ -123,6 +525,9 @@ mp_collect_rows (GPtrArray *strpool)
         r.name = p->name;
         r.desc = p->display_name != NULL ? p->display_name : p->name;
         r.panel_plugin = p;
+        r.get_enabled = NULL;
+        r.set_enabled = NULL;
+        r.settings = NULL;
         g_array_append_val (rows, r);
     }
 
@@ -164,6 +569,9 @@ mp_collect_rows (GPtrArray *strpool)
                 r.name = owned;
                 r.desc = _ ("(disabled, not loaded)");
                 r.panel_plugin = NULL;
+                r.get_enabled = NULL;
+                r.set_enabled = NULL;
+                r.settings = NULL;
                 g_array_append_val (rows, r);
             }
             g_strfreev (disabled);
@@ -222,6 +630,8 @@ mp_get_checked (const void *data, int row, int col)
         return FALSE;
 
     r = &g_array_index (rows, mp_row_t, (guint) row);
+    if (r->get_enabled != NULL)
+        return r->get_enabled ();
     return !mc_plugin_prefs_is_disabled (r->kind_id, r->name);
 }
 
@@ -239,36 +649,43 @@ mp_set_checked (void *data, int row, int col, gboolean val)
         return;
 
     r = &g_array_index (rows, mp_row_t, (guint) row);
-    mc_plugin_prefs_set_disabled (r->kind_id, r->name, !val);
+    if (r->set_enabled != NULL)
+        r->set_enabled (val);
+    else
+        mc_plugin_prefs_set_disabled (r->kind_id, r->name, !val);
 }
 
 /* --------------------------------------------------------------------------------------------- */
 
 /* Open the settings dialog of the plugin under the table cursor, if it has one. */
-static void
+static gboolean
 mp_invoke_settings (const mp_ctx_t *ctx)
 {
     int row;
     const mp_row_t *r;
 
     if (ctx == NULL || ctx->rows == NULL)
-        return;
+        return FALSE;
 
     row = table_get_current (ctx->tbl);
     if (row < 0 || row >= (int) ctx->rows->len)
-        return;
+        return FALSE;
 
     r = &g_array_index (ctx->rows, mp_row_t, (guint) row);
+    if (r->settings != NULL)
+        return r->settings ();
+
     if (r->panel_plugin == NULL || r->panel_plugin->configure == NULL)
     {
         message (D_NORMAL, _ ("Manage Plugins"), "%s", _ ("This plugin has no settings."));
-        return;
+        return FALSE;
     }
 
     r->panel_plugin->configure ();
 
     /* A panel plugin may have edited its user-owned magic.ini groups. */
     mc_magic_flush ();
+    return FALSE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -283,7 +700,8 @@ mp_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *da
     case MSG_NOTIFY:
         if (ctx != NULL && sender == WIDGET (ctx->tbl) && parm == CK_Enter)
         {
-            mp_invoke_settings (ctx);
+            if (mp_invoke_settings (ctx))
+                dlg_close (DIALOG (w));
             return MSG_HANDLED;
         }
         return MSG_NOT_HANDLED;
@@ -291,7 +709,8 @@ mp_dlg_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *da
     case MSG_UNHANDLED_KEY:
         if (ctx != NULL && parm == KEY_F (4))
         {
-            mp_invoke_settings (ctx);
+            if (mp_invoke_settings (ctx))
+                dlg_close (DIALOG (w));
             return MSG_HANDLED;
         }
         return MSG_NOT_HANDLED;

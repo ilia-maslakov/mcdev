@@ -15,6 +15,8 @@ endif
 
 SUBLIB_includes = \
 	event.h event-types.h \
+	extension-runtime.h \
+	runtime-events.h \
 	editor-plugin.h \
 	filehighlight.h \
 	idx.h \
@@ -45,6 +47,8 @@ libmc_la_SOURCES = \
 	keybind.c keybind.h \
 	lock.c lock.h \
 	panel-plugin.c panel-plugin.h \
+	extension-runtime.c \
+	runtime-events.c \
 	panel-cache.h \
 	panel-plugin-loader.c \
 	plugin-prefs.c plugin-prefs.h \
@@ -64,7 +68,8 @@ EXTRA_DIST = \
 
 AM_CPPFLAGS = $(GLIB_CFLAGS) -I$(top_srcdir) \
 	-DMC_EDITOR_PLUGINS_DIR=\""$(editor_plugins_dir)"\" \
-	-DMC_PANEL_PLUGINS_DIR=\""$(panel_plugins_dir)"\"
+	-DMC_PANEL_PLUGINS_DIR=\""$(panel_plugins_dir)"\" \
+	-DMC_RUNTIME_PLUGINS_DIR=\""$(runtime_plugins_dir)"\"
 
 libmc_la_LIBADD = \
 	event/libmcevent.la \

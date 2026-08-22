@@ -59,6 +59,8 @@ gboolean mc_args__nokeymap = FALSE;
 
 gboolean mc_args__mctree = FALSE;
 
+gboolean mc_args__no_lua = FALSE;
+
 char *mc_args__last_wd_file = NULL;
 
 /* when enabled NETCODE, use following file as logfile */
@@ -151,6 +153,16 @@ static const GOptionEntry argument_main_table[] = {
         &mc_args__last_wd_file,
         N_ ("Print last working directory to specified file"),
         N_ ("<file>"),
+    },
+
+    {
+        "no-lua",
+        '\0',
+        G_OPTION_FLAG_IN_MAIN,
+        G_OPTION_ARG_NONE,
+        &mc_args__no_lua,
+        N_ ("Disables Lua support"),
+        NULL,
     },
 
     // debug options

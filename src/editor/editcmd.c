@@ -56,9 +56,12 @@
 #include "lib/widget.h"
 #include "lib/event.h"  // mc_event_raise()
 #include "lib/charsets.h"
+#include "lib/runtime-events.h"
 
+#include "src/events_init.h"
 #include "src/history.h"
 #include "src/file_history.h"  // show_file_history()
+#include "src/runtime-host.h"
 #include "src/selcodepage.h"
 #include "src/util.h"  // check_for_default(), file_error_message()
 
@@ -97,6 +100,30 @@ static unsigned long edit_save_mode_radio_id, edit_save_mode_input_id;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_publish_runtime_save (WEdit *edit, const char *previous_path, gboolean save_as)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+
+    runtime_host_set_current_editor (edit);
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_SAVE);
+    snapshot->data.editor_save.editor =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, edit);
+    snapshot->data.editor_save.path = edit->filename_vpath != NULL
+        ? vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD)
+        : g_strdup ("");
+    snapshot->data.editor_save.previous_path = g_strdup (previous_path);
+    snapshot->data.editor_save.save_as = save_as;
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static cb_ret_t
@@ -641,7 +668,10 @@ edit_save_cmd (WEdit *edit)
             const int handled = edit_save_handle_sudo_result (edit, sudo_res);
 
             if (handled > 0)
+            {
+                edit_publish_runtime_save (edit, NULL, FALSE);
                 return TRUE;
+            }
 
             if (handled < 0)
                 return FALSE;
@@ -656,11 +686,23 @@ edit_save_cmd (WEdit *edit)
         edit->modified = 0;
         edit->undo_content_saved = edit->undo_content_seq;
         edit->undo_content_saved_gen = edit->undo_content_gen;
+        edit_publish_runtime_save (edit, NULL, FALSE);
     }
 
     edit->force |= REDRAW_COMPLETELY;
 
     return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_runtime_save (WEdit *edit)
+{
+    if (edit == NULL)
+        return FALSE;
+
+    return edit_save_cmd (edit);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1171,9 +1213,13 @@ edit_save_as_cmd (WEdit *edit)
     int save_lock = 0;
     gboolean different_filename = FALSE;
     gboolean ret = FALSE;
+    char *previous_path = NULL;
 
     if (!edit_check_newline (&edit->buffer))
         return FALSE;
+
+    if (edit->filename_vpath != NULL)
+        previous_path = vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD);
 
     exp_vpath = edit_get_save_file_as (edit);
     edit_push_undo_action (edit, KEY_PRESS + edit->start_display);
@@ -1244,6 +1290,7 @@ edit_save_as_cmd (WEdit *edit)
             edit->delete_file = 0;
             if (different_filename)
                 edit_load_syntax (edit, NULL, edit->syntax_type);
+            edit_publish_runtime_save (edit, previous_path, TRUE);
             ret = TRUE;
             break;
 
@@ -1260,6 +1307,7 @@ edit_save_as_cmd (WEdit *edit)
     }
 
 ret:
+    g_free (previous_path);
     vfs_path_free (exp_vpath, TRUE);
     edit->force |= REDRAW_COMPLETELY;
     return ret;
