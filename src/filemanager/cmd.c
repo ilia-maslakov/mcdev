@@ -275,6 +275,9 @@ do_view_cmd (WPanel *panel, gboolean plain_view)
     if (fe == NULL)
         return;
 
+    if (!S_ISDIR (fe->st.st_mode) && !link_isdir (fe))
+        panel_runtime_publish_file_open (panel, fe, "view");
+
     if (!plain_view && !S_ISDIR (fe->st.st_mode) && !link_isdir (fe))
     {
         gboolean handled;
@@ -983,6 +986,9 @@ edit_cmd (const WPanel *panel)
     if (fe == NULL)
         return;
 
+    if (!S_ISDIR (fe->st.st_mode) && !link_isdir (fe))
+        panel_runtime_publish_file_open ((WPanel *) panel, fe, "edit");
+
     if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
         && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)
     {
@@ -1008,6 +1014,9 @@ edit_cmd_force_internal (const WPanel *panel)
     fe = panel_current_entry (panel);
     if (fe == NULL)
         return;
+
+    if (!S_ISDIR (fe->st.st_mode) && !link_isdir (fe))
+        panel_runtime_publish_file_open ((WPanel *) panel, fe, "edit");
 
     if (panel->is_plugin_panel && panel->plugin != NULL && panel->plugin_data != NULL
         && (panel->plugin->flags & MC_PPF_LOCAL_FILES) == 0)

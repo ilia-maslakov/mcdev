@@ -402,8 +402,8 @@ mc_panel_plugin_add (const mc_panel_plugin_t *plugin)
         return FALSE;
     }
 
-    if (plugin->name == NULL || plugin->open == NULL || plugin->close == NULL
-        || plugin->get_items == NULL)
+    if (plugin->name == NULL || (plugin->open == NULL && plugin->open_with_plugin == NULL)
+        || plugin->close == NULL || plugin->get_items == NULL)
     {
         fprintf (stderr, "Panel plugin \"%s\": missing required callbacks\n",
                  plugin->name != NULL ? plugin->name : "(null)");
@@ -419,6 +419,22 @@ mc_panel_plugin_add (const mc_panel_plugin_t *plugin)
         return FALSE;
 
     panel_plugin_registry = g_slist_append (panel_plugin_registry, (gpointer) plugin);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+mc_panel_plugin_remove (const mc_panel_plugin_t *plugin)
+{
+    GSList *link;
+
+    if (plugin == NULL)
+        return FALSE;
+    link = g_slist_find (panel_plugin_registry, plugin);
+    if (link == NULL)
+        return FALSE;
+    panel_plugin_registry = g_slist_delete_link (panel_plugin_registry, link);
     return TRUE;
 }
 

@@ -44,6 +44,7 @@
 #include "lib/global.h"
 
 #include "lib/editor-plugin.h"
+#include "lib/extension-runtime.h"
 #include "lib/plugin-prefs.h"
 #include "lib/tty/key.h"  // ALT
 #include "lib/widget.h"
@@ -56,6 +57,8 @@
 /*** global variables ****************************************************************************/
 
 /*** file scope macro definitions ****************************************************************/
+
+#define MC_EDITOR_RUNTIME_ACTION_BASE 1000000L
 
 /*** file scope type declarations ****************************************************************/
 
@@ -70,13 +73,152 @@ static int menu_idx_edit = 1;
 static int menu_idx_search = 2;
 static int menu_idx_command = 3;
 static int menu_idx_navigate = -1;
-static int menu_idx_format = 4;
-static int menu_idx_window = 5;
-static int menu_idx_plugins = 6;
-static int menu_idx_options = 7;
+static int menu_idx_window = 4;
+static int menu_idx_plugins = 5;
+static int menu_idx_options = 6;
+static GPtrArray *runtime_menu_actions = NULL;
+
+typedef struct
+{
+    char *runtime_name;
+    char *id;
+    char *menu_path;
+    char *label;
+    char *shortcut;
+    gint position;
+    guint registration_order;
+} edit_runtime_menu_action_t;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_runtime_menu_action_free (gpointer data)
+{
+    edit_runtime_menu_action_t *action = (edit_runtime_menu_action_t *) data;
+
+    if (action == NULL)
+        return;
+    g_free (action->runtime_name);
+    g_free (action->id);
+    g_free (action->menu_path);
+    g_free (action->label);
+    g_free (action->shortcut);
+    g_free (action);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_runtime_menu_collect (const char *runtime_name, const char *id, const char *menu_path,
+                           const char *label, const char *shortcut, gint position,
+                           gpointer user_data)
+{
+    GPtrArray *actions = (GPtrArray *) user_data;
+    edit_runtime_menu_action_t *action;
+
+    if (actions == NULL || runtime_name == NULL || id == NULL || menu_path == NULL
+        || menu_path[0] == '\0' || label == NULL || label[0] == '\0')
+        return;
+
+    action = g_new0 (edit_runtime_menu_action_t, 1);
+    action->runtime_name = g_strdup (runtime_name);
+    action->id = g_strdup (id);
+    action->menu_path = g_strdup (menu_path);
+    action->label = g_strdup (label);
+    action->shortcut = g_strdup (shortcut);
+    action->position = position;
+    action->registration_order = actions->len;
+    g_ptr_array_add (actions, action);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gint
+edit_runtime_menu_action_compare (gconstpointer left, gconstpointer right)
+{
+    const edit_runtime_menu_action_t *a = *(const edit_runtime_menu_action_t *const *) left;
+    const edit_runtime_menu_action_t *b = *(const edit_runtime_menu_action_t *const *) right;
+    int result;
+
+    result = g_strcmp0 (a->menu_path, b->menu_path);
+    if (result != 0)
+        return result;
+    if (a->position != b->position)
+        return a->position < b->position ? -1 : 1;
+    if (a->registration_order != b->registration_order)
+        return a->registration_order < b->registration_order ? -1 : 1;
+    return 0;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_runtime_menu_reload (void)
+{
+    g_clear_pointer (&runtime_menu_actions, g_ptr_array_unref);
+    runtime_menu_actions = g_ptr_array_new_with_free_func (edit_runtime_menu_action_free);
+    mc_runtime_plugins_enumerate_menu_actions ("mcedit", edit_runtime_menu_collect,
+                                               runtime_menu_actions);
+    g_ptr_array_sort (runtime_menu_actions, edit_runtime_menu_action_compare);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static GList *
+create_runtime_menu_entries (const char *menu_path)
+{
+    GList *entries = NULL;
+    guint i;
+
+    for (i = 0; runtime_menu_actions != NULL && i < runtime_menu_actions->len; i++)
+    {
+        const edit_runtime_menu_action_t *action =
+            (const edit_runtime_menu_action_t *) g_ptr_array_index (runtime_menu_actions, i);
+        menu_entry_t *entry;
+
+        if (g_strcmp0 (action->menu_path, menu_path) != 0)
+            continue;
+
+        entry = menu_entry_new (action->label, MC_EDITOR_RUNTIME_ACTION_BASE + (long) i);
+        if (action->shortcut != NULL)
+            menu_entry_set_shortcut (entry, action->shortcut);
+        entries = g_list_prepend (entries, entry);
+    }
+
+    return g_list_reverse (entries);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static GList *
+append_runtime_menu_entries (GList *entries, const char *menu_path)
+{
+    GList *runtime_entries = create_runtime_menu_entries (menu_path);
+
+    if (runtime_entries == NULL)
+        return entries;
+    if (entries != NULL)
+        entries = g_list_append (entries, menu_separator_new ());
+    return g_list_concat (entries, runtime_entries);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static gboolean
+edit_runtime_menu_is_builtin (const char *menu_path)
+{
+    static const char *const names[] = { "File",   "Edit",    "Search", "Command", "Navigate",
+                                         "Window", "Plugins", "Lua",    "Options", NULL };
+    int i;
+
+    for (i = 0; names[i] != NULL; i++)
+        if (g_strcmp0 (menu_path, names[i]) == 0)
+            return TRUE;
+    return FALSE;
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static GList *
@@ -189,26 +331,6 @@ create_command_menu (void)
 
 /* --------------------------------------------------------------------------------------------- */
 
-static GList *
-create_format_menu (void)
-{
-    GList *entries = NULL;
-
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Insert &literal..."), CK_InsertLiteral));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("Insert &date/time"), CK_Date));
-    entries = g_list_prepend (entries, menu_separator_new ());
-    entries =
-        g_list_prepend (entries, menu_entry_new (_ ("&Format paragraph"), CK_ParagraphFormat));
-    entries = g_list_prepend (entries, menu_entry_new (_ ("&Sort..."), CK_Sort));
-    entries =
-        g_list_prepend (entries, menu_entry_new (_ ("&Paste output of..."), CK_ExternalCommand));
-    entries =
-        g_list_prepend (entries, menu_entry_new (_ ("&External formatter"), CK_PipeBlock (0)));
-
-    return g_list_reverse (entries);
-}
-
-/* --------------------------------------------------------------------------------------------- */
 /**
  * Create the 'window' popup menu
  */
@@ -244,6 +366,9 @@ create_options_menu (void)
         g_list_prepend (entries, menu_entry_new (_ ("Syntax &highlighting..."), CK_SyntaxChoose));
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("Pl&ugin info..."), CK_EditPluginsInfo));
+#ifdef ENABLE_LUA_PLUGIN
+    entries = g_list_prepend (entries, menu_entry_new (_ ("&Lua scripts..."), CK_EditLuaScripts));
+#endif
     entries = g_list_prepend (entries, menu_separator_new ());
     entries = g_list_prepend (entries, menu_entry_new (_ ("S&yntax file"), CK_EditSyntaxFile));
     entries = g_list_prepend (entries, menu_entry_new (_ ("&Menu file"), CK_EditUserMenu));
@@ -381,24 +506,37 @@ edit_init_menu (WMenuBar *menubar)
 {
     GList *navigate_entries;
     int idx = 0;
+    guint i;
+
+    edit_runtime_menu_reload ();
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("&File"), create_file_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("&File"),
+                                append_runtime_menu_entries (create_file_menu (), "File"),
+                                "[Internal File Editor]"));
     menu_idx_file = idx++;
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("&Edit"), create_edit_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("&Edit"),
+                                append_runtime_menu_entries (create_edit_menu (), "Edit"),
+                                "[Internal File Editor]"));
     menu_idx_edit = idx++;
 
     menubar_add_menu (
-        menubar, menu_new (_ ("&Search"), create_search_replace_menu (), "[Internal File Editor]"));
+        menubar,
+        menu_new (_ ("&Search"),
+                  append_runtime_menu_entries (create_search_replace_menu (), "Search"),
+                  "[Internal File Editor]"));
     menu_idx_search = idx++;
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("&Command"), create_command_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("&Command"),
+                                append_runtime_menu_entries (create_command_menu (), "Command"),
+                                "[Internal File Editor]"));
     menu_idx_command = idx++;
 
     navigate_entries = create_plugin_menu_entries (MC_EP_MENU_NAVIGATE);
+    navigate_entries = append_runtime_menu_entries (navigate_entries, "Navigate");
     if (navigate_entries != NULL)
     {
         menubar_add_menu (menubar,
@@ -408,21 +546,78 @@ edit_init_menu (WMenuBar *menubar)
     else
         menu_idx_navigate = -1;
 
-    menubar_add_menu (menubar,
-                      menu_new (_ ("For&mat"), create_format_menu (), "[Internal File Editor]"));
-    menu_idx_format = idx++;
+    for (i = 0; runtime_menu_actions != NULL && i < runtime_menu_actions->len; i++)
+    {
+        const edit_runtime_menu_action_t *action =
+            (const edit_runtime_menu_action_t *) g_ptr_array_index (runtime_menu_actions, i);
+        GList *entries;
+
+        if (edit_runtime_menu_is_builtin (action->menu_path)
+            || (i > 0
+                && g_strcmp0 (((const edit_runtime_menu_action_t *) g_ptr_array_index (
+                                   runtime_menu_actions, i - 1))
+                                  ->menu_path,
+                              action->menu_path)
+                    == 0))
+            continue;
+
+        entries = create_runtime_menu_entries (action->menu_path);
+        menubar_add_menu (menubar, menu_new (action->menu_path, entries, "[Internal File Editor]"));
+        idx++;
+    }
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("&Window"), create_window_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("&Window"),
+                                append_runtime_menu_entries (create_window_menu (), "Window"),
+                                "[Internal File Editor]"));
     menu_idx_window = idx++;
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("Pl&ugins"), create_plugins_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("Pl&ugins"),
+                                append_runtime_menu_entries (create_plugins_menu (), "Plugins"),
+                                "[Internal File Editor]"));
     menu_idx_plugins = idx++;
 
     menubar_add_menu (menubar,
-                      menu_new (_ ("&Options"), create_options_menu (), "[Internal File Editor]"));
+                      menu_new (_ ("&Options"),
+                                append_runtime_menu_entries (create_options_menu (), "Options"),
+                                "[Internal File Editor]"));
     menu_idx_options = idx++;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_runtime_menu_action (long command)
+{
+    const edit_runtime_menu_action_t *action;
+    const char *error = NULL;
+    guint index;
+
+    if (command < MC_EDITOR_RUNTIME_ACTION_BASE)
+        return FALSE;
+
+    index = (guint) (command - MC_EDITOR_RUNTIME_ACTION_BASE);
+    if (runtime_menu_actions == NULL || index >= runtime_menu_actions->len)
+        return TRUE;
+
+    action = (const edit_runtime_menu_action_t *) g_ptr_array_index (runtime_menu_actions, index);
+    if (!mc_runtime_plugins_invoke_action (action->runtime_name, "mcedit", action->id, &error))
+        message (D_ERROR, _ ("Lua action"), "%s", error != NULL ? error : _ ("Action failed"));
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_runtime_invoke_action (const char *action_id)
+{
+    const char *error = NULL;
+
+    if (mc_runtime_plugins_invoke_action ("lua", "mcedit", action_id, &error))
+        return TRUE;
+    message (D_ERROR, _ ("Lua action"), "%s", error != NULL ? error : _ ("Action failed"));
+    return FALSE;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -456,9 +651,6 @@ edit_drop_hotkey_menu (WDialog *h, int key)
         break;
     case ALT ('n'):
         m = menu_idx_navigate;
-        break;
-    case ALT ('m'):
-        m = menu_idx_format;
         break;
     case ALT ('w'):
         m = menu_idx_window;

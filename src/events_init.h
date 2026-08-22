@@ -12,6 +12,10 @@
 /*** declarations of public functions ************************************************************/
 
 gboolean events_init (GError **mcerror);
+gboolean events_deinit (GError **mcerror);
+void events_publish_runtime_startup (void);
+void events_publish_runtime_shutdown (const char *reason);
+gboolean events_runtime_is_started (void);
 
 /*** inline functions ****************************************************************************/
 

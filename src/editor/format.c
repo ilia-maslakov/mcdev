@@ -68,65 +68,18 @@
 /*** file scope functions ************************************************************************/
 /* --------------------------------------------------------------------------------------------- */
 
-static off_t
-line_start (const edit_buffer_t *buf, long line)
-{
-    off_t p;
-    long l;
-
-    l = buf->curs_line;
-    p = buf->curs1;
-
-    if (line < l)
-        p = edit_buffer_get_backward_offset (buf, p, l - line);
-    else if (line > l)
-        p = edit_buffer_get_forward_offset (buf, p, line - l, 0);
-
-    p = edit_buffer_get_bol (buf, p);
-    while (strchr ("\t ", edit_buffer_get_byte (buf, p)) != NULL)
-        p++;
-    return p;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-static gboolean
-bad_line_start (const edit_buffer_t *buf, off_t p)
-{
-    int c;
-
-    c = edit_buffer_get_byte (buf, p);
-    if (c == '.')
-    {
-        // `...' is acceptable
-        return !(edit_buffer_get_byte (buf, p + 1) == '.'
-                 && edit_buffer_get_byte (buf, p + 2) == '.');
-    }
-    if (c == '-')
-    {
-        // `---' is acceptable
-        return !(edit_buffer_get_byte (buf, p + 1) == '-'
-                 && edit_buffer_get_byte (buf, p + 2) == '-');
-    }
-
-    return (edit_options.stop_format_chars != NULL
-            && strchr (edit_options.stop_format_chars, c) != NULL);
-}
-
-/* --------------------------------------------------------------------------------------------- */
 /**
  * Find the start of the current paragraph for the purpose of formatting.
  * Return position in the file.
  */
 
 static off_t
-begin_paragraph (WEdit *edit, gboolean force, long *lines)
+begin_paragraph (WEdit *edit, long *lines)
 {
     long i;
 
     for (i = edit->buffer.curs_line - 1; i >= 0; i--)
-        if (edit_line_is_blank (edit, i)
-            || (force && bad_line_start (&edit->buffer, line_start (&edit->buffer, i))))
+        if (edit_line_is_blank (edit, i))
         {
             i++;
             break;
@@ -145,13 +98,12 @@ begin_paragraph (WEdit *edit, gboolean force, long *lines)
  */
 
 static off_t
-end_paragraph (WEdit *edit, gboolean force)
+end_paragraph (WEdit *edit)
 {
     long i;
 
     for (i = edit->buffer.curs_line + 1; i <= edit->buffer.lines; i++)
-        if (edit_line_is_blank (edit, i)
-            || (force && bad_line_start (&edit->buffer, line_start (&edit->buffer, i))))
+        if (edit_line_is_blank (edit, i))
         {
             i--;
             break;
@@ -466,12 +418,13 @@ test_indent (const WEdit *edit, off_t p, off_t q)
 /* --------------------------------------------------------------------------------------------- */
 
 void
-format_paragraph (WEdit *edit, gboolean force)
+format_paragraph (WEdit *edit)
 {
-    off_t p, q;
+    off_t p, q, i;
     long lines;
     off_t size;
     GString *t;
+    char *stop_format_chars;
     long indent;
     unsigned char *t2;
 
@@ -480,40 +433,34 @@ format_paragraph (WEdit *edit, gboolean force)
     if (edit_line_is_blank (edit, edit->buffer.curs_line))
         return;
 
-    p = begin_paragraph (edit, force, &lines);
-    q = end_paragraph (edit, force);
+    p = begin_paragraph (edit, &lines);
+    q = end_paragraph (edit);
     indent = test_indent (edit, p, q);
 
     t = get_paragraph (&edit->buffer, p, q, indent != 0);
     size = t->len - 1;
 
-    if (!force)
+    if (edit_options.stop_format_chars != NULL
+        && strchr (edit_options.stop_format_chars, t->str[0]) != NULL)
     {
-        off_t i;
-        char *stop_format_chars;
+        g_string_free (t, TRUE);
+        return;
+    }
 
-        if (edit_options.stop_format_chars != NULL
-            && strchr (edit_options.stop_format_chars, t->str[0]) != NULL)
+    if (edit_options.stop_format_chars == NULL || *edit_options.stop_format_chars == '\0')
+        stop_format_chars = g_strdup ("\t");
+    else
+        stop_format_chars = g_strconcat (edit_options.stop_format_chars, "\t", (char *) NULL);
+
+    for (i = 0; i < size - 1; i++)
+        if (t->str[i] == '\n' && strchr (stop_format_chars, t->str[i + 1]) != NULL)
         {
+            g_free (stop_format_chars);
             g_string_free (t, TRUE);
             return;
         }
 
-        if (edit_options.stop_format_chars == NULL || *edit_options.stop_format_chars == '\0')
-            stop_format_chars = g_strdup ("\t");
-        else
-            stop_format_chars = g_strconcat (edit_options.stop_format_chars, "\t", (char *) NULL);
-
-        for (i = 0; i < size - 1; i++)
-            if (t->str[i] == '\n' && strchr (stop_format_chars, t->str[i + 1]) != NULL)
-            {
-                g_free (stop_format_chars);
-                g_string_free (t, TRUE);
-                return;
-            }
-
-        g_free (stop_format_chars);
-    }
+    g_free (stop_format_chars);
 
     t2 = (unsigned char *) g_string_free (t, FALSE);
     format_this (t2, q - p, indent, edit->utf8);

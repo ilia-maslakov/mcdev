@@ -56,9 +56,12 @@
 #include "lib/widget.h"
 #include "lib/event.h"  // mc_event_raise()
 #include "lib/charsets.h"
+#include "lib/runtime-events.h"
 
+#include "src/events_init.h"
 #include "src/history.h"
 #include "src/file_history.h"  // show_file_history()
+#include "src/runtime-host.h"
 #include "src/selcodepage.h"
 #include "src/util.h"  // check_for_default(), file_error_message()
 
@@ -97,6 +100,30 @@ static unsigned long edit_save_mode_radio_id, edit_save_mode_input_id;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+edit_publish_runtime_save (WEdit *edit, const char *previous_path, gboolean save_as)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+
+    runtime_host_set_current_editor (edit);
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_EDITOR_SAVE);
+    snapshot->data.editor_save.editor =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_EDITOR, edit);
+    snapshot->data.editor_save.path = edit->filename_vpath != NULL
+        ? vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD)
+        : g_strdup ("");
+    snapshot->data.editor_save.previous_path = g_strdup (previous_path);
+    snapshot->data.editor_save.save_as = save_as;
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static cb_ret_t
@@ -641,7 +668,10 @@ edit_save_cmd (WEdit *edit)
             const int handled = edit_save_handle_sudo_result (edit, sudo_res);
 
             if (handled > 0)
+            {
+                edit_publish_runtime_save (edit, NULL, FALSE);
                 return TRUE;
+            }
 
             if (handled < 0)
                 return FALSE;
@@ -656,11 +686,23 @@ edit_save_cmd (WEdit *edit)
         edit->modified = 0;
         edit->undo_content_saved = edit->undo_content_seq;
         edit->undo_content_saved_gen = edit->undo_content_gen;
+        edit_publish_runtime_save (edit, NULL, FALSE);
     }
 
     edit->force |= REDRAW_COMPLETELY;
 
     return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+gboolean
+edit_runtime_save (WEdit *edit)
+{
+    if (edit == NULL)
+        return FALSE;
+
+    return edit_save_cmd (edit);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -1171,9 +1213,13 @@ edit_save_as_cmd (WEdit *edit)
     int save_lock = 0;
     gboolean different_filename = FALSE;
     gboolean ret = FALSE;
+    char *previous_path = NULL;
 
     if (!edit_check_newline (&edit->buffer))
         return FALSE;
+
+    if (edit->filename_vpath != NULL)
+        previous_path = vfs_path_to_str_flags (edit->filename_vpath, 0, VPF_STRIP_PASSWORD);
 
     exp_vpath = edit_get_save_file_as (edit);
     edit_push_undo_action (edit, KEY_PRESS + edit->start_display);
@@ -1244,6 +1290,7 @@ edit_save_as_cmd (WEdit *edit)
             edit->delete_file = 0;
             if (different_filename)
                 edit_load_syntax (edit, NULL, edit->syntax_type);
+            edit_publish_runtime_save (edit, previous_path, TRUE);
             ret = TRUE;
             break;
 
@@ -1260,6 +1307,7 @@ edit_save_as_cmd (WEdit *edit)
     }
 
 ret:
+    g_free (previous_path);
     vfs_path_free (exp_vpath, TRUE);
     edit->force |= REDRAW_COMPLETELY;
     return ret;
@@ -2055,125 +2103,6 @@ edit_insert_file_cmd (WEdit *edit)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/** sorts a block, returns -1 on system fail, 1 on cancel and 0 on success */
-
-int
-edit_sort_cmd (WEdit *edit)
-{
-    char *exp, *tmp, *tmp_edit_block_name, *tmp_edit_temp_name;
-    off_t start_mark, end_mark;
-    int e;
-
-    if (!eval_marks (edit, &start_mark, &end_mark))
-    {
-        message (D_ERROR, MSG_ERROR, "%s", _ ("You must first highlight a block of text"));
-        return 0;
-    }
-
-    tmp = mc_config_get_full_path (EDIT_HOME_BLOCK_FILE);
-    edit_save_block (edit, tmp, start_mark, end_mark);
-    g_free (tmp);
-
-    exp = input_dialog (_ ("Run sort"),
-                        _ ("Enter sort options (see sort(1) manpage) separated by whitespace:"),
-                        MC_HISTORY_EDIT_SORT, INPUT_LAST_TEXT, INPUT_COMPLETE_NONE);
-
-    if (exp == NULL)
-        return 1;
-
-    tmp_edit_block_name = mc_config_get_full_path (EDIT_HOME_BLOCK_FILE);
-    tmp_edit_temp_name = mc_config_get_full_path (EDIT_HOME_TEMP_FILE);
-    tmp = g_strconcat (" sort ", exp, " ", tmp_edit_block_name, " > ", tmp_edit_temp_name,
-                       (char *) NULL);
-    g_free (tmp_edit_temp_name);
-    g_free (tmp_edit_block_name);
-    g_free (exp);
-
-    e = system (tmp);
-    g_free (tmp);
-    if (e != 0)
-    {
-        if (e == -1 || e == 127)
-            message (D_ERROR, MSG_ERROR, "%s", _ ("Cannot execute sort command"));
-        else
-        {
-            char q[8];
-
-            sprintf (q, "%d ", e);
-            message (D_ERROR, MSG_ERROR, _ ("Sort returned non-zero: %s"), q);
-        }
-
-        return -1;
-    }
-
-    edit->force |= REDRAW_COMPLETELY;
-
-    if (!edit_block_delete_cmd (edit))
-        return 1;
-
-    {
-        vfs_path_t *tmp_vpath;
-
-        tmp_vpath = mc_config_get_full_vpath (EDIT_HOME_TEMP_FILE);
-        edit_insert_file (edit, tmp_vpath);
-        vfs_path_free (tmp_vpath, TRUE);
-    }
-
-    return 0;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-/**
- * Ask user for a command, execute it and paste its output back to the
- * editor.
- */
-
-int
-edit_ext_cmd (WEdit *edit)
-{
-    char *exp, *tmp, *tmp_edit_temp_file, *quoted_exp;
-    int e;
-
-    exp =
-        input_dialog (_ ("Paste output of external command"), _ ("Enter shell command(s):"),
-                      MC_HISTORY_EDIT_PASTE_EXTCMD, INPUT_LAST_TEXT,
-                      INPUT_COMPLETE_FILENAMES | INPUT_COMPLETE_VARIABLES | INPUT_COMPLETE_USERNAMES
-                          | INPUT_COMPLETE_HOSTNAMES | INPUT_COMPLETE_CD | INPUT_COMPLETE_COMMANDS
-                          | INPUT_COMPLETE_SHELL_ESC);
-
-    if (!exp)
-        return 1;
-
-    tmp_edit_temp_file = mc_config_get_full_path (EDIT_HOME_TEMP_FILE);
-    quoted_exp = g_shell_quote (exp);
-    tmp = g_strconcat ("TERM=dumb sh -c ", quoted_exp, " > ", tmp_edit_temp_file,
-                       " < /dev/null 2>/dev/null", (char *) NULL);
-    g_free (quoted_exp);
-    g_free (tmp_edit_temp_file);
-    e = system (tmp);
-    g_free (tmp);
-    g_free (exp);
-
-    if (e != 0)
-    {
-        message (D_ERROR, MSG_ERROR, "%s", _ ("Cannot execute external command"));
-        return -1;
-    }
-
-    edit->force |= REDRAW_COMPLETELY;
-
-    {
-        vfs_path_t *tmp_vpath;
-
-        tmp_vpath = mc_config_get_full_vpath (EDIT_HOME_TEMP_FILE);
-        edit_insert_file (edit, tmp_vpath);
-        vfs_path_free (tmp_vpath, TRUE);
-    }
-
-    return 0;
-}
-
-/* --------------------------------------------------------------------------------------------- */
 /** if block is 1, a block must be highlighted and the shell command
    processes it. If block is 0 the shell command is a straight system
    command, that just produces some output which is to be inserted */
@@ -2243,18 +2172,6 @@ edit_select_codepage_cmd (WEdit *edit)
 
     edit->force = REDRAW_PAGE;
     widget_draw (WIDGET (edit));
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
-void
-edit_insert_literal_cmd (WEdit *edit)
-{
-    int char_for_insertion;
-
-    char_for_insertion =
-        editcmd_dialog_raw_key_query (_ ("Insert literal"), _ ("Press any key:"), FALSE);
-    edit_execute_key_command (edit, -1, ascii_alpha_to_cntrl (char_for_insertion));
 }
 
 /* --------------------------------------------------------------------------------------------- */

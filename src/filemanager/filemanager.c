@@ -53,7 +53,11 @@
 #include "lib/vfs/vfs.h"
 
 #include "src/args.h"
-#include "src/execute.h"         // toggle_terminal
+#include "src/execute.h"  // toggle_terminal
+#ifdef ENABLE_SUBSHELL
+#include "src/subshell/subshell.h"
+#endif
+#include "src/events_init.h"
 #include "src/setup.h"           // variables
 #include "src/key_learn.h"       // key_learn()
 #include "src/keybind_dialog.h"  // keybind_dialog()
@@ -2083,6 +2087,7 @@ do_nc (void)
     {
         setup_dummy_mc ();
         ret = mc_maybe_editor_or_viewer ();
+        events_publish_runtime_shutdown ("quit");
     }
     else
     {
@@ -2096,7 +2101,9 @@ do_nc (void)
         mc_filehighlight = mc_fhl_new (TRUE);
 
         create_file_manager ();
+        events_publish_runtime_startup ();
         (void) dlg_run (filemanager);
+        events_publish_runtime_shutdown ("quit");
 
         mc_fhl_free (&mc_filehighlight);
 

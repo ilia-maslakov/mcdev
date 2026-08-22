@@ -209,6 +209,8 @@ mcview_source_spec_clone (const mcview_source_spec_t *src)
     dst->command = g_strdup (src->command);
     dst->file = g_strdup (src->file);
     dst->title = g_strdup (src->title);
+    dst->help_file = g_strdup (src->help_file);
+    dst->help_node = g_strdup (src->help_node);
     dst->auto_scroll_bottom = src->auto_scroll_bottom;
     return dst;
 }
@@ -223,6 +225,8 @@ mcview_source_spec_free (mcview_source_spec_t *s)
     g_free (s->command);
     g_free (s->file);
     g_free (s->title);
+    g_free (s->help_file);
+    g_free (s->help_node);
     g_free (s);
 }
 

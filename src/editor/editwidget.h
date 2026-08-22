@@ -115,6 +115,9 @@ struct WEdit
     off_t curs_indent_end_bol;      // bol that curs_indent_end was computed for
     GPtrArray *line_layout_caches;  // recently used byte offset to visual column indexes
     guint64 line_layout_cache_serial;
+    guint64 runtime_revision;  // public runtime ABI document revision
+    guint runtime_edit_depth;  // coalesces runtime mutations into one public revision
+    gboolean runtime_edit_changed;
     unsigned int curs_bol_valid : 1;
     unsigned int curs_eol_valid : 1;
     unsigned int curs_indent_end_valid : 1;

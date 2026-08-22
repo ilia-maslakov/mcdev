@@ -56,6 +56,7 @@
 #include "lib/charsets.h"
 #include "lib/event.h"     // mc_event_raise()
 #include "lib/mcconfig.h"  // mc_config_history_get_recent_item()
+#include "lib/runtime-events.h"
 
 #include "src/filemanager/layout.h"
 #include "src/filemanager/filemanager.h"  // current_panel
@@ -66,6 +67,7 @@
 #include "src/execute.h"
 #include "src/filemanager/mcterm_overlay.h"  // mcterm_overlay_show_terminal()
 #include "src/keymap.h"
+#include "src/runtime-host.h"
 
 #include "internal.h"
 
@@ -367,9 +369,10 @@ mcview_load_file_from_history (WView *view)
 static void
 mcview_help (const WView *view)
 {
-    ev_help_t event_data = { NULL, "[Internal File Viewer]" };
-
-    (void) view;
+    ev_help_t event_data = { view->source_spec != NULL ? view->source_spec->help_file : NULL,
+                             view->source_spec != NULL && view->source_spec->help_node != NULL
+                                 ? view->source_spec->help_node
+                                 : "[Internal File Viewer]" };
 
     mc_event_raise (MCEVENT_GROUP_CORE, "help", &event_data);
 }
@@ -846,6 +849,8 @@ mcview_callback (Widget *w, Widget *sender, widget_msg_t msg, int parm, void *da
         return MSG_HANDLED;
 
     case MSG_DESTROY:
+        runtime_host_clear_current_viewer (view);
+        mc_runtime_handle_invalidate_object (MC_RUNTIME_HANDLE_VIEWER, view);
         if (mcview_is_in_panel (view))
         {
             delete_hook (&select_file_hook, mcview_hook);

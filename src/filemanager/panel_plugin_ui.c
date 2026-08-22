@@ -484,7 +484,9 @@ panel_plugin_activate (WPanel *panel, const mc_panel_plugin_t *plugin, const cha
         panel->plugin_pre_cwd_vpath =
             was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
 
-        new_data = plugin->open (host, open_path);
+        new_data = plugin->open_with_plugin != NULL
+            ? plugin->open_with_plugin (plugin, host, open_path)
+            : plugin->open (host, open_path);
         if (new_data == NULL)
         {
             /* Activation aborted; keep the current panel intact. */
@@ -656,7 +658,7 @@ panel_plugin_open_entry_by_operation (WPanel *panel, const char *fname, const ch
     {
         if (panel->plugin->get_local_copy == NULL || operation->may_open_name == NULL
             || !operation->may_open_name (fname))
-            return TRUE;
+            return FALSE;
 
         if (panel->plugin->get_local_copy (panel->plugin_data, fname, &local_copy) != MC_PPR_OK
             || local_copy == NULL)
@@ -1229,7 +1231,9 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
 
     if (panel == NULL || plugin == NULL)
         return;
-    if (plugin->actions == NULL || action_index < 0 || action_index >= plugin->action_count)
+    if (plugin->actions == NULL || action_index < 0 || action_index >= plugin->action_count
+        || (plugin->actions[action_index].callback == NULL
+            && plugin->run_action_with_plugin == NULL))
         return;
 
     /* Keep the previous plugin active until the action returns replacement data. */
@@ -1245,7 +1249,11 @@ panel_plugin_run_action (WPanel *panel, const mc_panel_plugin_t *plugin, int act
             was_plugin ? saved_pre_cwd : vfs_path_clone (panel->cwd_vpath);
 
         path = vfs_path_as_str (panel->cwd_vpath);
-        pdata = plugin->actions[action_index].callback (host, path);
+        pdata = plugin->run_action_with_plugin != NULL
+            ? plugin->run_action_with_plugin (plugin,
+                                              panel->plugin == plugin ? panel->plugin_data : NULL,
+                                              host, path, action_index)
+            : plugin->actions[action_index].callback (host, path);
         if (pdata == NULL)
         {
             /* action performed standalone operation (e.g. dialog), no panel activation */

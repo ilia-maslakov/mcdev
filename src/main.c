@@ -50,8 +50,10 @@
 #include "lib/skin.h"
 #include "lib/filehighlight.h"
 #include "lib/fileloc.h"
+#include "lib/mcconfig.h"
 #include "lib/strutil.h"
 #include "lib/util.h"
+#include "lib/extension-runtime.h"
 #include "lib/vfs/vfs.h"  // vfs_init(), vfs_shut()
 
 #include "filemanager/filemanager.h"
@@ -72,6 +74,10 @@
 #include "events_init.h"
 #include "execute.h"  // show_panels_request_init()
 #include "args.h"
+#include "runtime-host.h"
+#ifdef ENABLE_SUBSHELL
+#include "subshell/subshell.h"
+#endif
 #include "keymap.h"
 #include "setup.h"  // load_setup()
 
@@ -298,7 +304,7 @@ main (int argc, char *argv[])
     {
         mc_propagate_error (&mcerror, 0, "%s: %s", _ ("Home directory path is not absolute"),
                             mc_config_get_home_dir ());
-        mc_event_deinit (NULL);
+        events_deinit (NULL);
         goto startup_exit_falure;
     }
 
@@ -311,10 +317,12 @@ main (int argc, char *argv[])
     if (!events_init (&mcerror))
         goto startup_exit_falure;
 
+    runtime_host_services_init ();
+
     mc_config_init_config_paths (&mcerror);
     if (mcerror != NULL)
     {
-        mc_event_deinit (NULL);
+        events_deinit (NULL);
         goto startup_exit_falure;
     }
 
@@ -322,6 +330,18 @@ main (int argc, char *argv[])
     vfs_plugins_init ();
 
     load_setup ();
+
+    if (mc_args__no_lua || !mc_config_get_bool (mc_global.main_config, "Lua", "enabled", TRUE))
+        mc_runtime_plugins_disable ("lua");
+
+    if (!mc_runtime_plugins_load (&mcerror))
+    {
+        vfs_plugins_done ();
+        vfs_shut ();
+        done_setup ();
+        events_deinit (NULL);
+        goto startup_exit_falure;
+    }
 
     // Must be done after load_setup because depends on mc_global.vfs.cd_symlinks
     vfs_setup_work_dir ();
@@ -338,11 +358,12 @@ main (int argc, char *argv[])
         vfs_expire (TRUE);
         (void) my_rmdir (tmpdir);
 
+        mc_runtime_plugins_shutdown ();
         vfs_plugins_done ();
         vfs_shut ();
         done_setup ();
         g_free (saved_other_dir);
-        mc_event_deinit (NULL);
+        events_deinit (NULL);
         goto startup_exit_falure;
     }
 
@@ -442,6 +463,7 @@ main (int argc, char *argv[])
     (void) my_rmdir (tmpdir);
 
     // Virtual File System shutdown
+    mc_runtime_plugins_shutdown ();
     vfs_plugins_done ();
     vfs_shut ();
 
@@ -514,7 +536,7 @@ main (int argc, char *argv[])
 
     mc_config_deinit_config_paths ();
 
-    (void) mc_event_deinit (&mcerror);
+    (void) events_deinit (&mcerror);
     if (mcerror != NULL)
     {
         fprintf (stderr, _ ("\nFailed while close:\n%s\n"), mcerror->message);

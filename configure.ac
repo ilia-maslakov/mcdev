@@ -494,6 +494,94 @@ AC_ARG_WITH([editor-plugins-dir],
     [editor_plugins_dir='${libdir}/mc/editor-plugins'])
 AC_SUBST([editor_plugins_dir])
 
+AC_ARG_WITH([runtime-plugins-dir],
+    AS_HELP_STRING([--with-runtime-plugins-dir=DIR],
+        [Directory for dynamic runtime plugins [LIBDIR/mc/runtime-plugins]]),
+    [runtime_plugins_dir="$withval"],
+    [runtime_plugins_dir='${libdir}/mc/runtime-plugins'])
+AC_SUBST([runtime_plugins_dir])
+
+AC_ARG_ENABLE([lua-plugin],
+    AS_HELP_STRING([--enable-lua-plugin@<:@=auto/yes/no@:>@],
+        [Build the Lua runtime extension (default: auto)]),
+    [enable_lua_plugin="$enableval"],
+    [enable_lua_plugin=auto])
+
+case "$enable_lua_plugin" in
+    auto|yes|no) ;;
+    *) AC_MSG_ERROR([--enable-lua-plugin expects auto, yes, or no]) ;;
+esac
+
+AC_ARG_WITH([lua],
+    AS_HELP_STRING([--with-lua=PREFIX],
+        [Lua installation prefix used while locating Lua 5.3+]),
+    [with_lua="$withval"],
+    [with_lua=""])
+
+case "$with_lua" in
+    yes|no) AC_MSG_ERROR([--with-lua requires an installation prefix]) ;;
+esac
+
+AC_ARG_WITH([lua-scripts-dir],
+    AS_HELP_STRING([--with-lua-scripts-dir=DIR],
+        [Directory for system Lua scripts [DATADIR/mc/lua/scripts]]),
+    [lua_scripts_dir="$withval"],
+    [lua_scripts_dir='${datadir}/mc/lua/scripts'])
+AC_SUBST([lua_scripts_dir])
+
+AC_ARG_WITH([lua-modules-dir],
+    AS_HELP_STRING([--with-lua-modules-dir=DIR],
+        [Directory for system shared Lua modules [DATADIR/mc/lua/lib]]),
+    [lua_modules_dir="$withval"],
+    [lua_modules_dir='${datadir}/mc/lua/lib'])
+AC_SUBST([lua_modules_dir])
+
+have_lua_plugin=no
+lua_msg="no"
+LUA_CFLAGS=""
+LUA_LIBS=""
+
+if test x"$enable_lua_plugin" != xno; then
+    if test -z "$g_module_supported"; then
+        if test x"$enable_lua_plugin" = xyes; then
+            AC_MSG_ERROR([--enable-lua-plugin=yes requires GModule support])
+        fi
+        lua_msg="no (GModule unavailable)"
+    else
+        mc_saved_pkg_config_path="$PKG_CONFIG_PATH"
+        if test -n "$with_lua"; then
+            PKG_CONFIG_PATH="$with_lua/lib/pkgconfig:$with_lua/lib64/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}"
+            export PKG_CONFIG_PATH
+        fi
+
+        AC_MSG_CHECKING([for Lua 5.3 or newer])
+        for lua_pkg in lua5.4 lua-5.4 lua54 lua5.3 lua-5.3 lua53 lua; do
+            if $PKG_CONFIG --exists "$lua_pkg >= 5.3"; then
+                LUA_CFLAGS=`$PKG_CONFIG --cflags "$lua_pkg"`
+                LUA_LIBS=`$PKG_CONFIG --libs "$lua_pkg"`
+                have_lua_plugin=yes
+                lua_msg=`$PKG_CONFIG --modversion "$lua_pkg"`
+                break
+            fi
+        done
+        AC_MSG_RESULT([$lua_msg])
+
+        PKG_CONFIG_PATH="$mc_saved_pkg_config_path"
+        export PKG_CONFIG_PATH
+
+        if test x"$have_lua_plugin" = xno && test x"$enable_lua_plugin" = xyes; then
+            AC_MSG_ERROR([Lua 5.3 or newer was not found])
+        fi
+    fi
+fi
+
+AC_SUBST([LUA_CFLAGS])
+AC_SUBST([LUA_LIBS])
+AM_CONDITIONAL([ENABLE_LUA_PLUGIN], [test x"$have_lua_plugin" = xyes])
+if test x"$have_lua_plugin" = xyes; then
+    AC_DEFINE([ENABLE_LUA_PLUGIN], [1], [Define to build the Lua runtime extension])
+fi
+
 dnl ############################################################################
 dnl Directories
 dnl ############################################################################
@@ -568,6 +656,9 @@ AM_CONDITIONAL(USE_DIFF, [test -n "$use_diff"])
 AM_CONDITIONAL(CONS_SAVER, [test -n "$cons_saver"])
 dnl Enable GModule when available (used for X11, aspell, and dynamic VFS plugins)
 AM_CONDITIONAL([HAVE_GMODULE], [test -n "$g_module_supported"])
+dnl Runtime module tests require both GModule and an actual shared module.
+AM_CONDITIONAL([HAVE_RUNTIME_MODULES],
+               [test -n "$g_module_supported" && test x"$enable_shared" = xyes])
 
 dnl Optional libmagic for mctree content detection
 have_mctree_magic=no
@@ -995,6 +1086,7 @@ misc/magic.ini
 src/Makefile
 src/consaver/Makefile
 src/editor/Makefile
+src/lua/Makefile
 src/man2hlp/Makefile
 src/mctree/Makefile
 src/viewer/Makefile
@@ -1158,6 +1250,7 @@ Configuration:
   With ext2fs attributes support: ${ext2fs_attr_msg}
   Internal editor:                ${edit_msg}
   Diff viewer:                    ${diff_msg}
+  Lua runtime extension:          ${lua_msg}
 ])
 
 dnl option checking is disable by default due to AC_CONFIG_SUBDIRS

@@ -208,9 +208,14 @@ mcview_display_status (WView *view)
     tty_setcolor (STATUSBAR_COLOR);
     tty_draw_hline (WIDGET (view)->rect.y + r->y, WIDGET (view)->rect.x + r->x, ' ', r->cols);
 
-    file_label = view->filename_vpath != NULL ? vfs_path_get_last_path_str (view->filename_vpath)
-        : view->command != NULL               ? view->command
-                                              : "";
+    /* A source controller supplies a display title independently from the
+       command or temporary file used to produce its contents. */
+    file_label = view->source_spec != NULL && view->source_spec->title != NULL
+            && view->source_spec->title[0] != '\0'
+        ? view->source_spec->title
+        : view->filename_vpath != NULL ? vfs_path_get_last_path_str (view->filename_vpath)
+        : view->command != NULL        ? view->command
+                                       : "";
 
     if (r->cols > 40)
     {

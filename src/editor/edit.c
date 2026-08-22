@@ -52,14 +52,15 @@
 #include "lib/vfs/vfs.h"
 #include "lib/strutil.h"  // utf string functions
 #include "lib/util.h"     // load_file_position(), save_file_position()
-#include "lib/timefmt.h"  // time formatting
 #include "lib/lock.h"
+#include "lib/runtime-events.h"
 #include "lib/widget.h"
 #include "lib/charsets.h"  // get_codepage_id
 
 #include "src/usermenu.h"  // user_menu_cmd()
 
 #include "src/keymap.h"
+#include "src/runtime-host.h"
 #include "src/util.h"  // file_error_message()
 
 #include "edit-impl.h"
@@ -2037,25 +2038,6 @@ edit_move_block_to_left (WEdit *edit)
 }
 
 /* --------------------------------------------------------------------------------------------- */
-/**
- * prints at the cursor
- * @return number of chars printed
- */
-
-static size_t
-edit_print_string (WEdit *e, const char *s)
-{
-    size_t i;
-
-    for (i = 0; s[i] != '\0'; i++)
-        edit_execute_cmd (e, CK_InsertChar, (unsigned char) s[i]);
-    e->force |= REDRAW_COMPLETELY;
-    edit_update_screen (e);
-    return i;
-}
-
-/* --------------------------------------------------------------------------------------------- */
-
 // display width of a block line in columns, starting at absolute column start_col so a tab
 // advances to the real tab stop (multibyte char = 1 col)
 long
@@ -2602,6 +2584,7 @@ edit_init (WEdit *edit, const WRect *r, const edit_arg_t *arg)
     }
 
     edit->loading_done = 1;
+    edit->runtime_revision = 1;
     edit->modified = 0;
     edit->locked = 0;
     edit_load_syntax (edit, NULL, NULL);
@@ -2633,11 +2616,15 @@ edit_init (WEdit *edit, const WRect *r, const edit_arg_t *arg)
 /* --------------------------------------------------------------------------------------------- */
 
 /** Clear the edit struct, freeing everything in it.  Return TRUE on success */
-gboolean
-edit_clean (WEdit *edit)
+static gboolean
+edit_clean_internal (WEdit *edit, gboolean invalidate_runtime_handle)
 {
     if (edit == NULL)
         return FALSE;
+
+    runtime_host_clear_current_editor (edit);
+    if (invalidate_runtime_handle)
+        mc_runtime_handle_invalidate_object (MC_RUNTIME_HANDLE_EDITOR, edit);
 
     // a stale lock, remove it
     if (edit->locked)
@@ -2675,6 +2662,14 @@ edit_clean (WEdit *edit)
 
 /* --------------------------------------------------------------------------------------------- */
 
+gboolean
+edit_clean (WEdit *edit)
+{
+    return edit_clean_internal (edit, TRUE);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 /**
  * Load a new file into the editor and set line.  If it fails, preserve the old file.
  * To do it, allocate a new widget, initialize it and, if the new file
@@ -2687,6 +2682,7 @@ edit_reload_line (WEdit *edit, const edit_arg_t *arg)
 {
     Widget *w = WIDGET (edit);
     WEdit *e;
+    const guint64 previous_runtime_revision = MAX (edit->runtime_revision, 1);
 
     e = g_malloc0 (sizeof (WEdit));
     *WIDGET (e) = *w;
@@ -2700,9 +2696,15 @@ edit_reload_line (WEdit *edit, const edit_arg_t *arg)
         return FALSE;
     }
 
-    edit_clean (edit);
+    /* Reload replaces the document contents, but not the editor object exposed
+     * through the runtime ABI.  Keep its opaque handle alive and advance the
+     * document revision instead of resetting both with the temporary WEdit. */
+    edit_clean_internal (edit, FALSE);
     memcpy (edit, e, sizeof (*edit));
     g_free (e);
+    edit->runtime_revision =
+        previous_runtime_revision < G_MAXUINT64 ? previous_runtime_revision + 1 : G_MAXUINT64;
+    runtime_host_set_current_editor (edit);
 
     return TRUE;
 }
@@ -3033,6 +3035,13 @@ edit_insert (WEdit *edit, int c)
     edit->last_get_rule += (edit->last_get_rule > edit->buffer.curs1) ? 1 : 0;
 
     edit_buffer_insert (&edit->buffer, c);
+    if (edit->loading_done != 0)
+    {
+        if (edit->runtime_edit_depth != 0)
+            edit->runtime_edit_changed = TRUE;
+        else
+            edit->runtime_revision++;
+    }
     if (c == '\n')
     {
         edit_layout_cache_invalidate (edit);
@@ -3081,6 +3090,13 @@ edit_insert_ahead (WEdit *edit, int c)
     edit->last_get_rule += (edit->last_get_rule >= edit->buffer.curs1) ? 1 : 0;
 
     edit_buffer_insert_ahead (&edit->buffer, c);
+    if (edit->loading_done != 0)
+    {
+        if (edit->runtime_edit_depth != 0)
+            edit->runtime_edit_changed = TRUE;
+        else
+            edit->runtime_revision++;
+    }
     if (c == '\n')
     {
         edit_layout_cache_invalidate (edit);
@@ -3150,6 +3166,13 @@ edit_delete (WEdit *edit, gboolean byte_delete)
     }
 
     edit_modification (edit);
+    if (edit->loading_done != 0)
+    {
+        if (edit->runtime_edit_depth != 0)
+            edit->runtime_edit_changed = TRUE;
+        else
+            edit->runtime_revision++;
+    }
     if (p == '\n')
     {
         edit_layout_cache_invalidate (edit);
@@ -3216,6 +3239,13 @@ edit_backspace (WEdit *edit, gboolean byte_delete)
         edit_push_undo_action (edit, p);
     }
     edit_modification (edit);
+    if (edit->loading_done != 0)
+    {
+        if (edit->runtime_edit_depth != 0)
+            edit->runtime_edit_changed = TRUE;
+        else
+            edit->runtime_revision++;
+    }
     if (p == '\n')
     {
         edit_layout_cache_invalidate (edit);
@@ -4373,6 +4403,34 @@ edit_push_markers (WEdit *edit)
 
 /* --------------------------------------------------------------------------------------------- */
 
+gboolean
+edit_runtime_begin (WEdit *edit)
+{
+    if (edit == NULL || edit->runtime_edit_depth != 0)
+        return FALSE;
+
+    edit->runtime_edit_depth = 1;
+    edit->runtime_edit_changed = FALSE;
+    edit_push_key_press (edit);
+    return TRUE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+edit_runtime_end (WEdit *edit)
+{
+    if (edit == NULL || edit->runtime_edit_depth == 0)
+        return;
+
+    edit->runtime_edit_depth = 0;
+    if (edit->runtime_edit_changed)
+        edit->runtime_revision++;
+    edit->runtime_edit_changed = FALSE;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
 void
 edit_set_markers (WEdit *edit, off_t m1, off_t m2, long c1, long c2)
 {
@@ -4646,6 +4704,9 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
 {
     WRect *w = &WIDGET (edit)->rect;
 
+    if (edit_runtime_menu_action (command))
+        return;
+
     if (command == CK_WindowFullscreen)
     {
         edit_toggle_fullscreen (edit);
@@ -4817,7 +4878,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
 
         if (edit_options.auto_para_formatting)
         {
-            format_paragraph (edit, FALSE);
+            format_paragraph (edit);
             edit->force |= REDRAW_PAGE;
         }
         else
@@ -4956,7 +5017,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
             edit_double_newline (edit);
             if (edit_options.return_does_auto_indent && !bracketed_pasting_in_progress)
                 edit_auto_indent (edit);
-            format_paragraph (edit, FALSE);
+            format_paragraph (edit);
         }
         else
         {
@@ -5095,7 +5156,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
             edit_tab_cmd (edit);
             if (edit_options.auto_para_formatting)
             {
-                format_paragraph (edit, FALSE);
+                format_paragraph (edit);
                 edit->force |= REDRAW_PAGE;
             }
             else
@@ -5308,23 +5369,22 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
 #endif
 
     case CK_Date:
-    {
-        char s[BUF_MEDIUM];
-        // fool gcc to prevent a Y2K warning
-        char time_format[] = "_c";
-        time_format[0] = '%';
-
-        FMT_LOCALTIME_CURRENT (s, sizeof (s), time_format);
-        edit_print_string (edit, s);
-        edit->force |= REDRAW_PAGE;
-    }
-    break;
-    case CK_Goto:
-        edit_goto_cmd (edit);
+        (void) edit_runtime_invoke_action ("insert-datetime");
         break;
     case CK_ParagraphFormat:
-        format_paragraph (edit, TRUE);
-        edit->force |= REDRAW_PAGE;
+        (void) edit_runtime_invoke_action ("format-paragraph");
+        break;
+    case CK_Sort:
+        (void) edit_runtime_invoke_action ("sort-selection");
+        break;
+    case CK_ExternalCommand:
+        (void) edit_runtime_invoke_action ("insert-command-output");
+        break;
+    case CK_InsertLiteral:
+        (void) edit_runtime_invoke_action ("insert-literal");
+        break;
+    case CK_Goto:
+        edit_goto_cmd (edit);
         break;
     case CK_MacroExplorer:
         edit_macro_explorer_cmd (edit);
@@ -5335,20 +5395,11 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
     case CK_UserMenu:
         edit_user_menu (edit, NULL, -1);
         break;
-    case CK_Sort:
-        edit_sort_cmd (edit);
-        break;
-    case CK_ExternalCommand:
-        edit_ext_cmd (edit);
-        break;
     case CK_EditMail:
         edit_mail_dialog (edit);
         break;
     case CK_SelectCodepage:
         edit_select_codepage_cmd (edit);
-        break;
-    case CK_InsertLiteral:
-        edit_insert_literal_cmd (edit);
         break;
     case CK_MacroStartStopRecord:
         edit_begin_end_macro_cmd (edit);
@@ -5423,7 +5474,7 @@ edit_execute_cmd (WEdit *edit, long command, int char_for_insertion)
         case CK_DeleteToWordEnd:
         case CK_DeleteToHome:
         case CK_DeleteToEnd:
-            format_paragraph (edit, FALSE);
+            format_paragraph (edit);
             edit->force |= REDRAW_PAGE;
             break;
         default:

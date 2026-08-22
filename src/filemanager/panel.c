@@ -55,9 +55,11 @@
 #include "lib/charsets.h"  // get_codepage_id ()
 #include "lib/event.h"
 #include "lib/panel-plugin.h"
+#include "lib/runtime-events.h"
 
 #include "src/setup.h"  // For loading/saving panel options
 #include "src/execute.h"
+#include "src/events_init.h"
 #include "src/selcodepage.h"  // select_charset (), SELECT_CHARSET_NO_TRANSLATE
 #include "src/keymap.h"       // global_keymap_t
 #include "src/history.h"
@@ -252,11 +254,109 @@ static WPanel *mouse_mark_panel = NULL;
 
 static gboolean mouse_marking = FALSE;
 static int state_mark = 0;
+static guint panel_selection_rebuild_depth = 0;
 
 static GString *string_file_name_buffer;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static mc_runtime_file_snapshot_t *
+panel_runtime_file_snapshot_new (const WPanel *panel, const file_entry_t *entry)
+{
+    mc_runtime_file_snapshot_t *snapshot;
+    vfs_path_t *path;
+
+    if (entry == NULL || entry->fname == NULL || entry->fname->str == NULL)
+        return NULL;
+
+    snapshot = mc_runtime_file_snapshot_new ();
+    snapshot->name = g_strdup (entry->fname->str);
+    if (panel->cwd_vpath != NULL)
+    {
+        path = vfs_path_append_new (panel->cwd_vpath, entry->fname->str, (char *) NULL);
+        snapshot->path = vfs_path_to_str_flags (path, 0, VPF_STRIP_PASSWORD);
+        vfs_path_free (path, TRUE);
+    }
+    else
+        snapshot->path = g_strdup (entry->fname->str);
+    snapshot->is_dir = S_ISDIR (entry->st.st_mode) || entry->f.link_to_dir != 0;
+    snapshot->size = entry->st.st_size > 0 ? (guint64) entry->st.st_size : 0;
+    snapshot->mtime = (gint64) entry->st.st_mtime;
+    snapshot->marked = entry->f.marked != 0;
+
+    return snapshot;
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+panel_publish_selection_changed (WPanel *panel)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+    guint i;
+
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_PANEL_SELECTION_CHANGED);
+    snapshot->data.panel_selection_changed.panel =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_PANEL, panel);
+    snapshot->data.panel_selection_changed.current =
+        panel_runtime_file_snapshot_new (panel, panel_current_entry (panel));
+
+    for (i = 0; i < (guint) panel->dir.len; i++)
+    {
+        const file_entry_t *entry = &panel->dir.list[i];
+
+        if (entry->f.marked == 0)
+            continue;
+
+        snapshot->data.panel_selection_changed.selected_count++;
+        if (snapshot->data.panel_selection_changed.selected->len < MC_RUNTIME_EVENT_SELECTED_LIMIT)
+        {
+            mc_runtime_file_snapshot_t *file = panel_runtime_file_snapshot_new (panel, entry);
+
+            if (file != NULL)
+                g_ptr_array_add (snapshot->data.panel_selection_changed.selected, file);
+        }
+    }
+    snapshot->data.panel_selection_changed.selected_truncated =
+        snapshot->data.panel_selection_changed.selected_count
+        > snapshot->data.panel_selection_changed.selected->len;
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+}
+
+/* --------------------------------------------------------------------------------------------- */
+
+void
+panel_runtime_publish_file_open (WPanel *panel, const file_entry_t *entry, const char *open_mode)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+    mc_runtime_file_snapshot_t *file;
+
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized () || entry == NULL)
+        return;
+
+    file = panel_runtime_file_snapshot_new (panel, entry);
+    if (file == NULL)
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_PANEL_FILE_OPEN);
+    snapshot->data.panel_file_open.panel =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_PANEL, panel);
+    snapshot->data.panel_file_open.path = g_strdup (file->path);
+    snapshot->data.panel_file_open.open_mode = g_strdup (open_mode != NULL ? open_mode : "other");
+    snapshot->data.panel_file_open.is_dir = file->is_dir;
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+    mc_runtime_file_snapshot_free (file);
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static char *
@@ -1676,6 +1776,8 @@ static void
 panel_destroy (WPanel *p)
 {
     size_t i;
+
+    mc_runtime_handle_invalidate_object (MC_RUNTIME_HANDLE_PANEL, p);
 
     if (panels_options.auto_save_setup)
     {
@@ -3466,6 +3568,7 @@ do_enter_on_file_entry (WPanel *panel, const file_entry_t *fe)
     }
 
     full_name_vpath = vfs_path_append_new (panel->cwd_vpath, fname, (char *) NULL);
+    panel_runtime_publish_file_open (panel, fe, "other");
 
     /* magic.ini is a user-controlled overlay for plugin file operations. */
     if (panel_magic_open_local_file (panel, fname, full_name_vpath))
@@ -5615,6 +5718,7 @@ unmark_files (WPanel *panel)
         panel->dirs_marked = 0;
         panel->marked = 0;
         panel->total = 0;
+        panel_publish_selection_changed (panel);
     }
 }
 
@@ -5631,6 +5735,7 @@ recalculate_panel_summary (WPanel *panel)
     panel->dirs_marked = 0;
     panel->total = 0;
 
+    panel_selection_rebuild_depth++;
     for (i = 0; i < panel->dir.len; i++)
         if (panel->dir.list[i].f.marked != 0)
         {
@@ -5640,6 +5745,7 @@ recalculate_panel_summary (WPanel *panel)
             panel->dir.list[i].f.marked = 0;
             do_file_mark (panel, i, 1);
         }
+    panel_selection_rebuild_depth--;
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -5684,6 +5790,9 @@ do_file_mark (WPanel *panel, int idx, int mark)
 
         panel->marked--;
     }
+
+    if (panel_selection_rebuild_depth == 0)
+        panel_publish_selection_changed (panel);
 }
 
 /* --------------------------------------------------------------------------------------------- */
@@ -6135,7 +6244,9 @@ gboolean
 panel_cd (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum exact)
 {
     gboolean res;
+    char *old_path;
 
+    old_path = vfs_path_to_str_flags (panel->cwd_vpath, 0, VPF_STRIP_PASSWORD);
     res = panel_do_cd (panel, new_dir_vpath, exact);
 
     if (res)
@@ -6147,8 +6258,28 @@ panel_cd (WPanel *panel, const vfs_path_t *new_dir_vpath, enum cd_enum exact)
             panel->codepage = get_codepage_index (path_element->encoding);
         else
             panel->codepage = SELECT_CHARSET_NO_TRANSLATE;
+
+        if (events_runtime_is_started () && mc_runtime_events_is_initialized ())
+        {
+            mc_runtime_event_snapshot_t *snapshot;
+
+            snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_PANEL_CHDIR);
+            snapshot->data.panel_chdir.panel =
+                mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_PANEL, panel);
+            snapshot->data.panel_chdir.old_path = old_path;
+            old_path = NULL;
+            snapshot->data.panel_chdir.new_path =
+                vfs_path_to_str_flags (panel->cwd_vpath, 0, VPF_STRIP_PASSWORD);
+            snapshot->data.panel_chdir.cause = g_strdup (exact == cd_parse_command ? "command"
+                                                             : exact == cd_runtime_plugin ? "plugin"
+                                                                                          : "user");
+
+            (void) mc_runtime_event_publish (snapshot, NULL);
+            mc_runtime_event_snapshot_free (snapshot);
+        }
     }
 
+    g_free (old_path);
     return res;
 }
 

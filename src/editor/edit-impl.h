@@ -124,6 +124,8 @@ gboolean edit_drop_hotkey_menu (WDialog *h, int key);
 void edit_menu_cmd (WDialog *h);
 void edit_user_menu (WEdit *edit, const char *menu_file, int selected_entry);
 void edit_init_menu (WMenuBar *menubar);
+gboolean edit_runtime_menu_action (long command);
+gboolean edit_runtime_invoke_action (const char *action_id);
 void edit_save_mode_cmd (void);
 off_t edit_move_forward3 (const WEdit *edit, off_t current, long cols, off_t upto);
 long edit_layout_advance_byte (const WEdit *edit, off_t offset, long column);
@@ -170,6 +172,9 @@ off_t edit_write_stream (WEdit *edit, FILE *f);
 char *edit_get_write_filter (const vfs_path_t *write_name_vpath, const vfs_path_t *filename_vpath);
 gboolean edit_save_confirm_cmd (WEdit *edit);
 gboolean edit_save_as_cmd (WEdit *edit);
+gboolean edit_runtime_save (WEdit *edit);
+gboolean edit_runtime_begin (WEdit *edit);
+void edit_runtime_end (WEdit *edit);
 gboolean edit_save_should_try_sudo (int save_res, int save_errno);
 int edit_save_handle_sudo_result (WEdit *edit, int sudo_res);
 WEdit *edit_init (WEdit *edit, const WRect *r, const edit_arg_t *arg);
@@ -204,7 +209,6 @@ void edit_syntax_onoff_cmd (WDialog *h);
 void edit_show_tabs_tws_cmd (WDialog *h);
 void edit_show_margin_cmd (WDialog *h);
 void edit_show_numbers_cmd (WDialog *h);
-void edit_date_cmd (WEdit *edit);
 void edit_goto_cmd (WEdit *edit);
 gboolean eval_marks (WEdit *edit, off_t *start_mark, off_t *end_mark);
 void edit_status (WEdit *edit, gboolean active);
@@ -216,15 +220,12 @@ void edit_toggle_fullscreen (WEdit *edit);
 void edit_move_to_line (WEdit *e, long line);
 void edit_move_display (WEdit *e, long line);
 void edit_word_wrap (WEdit *edit);
-int edit_sort_cmd (WEdit *edit);
-int edit_ext_cmd (WEdit *edit);
 
 gboolean edit_copy_to_X_buf_cmd (WEdit *edit);
 gboolean edit_cut_to_X_buf_cmd (WEdit *edit);
 gboolean edit_paste_from_X_buf_cmd (WEdit *edit);
 
 void edit_select_codepage_cmd (WEdit *edit);
-void edit_insert_literal_cmd (WEdit *edit);
 
 void edit_paste_from_history (WEdit *edit);
 
@@ -269,7 +270,7 @@ void edit_options_dialog (WDialog *h);
 void edit_mail_dialog (WEdit *edit);
 void edit_undo_history_cmd (WEdit *edit);
 void edit_undo_one_group (WEdit *edit);
-void format_paragraph (WEdit *edit, gboolean force);
+void format_paragraph (WEdit *edit);
 
 /* either command or char_for_insertion must be passed as -1 */
 void edit_execute_cmd (WEdit *edit, long command, int char_for_insertion);

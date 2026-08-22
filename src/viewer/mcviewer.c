@@ -41,9 +41,12 @@
 #include "lib/strutil.h"
 #include "lib/util.h"  // load_file_position()
 #include "lib/widget.h"
+#include "lib/runtime-events.h"
 
 #include "src/filemanager/layout.h"
 #include "src/filemanager/filemanager.h"  // the_menubar
+#include "src/events_init.h"
+#include "src/runtime-host.h"
 
 #include "internal.h"
 
@@ -87,6 +90,31 @@ char *mcview_show_eof = NULL;
 
 /* --------------------------------------------------------------------------------------------- */
 /*** file scope functions ************************************************************************/
+/* --------------------------------------------------------------------------------------------- */
+
+static void
+mcview_publish_runtime_open (WView *view, const char *source_kind, int start_line)
+{
+    mc_runtime_event_snapshot_t *snapshot;
+
+    runtime_host_set_current_viewer (view);
+    events_publish_runtime_startup ();
+    if (!events_runtime_is_started () || !mc_runtime_events_is_initialized ())
+        return;
+
+    snapshot = mc_runtime_event_snapshot_new (MC_RUNTIME_EVENT_VIEWER_OPEN);
+    snapshot->data.viewer_open.viewer =
+        mc_runtime_handle_for_object (MC_RUNTIME_HANDLE_VIEWER, view);
+    snapshot->data.viewer_open.path = view->filename_vpath != NULL
+        ? vfs_path_to_str_flags (view->filename_vpath, 0, VPF_STRIP_PASSWORD)
+        : g_strdup ("");
+    snapshot->data.viewer_open.source_kind = g_strdup (source_kind);
+    snapshot->data.viewer_open.start_line = (guint) MAX (start_line, 0);
+
+    (void) mc_runtime_event_publish (snapshot, NULL);
+    mc_runtime_event_snapshot_free (snapshot);
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static void
@@ -328,7 +356,10 @@ mcview_viewer (const char *command, const vfs_path_t *file_vpath, int start_line
                              search_start, search_end);
 
     if (succeeded)
+    {
+        mcview_publish_runtime_open (lc_mcview, command != NULL ? "command" : "file", start_line);
         dlg_run (view_dlg);
+    }
     else
         dlg_close (view_dlg);
 
@@ -369,6 +400,7 @@ mcview_viewer_fd (int fd)
     mcview_set_datasource_raw_pipe (lc_mcview, fd);
     mcview_display (lc_mcview);
 
+    mcview_publish_runtime_open (lc_mcview, "pipe", 0);
     dlg_run (view_dlg);
 
     if (widget_get_state (vw, WST_CLOSED))
@@ -419,6 +451,7 @@ mcview_viewer_stream (const char *command)
     mcview_set_datasource_stdio_pipe (lc_mcview, p);
     mcview_stream_start (lc_mcview);
 
+    mcview_publish_runtime_open (lc_mcview, "stream", 0);
     dlg_run (view_dlg);
 
     if (widget_get_state (vw, WST_CLOSED))
@@ -519,6 +552,8 @@ mcview_viewer_with_controller (mcview_source_spec_t *initial_spec,
     if (initial_spec->auto_scroll_bottom)
         mcview_moveto_bottom (lc_mcview);
 
+    mcview_publish_runtime_open (lc_mcview, initial_spec->command != NULL ? "command" : "file",
+                                 start_line);
     dlg_run (view_dlg);
 
     controller->free (ctx);
