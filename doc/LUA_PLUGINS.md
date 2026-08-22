@@ -25,7 +25,6 @@ Lua is enabled by default in a Lua-enabled build.  Put this in
 ```ini
 [Lua]
 enabled=false
-mcedit_enabled=true
 user_scripts_dir=
 ```
 
@@ -33,17 +32,15 @@ user_scripts_dir=
 absolute path.  `mc --no-lua` and `MC_NO_LUA=1 mc` prevent Lua code from being
 loaded for one run.
 
-**Manage Plugins** shows the Lua runtime as `core / lua-core` and its editor
-bridge as `mcedit / lua-edidor`.  Clearing `lua-core` disables all Lua code on
-the next start; clearing `lua-edidor` disables every Lua script in the
-`mcedit` workspace on the next start.
-
-Press Enter or F4 on `mcedit / lua-edidor` to list just the global and user Lua
-scripts in `scripts/editor/`, the directory for the `mcedit` workspace.  Enter,
-F4, or **Open directory** opens the selected script directory in the active
-panel; use MC's normal F3/F4 on `init.lua` or another file there to view or edit
-it.  Individual script choices are stored as `lua/<id>=true` in `[DisabledPlugins]` of
-`~/.config/mc/plugins.ini`.  No Lua script is hot-reloaded during a session.
+**Manage Plugins** shows one native runtime, `runtime / lua / Lua engine`.
+Clearing it disables all Lua code on the next start.  Enter or F4 on that row
+opens the global and user scripts from the `mcedit` workspace.  In the script
+list, F4 opens the selected package's declared `entry` file in the internal
+editor; **Run** lists and invokes only actions registered by the selected
+package.  Event-only packages have no runnable action.  Individual script
+choices are stored as `lua/<id>=true` in
+`[DisabledPlugins]` of `~/.config/mc/plugins.ini`.  No Lua script is hot-reloaded
+during a session.
 
 ## Script layout
 
@@ -117,6 +114,11 @@ mc.macro {
     key = "F11",
     description = "Decode Base64 selection",
     priority = 50, -- optional; 0 through 100
+    menu = {       -- optional direct menu entry
+        path = "Tools",
+        label = "Decode Base64",
+        position = 100,
+    },
     action = function (ev)
         -- ev is an editor.key-style event snapshot
         return mc.CONSUME
@@ -130,6 +132,35 @@ The matching macro with the greatest priority runs; equal priorities retain
 script load and registration order.  A macro consumes its key by default.
 Return `false` or `mc.PASS` to allow normal editor processing to continue.
 After three action errors, only that macro is disabled for the session.
+
+`menu` optionally places the same action directly in an editor menu.  `path`
+is the stable, untranslated top-level menu name.  Existing names such as
+`Command` append to that menu; any other name creates a top-level menu.  The
+optional `label` defaults to `description`.  `position` ranges from -100000 to
+100000 and orders runtime-provided entries within the target menu; lower
+values appear first.  Entries with the same position retain script load and
+registration order.  Menu placement is independent of `listed`, which only
+controls the **Run action** list.
+
+### Processes
+
+`mc.process.run()` synchronously runs a shell command through the core runtime
+host and captures its output:
+
+```lua
+local result, err = mc.process.run {
+    command = "git status --short",
+    max_output = 8 * 1024 * 1024, -- optional, 1 byte through 64 MiB
+}
+```
+
+On success, `result` contains binary-safe `stdout` and `stderr` strings,
+`exit_code` (or `nil` if terminated by a signal), `signal`, and the booleans
+`stdout_truncated` and `stderr_truncated`.  A non-zero command exit status is a
+successful process invocation and must be handled by the script.  The call is
+allowed only during a user-initiated callback and blocks the UI until the
+command exits.  Commands are intentionally interpreted by `/bin/sh`; scripts
+must not concatenate untrusted text into `command`.
 
 ### Event handlers
 
@@ -187,10 +218,16 @@ They are valid only while their MC window is alive; a later call returns
 | Object | Creation and methods |
 | --- | --- |
 | Panel | `mc.panel.active()`, `mc.panel.passive()`; `:cwd()`, `:current()`, `:selected()`, `:refresh()`, `:chdir(path)` |
-| Editor | `mc.editor.current()`; `:path()`, `:cursor()`, `:set_cursor(line, column)`, `:is_readonly()`, `:get_text(from, to)`, `:selected_text()`, `:insert(text)`, `:save()` |
+| Editor | `mc.editor.current()`; `:info()`, `:selection()`, `:text([range])`, `:replace(range, text)`, `:replace_selection(text)`, `:edit(spec)`, plus the legacy cursor, text, insert, path, readonly, and save methods |
 | Viewer | `mc.viewer.current()`; `:path()`, `:position()`, `:mode()`, `:goto(offset)` |
 
 `cursor()` and `set_cursor()` use one-based line and column numbers.
+Their columns are editor display columns and therefore expand tabs using the
+current `editor:tab_width()`.  The tab width query returns the configured
+positive tab-stop width; scripts that align text must use it rather than
+assuming eight columns.  When the editor permits the cursor beyond the end of
+a line, `cursor()` includes that virtual-space distance in the returned
+column; inserting at that position requires materializing the gap as spaces.
 `get_text(from, to)` uses one-based inclusive byte positions.  Lua reserves
 the word `goto`, so call the viewer method as
 `viewer["goto"](viewer, offset)`.
@@ -199,6 +236,23 @@ the word `goto`, so call the viewer method as
 `nil, "no_selection"`.  Column selections return
 `nil, "column_selection_not_supported"` rather than silently decoding a
 different range.
+
+New buffer operations use zero-based, half-open byte ranges.  A stored range
+should carry the revision that produced it:
+
+```lua
+local info = assert(editor:info())
+local bytes = assert(editor:text {
+    from = 0, to = info.byte_length, revision = info.revision,
+})
+assert(editor:replace({ from = 0, to = 3, revision = info.revision }, "new"))
+```
+
+`editor:edit { revision = n, changes = {...}, cursor = { offset = n } }`
+validates every range before changing the buffer, applies non-overlapping
+changes atomically, and creates one undo entry.  A changed document returns
+`nil, "stale_revision"`.  `mc.ui.text_width(text)` returns MC's terminal display
+width for valid UTF-8 text and is intended for alignment and drawing scripts.
 
 Object and UI methods require an active MC event callback.  Outside one they
 return `nil, "no active MC context"`; unavailable application modes return
@@ -210,6 +264,40 @@ only, not a way to intercept the file open operation.
 `mc.ui.message(title, text)` displays a modal message.  Both return
 `nil, "not_ready"` when no compatible UI is active; `message()` is also a
 state-changing operation in `panel.file_open`.
+
+`mc.ui.indicator { id, area = "editor", text, priority = 0 }` installs or
+updates a persistent status-line indicator and `mc.ui.indicator_clear(id)`
+removes it.  IDs are scoped to the owning package, so scripts cannot replace
+one another's indicators.  Higher-priority indicators are placed first and
+lower-priority ones are omitted when the status line is too narrow.  All
+indicators owned by a package are removed automatically when it is unloaded.
+The initial implementation renders the `editor` area; the area field keeps
+the API extensible to other MC workspaces without editor-specific methods.
+
+```lua
+mc.ui.indicator {
+    id = "mode", area = "editor", text = "[╔═╗]", priority = 100,
+}
+-- later:
+mc.ui.indicator_clear("mode")
+```
+
+An `input` control in `mc.ui.dialog()` accepts an optional `history` name and
+an optional `completion` array.  `complete_on_tab = true` makes `Tab` invoke
+completion while that input has focus; `Shift-Tab` still moves to the previous
+control.  Completion providers are `files`, `hosts`, `commands`, `variables`,
+`users`, `cd`, and `shell`; they use MC's existing input completion engine and
+may be combined.  For example:
+
+```lua
+{
+    id = "command", type = "input", value = "",
+    history = "my-command-history",
+    complete_on_tab = true,
+    completion = { "commands", "files", "variables", "shell" },
+}
+```
+
 `mc.log.debug/info/warn/error(text)` writes a message tagged with the Lua
 script ID.
 
