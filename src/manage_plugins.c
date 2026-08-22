@@ -94,8 +94,6 @@ typedef struct
     const GPtrArray *scripts;
 } mp_lua_scripts_ctx_t;
 
-static void mp_lua_editor_actions_dialog (const char *package_id);
-
 /*** file scope functions ************************************************************************/
 
 /* Return TRUE if a row for the given plugin (kind, name) already exists in @rows. */
@@ -116,6 +114,8 @@ mp_row_exists (const GArray *rows, mc_plugin_kind_t kind_id, const char *name)
 /* --------------------------------------------------------------------------------------------- */
 
 #ifdef ENABLE_LUA_PLUGIN
+
+static void mp_lua_editor_actions_dialog (const char *package_id);
 
 static gboolean
 mp_lua_core_enabled (void)
