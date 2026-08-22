@@ -25,6 +25,9 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <unistd.h>
+
+#include <glib/gstdio.h>
 
 #include "lib/file-entry.h"
 #include "lib/global.h"
@@ -44,6 +47,9 @@
 #include "filemanager/filemanager.h"
 #include "filemanager/layout.h"
 #include "viewer/internal.h"
+#ifdef USE_DIFF_VIEW
+#include "diffviewer/ydiff.h"
+#endif
 
 #include "runtime-host.h"
 #include "runtime-panel-provider.h"
@@ -1559,6 +1565,91 @@ runtime_host_ui_message (const char *title, const char *text)
     return TRUE;
 }
 
+static gboolean
+runtime_host_write_temp (const char *data, gsize length, char **path)
+{
+    int fd;
+    gsize offset = 0;
+
+    fd = g_file_open_tmp ("mc-runtime-diff-XXXXXX", path, NULL);
+    if (fd == -1)
+        return FALSE;
+    while (offset < length)
+    {
+        ssize_t written = write (fd, data + offset, length - offset);
+
+        if (written <= 0)
+        {
+            close (fd);
+            g_unlink (*path);
+            g_clear_pointer (path, g_free);
+            return FALSE;
+        }
+        offset += (gsize) written;
+    }
+    if (close (fd) != 0)
+    {
+        g_unlink (*path);
+        g_clear_pointer (path, g_free);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static gboolean
+runtime_host_ui_open_diff (const char *left, gsize left_length, const char *right,
+                           gsize right_length, const char *left_label, const char *right_label,
+                           const char **error)
+{
+#ifdef USE_DIFF_VIEW
+    char *left_path = NULL;
+    char *right_path = NULL;
+    gboolean ok = FALSE;
+
+    if ((left_length != 0 && left == NULL) || (right_length != 0 && right == NULL)
+        || left_length > RUNTIME_HOST_PROCESS_OUTPUT_LIMIT_MAX
+        || right_length > RUNTIME_HOST_PROCESS_OUTPUT_LIMIT_MAX)
+    {
+        if (error != NULL)
+            *error = "invalid_diff";
+        return FALSE;
+    }
+    if (!runtime_host_write_temp (left != NULL ? left : "", left_length, &left_path)
+        || !runtime_host_write_temp (right != NULL ? right : "", right_length, &right_path))
+    {
+        if (error != NULL)
+            *error = "open_failed";
+        goto out;
+    }
+    ok = diff_view (left_path, right_path, left_label != NULL ? left_label : "before",
+                    right_label != NULL ? right_label : "after") != 0;
+    if (!ok && error != NULL)
+        *error = "open_failed";
+out:
+    if (left_path != NULL)
+    {
+        g_unlink (left_path);
+        g_free (left_path);
+    }
+    if (right_path != NULL)
+    {
+        g_unlink (right_path);
+        g_free (right_path);
+    }
+    return ok;
+#else
+    (void) left;
+    (void) left_length;
+    (void) right;
+    (void) right_length;
+    (void) left_label;
+    (void) right_label;
+    if (error != NULL)
+        *error = "not_supported";
+    return FALSE;
+#endif
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
@@ -2137,6 +2228,7 @@ runtime_host_services_init (void)
         .panel_provider_register = runtime_panel_provider_register,
         .panel_provider_unregister = runtime_panel_provider_unregister,
         .viewer_controller_open = runtime_viewer_controller_open,
+        .ui_open_diff = runtime_host_ui_open_diff,
     };
 
     /* Capabilities describe what this invocation can actually open, rather

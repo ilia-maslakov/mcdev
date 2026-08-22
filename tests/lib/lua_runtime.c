@@ -179,7 +179,8 @@ create_panel_provider_script (void)
         "assert(mc.panel_provider.register {\n"
         " id='test-panel', title='Test panel', prefix='test-panel:',\n"
         " help={file='help/test.hlp',node='provider'},\n"
-        " open=function(host,path) assert(host==nil); return {path=path, revision=1} end,\n"
+        " open=function(host,path) assert(host==nil); if path=='reject' then"
+        " return nil,'Not a repository' end; return {path=path, revision=1} end,\n"
         " close=function(instance) instance.closed=true end,\n"
         " list=function(instance) return {revision=instance.revision, location=instance.path,"
         " title='Lua panel', help_node='view', entries={{id='dir:one',name='one',"
@@ -187,9 +188,23 @@ create_panel_provider_script (void)
         " actions={{id='refresh',title='Refresh',targets='selection',"
         " menu={path='Command',label='Refresh Lua panel'}}},\n"
         " connections=function()return {{id='saved',title='Saved connection',"
-        " location='/saved'}}end,\n"
+        " location='/saved',description='snapshot',favorite=true}}end,\n"
+        " new_connection=function(host)assert(host==nil);return {id='new',title='New connection',"
+        " location='/new'}end,\n"
+        " edit_connection=function(host,c)assert(host==nil);assert(c.id=='saved');"
+        " assert(c.description=='snapshot' and c.favorite);return {id='saved',"
+        " title='Edited connection',location='/edited'}end,\n"
+        " copy_connection=function(host,c)assert(host==nil and c.id=='saved');"
+        " return {id='copy',title='Copied connection',location='/copy'}end,\n"
+        " rename_connection=function(host,c)assert(host==nil and c.id=='saved');"
+        " return {id='saved',title='Renamed connection',location='/saved'}end,\n"
+        " delete_connection=function(host,c)assert(host==nil and c.id=='saved');return true end,\n"
         " invoke_action=function(instance,id,selection) assert(id=='refresh');"
         " assert(selection[1]=='dir:one'); return {refresh=true,status='refreshed'} end,\n"
+        " view=function(instance,id,request) assert(id=='dir:one');"
+        " assert(request.plain and request.mode=='plain' and not request.quick);return true end,\n"
+        " open_read=function(instance,id) assert(id=='dir:one');"
+        " return mc.source.process{argv={'printf','archive'},cwd='/tmp'} end,\n"
         " navigate=function(instance,request) instance.path='/one'; instance.revision=2;"
         " return {refresh=true,location=instance.path,focus='dir:one'} end,\n"
         "})\n");
@@ -1650,6 +1665,26 @@ START_TEST (test_lua_runtime_loads_user_override_and_callbacks)
 }
 END_TEST
 
+START_TEST (test_lua_runtime_panel_provider_open_error)
+{
+    mc_runtime_panel_provider_request_t request = { 0 };
+    mc_runtime_panel_provider_response_t response = { 0 };
+    const char *provider_error = NULL;
+
+    create_panel_provider_script ();
+    ck_assert_msg (mc_runtime_plugins_load (&error), "Failed to load runtime: %s",
+                   error != NULL ? error->message : "unknown error");
+    request.struct_size = sizeof (request);
+    request.operation_version = 1;
+    request.path = "reject";
+    mctest_assert_false (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_OPEN,
+        &request, &response, &provider_error));
+    ck_assert_str_eq (response.status, "Not a repository");
+    registered_panel_provider.response_free (NULL, &response);
+}
+END_TEST
+
 /* --------------------------------------------------------------------------------------------- */
 
 START_TEST (test_lua_runtime_panel_provider_dispatch)
@@ -1667,6 +1702,12 @@ START_TEST (test_lua_runtime_panel_provider_dispatch)
     ck_assert_uint_eq (registered_panel_provider.actions_count, 2);
     ck_assert_str_eq (registered_panel_provider.help->node, "provider");
     ck_assert_str_eq (registered_panel_provider.actions[1].open_path, "test-panel:/saved");
+    mctest_assert_true (registered_panel_provider.supports_new_connection);
+    mctest_assert_true (registered_panel_provider.supports_edit_connection);
+    mctest_assert_true (registered_panel_provider.supports_copy_connection);
+    mctest_assert_true (registered_panel_provider.supports_rename_connection);
+    mctest_assert_true (registered_panel_provider.supports_delete_connection);
+    mctest_assert_true (registered_panel_provider.supports_open_read);
 
     request.struct_size = sizeof (request);
     request.operation_version = 1;
@@ -1686,6 +1727,27 @@ START_TEST (test_lua_runtime_panel_provider_dispatch)
     ck_assert_uint_eq (response.view.revision, 1);
     ck_assert_uint_eq (response.view.entries_count, 1);
     ck_assert_str_eq (response.view.entries[0].id, "dir:one");
+    registered_panel_provider.response_free (NULL, &response);
+
+    request.entry_id = "dir:one";
+    request.path = "plain";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_VIEW,
+        &request, &response, &provider_error));
+    mctest_assert_true (response.handled);
+    registered_panel_provider.response_free (NULL, &response);
+
+    request.revision = 1;
+    request.entry_id = "dir:one";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_OPEN_READ,
+        &request, &response, &provider_error));
+    ck_assert_ptr_nonnull (response.read_source);
+    ck_assert_int_eq (response.read_source->kind, MC_RUNTIME_VIEWER_SOURCE_PROCESS);
+    ck_assert_uint_eq (response.read_source->process.argc, 2);
+    ck_assert_str_eq (response.read_source->process.argv[0], "printf");
+    ck_assert_str_eq (response.read_source->process.argv[1], "archive");
+    ck_assert_str_eq (response.read_source->process.cwd, "/tmp");
     registered_panel_provider.response_free (NULL, &response);
 
     request.revision = 1;
@@ -1715,6 +1777,34 @@ START_TEST (test_lua_runtime_panel_provider_dispatch)
     }
 
     request.entry_id = NULL;
+    request.connection_id = "saved";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id,
+        MC_RUNTIME_PANEL_PROVIDER_EDIT_CONNECTION, &request, &response, &provider_error));
+    ck_assert_str_eq (response.focus_id, "Edited connection");
+    registered_panel_provider.response_free (NULL, &response);
+
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id,
+        MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION, &request, &response, &provider_error));
+    ck_assert_str_eq (response.focus_id, "Copied connection");
+    registered_panel_provider.response_free (NULL, &response);
+
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id,
+        MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION, &request, &response, &provider_error));
+    ck_assert_str_eq (response.focus_id, "Renamed connection");
+    registered_panel_provider.response_free (NULL, &response);
+
+    /* The immutable snapshot cache is replaced transactionally, then removed. */
+    request.connection_id = "saved";
+    mctest_assert_true (registered_panel_provider.dispatch (
+        NULL, registered_panel_provider.runtime_provider_id,
+        MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION, &request, &response, &provider_error));
+    mctest_assert_true (response.refresh);
+    registered_panel_provider.response_free (NULL, &response);
+
+    request.connection_id = NULL;
     mctest_assert_true (registered_panel_provider.dispatch (
         NULL, registered_panel_provider.runtime_provider_id, MC_RUNTIME_PANEL_PROVIDER_CLOSE,
         &request, &response, &provider_error));
@@ -2165,6 +2255,7 @@ main (void)
     tcase_add_test (tc_core, test_lua_runtime_rejects_insecure_package_paths);
     tcase_add_test (tc_core, test_lua_runtime_honors_disable_environment);
     tcase_add_test (tc_core, test_lua_runtime_panel_provider_dispatch);
+    tcase_add_test (tc_core, test_lua_runtime_panel_provider_open_error);
     tcase_add_test (tc_core, test_lua_runtime_viewer_source_controller);
 
     result = mctest_run_all (tc_core);

@@ -658,7 +658,7 @@ panel_plugin_open_entry_by_operation (WPanel *panel, const char *fname, const ch
     {
         if (panel->plugin->get_local_copy == NULL || operation->may_open_name == NULL
             || !operation->may_open_name (fname))
-            return TRUE;
+            return FALSE;
 
         if (panel->plugin->get_local_copy (panel->plugin_data, fname, &local_copy) != MC_PPR_OK
             || local_copy == NULL)

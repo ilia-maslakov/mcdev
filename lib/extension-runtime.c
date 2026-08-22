@@ -98,6 +98,9 @@
 #define MC_RUNTIME_HOST_SERVICES_VIEWER_SOURCE_SIZE                                                \
     (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, viewer_controller_open)                       \
      + sizeof (((mc_runtime_host_services_v1_t *) NULL)->viewer_controller_open))
+#define MC_RUNTIME_HOST_SERVICES_OPEN_DIFF_SIZE                                                    \
+    (G_STRUCT_OFFSET (mc_runtime_host_services_v1_t, ui_open_diff)                                 \
+     + sizeof (((mc_runtime_host_services_v1_t *) NULL)->ui_open_diff))
 #define MC_RUNTIME_PLUGIN_DESCRIPTOR_ENUMERATE_SIZE                                                \
     (G_STRUCT_OFFSET (mc_runtime_plugin_descriptor_v1_t, enumerate_packages)                       \
      + sizeof (((mc_runtime_plugin_descriptor_v1_t *) NULL)->enumerate_packages))
@@ -1043,6 +1046,28 @@ mc_runtime_host_viewer_controller_open (mc_runtime_plugin_context_t *context,
     return mc_runtime_host_services->viewer_controller_open (context, controller, error);
 }
 
+static gboolean
+mc_runtime_host_ui_open_diff (mc_runtime_plugin_context_t *context, const char *left,
+                              gsize left_length, const char *right, gsize right_length,
+                              const char *left_label, const char *right_label, const char **error)
+{
+    if (!mc_runtime_plugin_context_is_known (context) || mc_runtime_host_services == NULL)
+    {
+        if (error != NULL)
+            *error = "invalid_context";
+        return FALSE;
+    }
+    if (mc_runtime_host_services->struct_size < MC_RUNTIME_HOST_SERVICES_OPEN_DIFF_SIZE
+        || mc_runtime_host_services->ui_open_diff == NULL)
+    {
+        if (error != NULL)
+            *error = "not_supported";
+        return FALSE;
+    }
+    return mc_runtime_host_services->ui_open_diff (left, left_length, right, right_length,
+                                                   left_label, right_label, error);
+}
+
 /* --------------------------------------------------------------------------------------------- */
 
 static gboolean
@@ -1453,6 +1478,7 @@ static mc_runtime_host_api_v1_t mc_runtime_host_api = {
     .panel_provider_register = mc_runtime_host_panel_provider_register,
     .panel_provider_unregister = mc_runtime_host_panel_provider_unregister,
     .viewer_controller_open = mc_runtime_host_viewer_controller_open,
+    .ui_open_diff = mc_runtime_host_ui_open_diff,
 };
 
 /* --------------------------------------------------------------------------------------------- */

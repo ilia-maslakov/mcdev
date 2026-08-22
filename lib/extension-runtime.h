@@ -271,8 +271,14 @@ typedef enum
     MC_RUNTIME_PANEL_PROVIDER_RELOAD,
     MC_RUNTIME_PANEL_PROVIDER_INVOKE_ACTION,
     MC_RUNTIME_PANEL_PROVIDER_VIEW,
+    MC_RUNTIME_PANEL_PROVIDER_OPEN_READ,
     MC_RUNTIME_PANEL_PROVIDER_GET_LOCAL_COPY,
-    MC_RUNTIME_PANEL_PROVIDER_GET_HELP
+    MC_RUNTIME_PANEL_PROVIDER_GET_HELP,
+    MC_RUNTIME_PANEL_PROVIDER_NEW_CONNECTION,
+    MC_RUNTIME_PANEL_PROVIDER_EDIT_CONNECTION,
+    MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION,
+    MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION,
+    MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION
 } mc_runtime_panel_provider_operation_t;
 
 typedef struct
@@ -286,7 +292,10 @@ typedef struct
     const char *action_id;
     const char *const *selected_ids;
     guint selected_count;
+    const char *connection_id;
 } mc_runtime_panel_provider_request_t;
+
+typedef struct mc_runtime_viewer_source_t mc_runtime_viewer_source_t;
 
 typedef struct
 {
@@ -302,6 +311,7 @@ typedef struct
     const char *status;
     const char *local_path;
     gboolean local_path_temporary;
+    const mc_runtime_viewer_source_t *read_source;
 } mc_runtime_panel_provider_response_t;
 
 typedef gboolean (*mc_runtime_panel_provider_dispatch_t) (
@@ -325,6 +335,12 @@ typedef struct
     const mc_runtime_panel_help_t *help;
     mc_runtime_panel_provider_dispatch_t dispatch;
     mc_runtime_panel_provider_response_free_t response_free;
+    gboolean supports_new_connection;
+    gboolean supports_edit_connection;
+    gboolean supports_copy_connection;
+    gboolean supports_rename_connection;
+    gboolean supports_delete_connection;
+    gboolean supports_open_read;
 } mc_runtime_panel_provider_t;
 
 typedef enum
@@ -342,7 +358,6 @@ typedef struct
     const char *cwd;
 } mc_runtime_viewer_process_t;
 
-typedef struct mc_runtime_viewer_source_t mc_runtime_viewer_source_t;
 struct mc_runtime_viewer_source_t
 {
     gsize struct_size;
@@ -580,6 +595,9 @@ typedef struct
     gboolean (*viewer_controller_open) (mc_runtime_plugin_context_t *context,
                                         const mc_runtime_viewer_controller_t *controller,
                                         const char **error);
+    gboolean (*ui_open_diff) (const char *left, gsize left_length, const char *right,
+                              gsize right_length, const char *left_label,
+                              const char *right_label, const char **error);
 } mc_runtime_host_services_v1_t;
 
 typedef struct
@@ -739,6 +757,10 @@ typedef struct
     gboolean (*viewer_controller_open) (mc_runtime_plugin_context_t *context,
                                         const mc_runtime_viewer_controller_t *controller,
                                         const char **error);
+    gboolean (*ui_open_diff) (mc_runtime_plugin_context_t *context, const char *left,
+                              gsize left_length, const char *right, gsize right_length,
+                              const char *left_label, const char *right_label,
+                              const char **error);
 } mc_runtime_host_api_v1_t;
 
 typedef struct

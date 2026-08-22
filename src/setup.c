@@ -613,7 +613,8 @@ load_keys_from_section (const char *terminal, mc_config_t *cfg)
             continue;
         }
 
-        const int key_code = tty_keyname_to_keycode (*profile_keys, NULL);
+        const int key_code = tty_normalize_keycode (
+            tty_keyname_to_keycode (*profile_keys, NULL));
 
         if (key_code != 0)
         {
@@ -1215,7 +1216,7 @@ load_term_keys_file (void)
         {
             int key_code;
 
-            key_code = tty_keyname_to_keycode (*pk, NULL);
+            key_code = tty_normalize_keycode (tty_keyname_to_keycode (*pk, NULL));
             if (key_code != 0)
             {
                 char *value;

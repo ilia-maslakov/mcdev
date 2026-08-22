@@ -116,6 +116,9 @@
 #define MC_LUA_HOST_API_VIEWER_SOURCE_SIZE                                                         \
     (G_STRUCT_OFFSET (mc_runtime_host_api_v1_t, viewer_controller_open)                            \
      + sizeof (((mc_runtime_host_api_v1_t *) NULL)->viewer_controller_open))
+#define MC_LUA_HOST_API_OPEN_DIFF_SIZE                                                              \
+    (G_STRUCT_OFFSET (mc_runtime_host_api_v1_t, ui_open_diff)                                       \
+     + sizeof (((mc_runtime_host_api_v1_t *) NULL)->ui_open_diff))
 #define MC_LUA_DIALOG_MAX_CONTROLS  32
 #define MC_LUA_DIALOG_MAX_OPTIONS   64
 #define MC_LUA_DIALOG_MAX_DEPTH     8
@@ -197,11 +200,23 @@ struct mc_lua_panel_provider
     int reload_ref;
     int invoke_action_ref;
     int view_ref;
+    int open_read_ref;
+    int new_connection_ref;
+    int edit_connection_ref;
+    int copy_connection_ref;
+    int rename_connection_ref;
+    int delete_connection_ref;
+    int connections_ref;
     mc_runtime_panel_action_t *actions;
     guint actions_count;
     GHashTable *instances;
     mc_runtime_handle_t registration;
 };
+
+static void mc_lua_cache_connection (mc_lua_panel_provider_t *provider, int source);
+static gboolean mc_lua_parse_viewer_source (lua_State *lua, int table,
+                                             mc_runtime_viewer_source_t *source);
+static void mc_lua_viewer_source_clear (mc_runtime_viewer_source_t *source);
 
 struct mc_lua_package
 {
@@ -2317,6 +2332,11 @@ mc_lua_panel_response_free (mc_runtime_plugin_context_t *context,
     g_free ((char *) response->focus_id);
     g_free ((char *) response->status);
     g_free ((char *) response->local_path);
+    if (response->read_source != NULL)
+    {
+        mc_lua_viewer_source_clear ((mc_runtime_viewer_source_t *) response->read_source);
+        g_free ((mc_runtime_viewer_source_t *) response->read_source);
+    }
     memset (response, 0, sizeof (*response));
 }
 
@@ -2563,8 +2583,7 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         guint64 *key;
         int *value;
 
-        if (!mc_lua_panel_call (provider, provider->open_ref, LUA_NOREF, request, 1)
-            || lua_isnil (lua, -1))
+        if (!mc_lua_panel_call (provider, provider->open_ref, LUA_NOREF, request, 2))
         {
             if (!lua_isnone (lua, -1))
                 lua_pop (lua, 1);
@@ -2572,6 +2591,15 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
                 *error = "open_failed";
             return FALSE;
         }
+        if (lua_isnil (lua, -2))
+        {
+            response->status = lua_isstring (lua, -1)
+                ? g_strdup (lua_tostring (lua, -1))
+                : g_strdup ("Cannot open provider");
+            lua_pop (lua, 2);
+            return FALSE;
+        }
+        lua_pop (lua, 1); /* optional error result */
         key = g_new (guint64, 1);
         *key = ++provider->next_instance_id;
         value = g_new (int, 1);
@@ -2663,9 +2691,13 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->view_ref);
         lua_rawgeti (lua, LUA_REGISTRYINDEX, *instance_ref);
         lua_pushstring (lua, request->entry_id != NULL ? request->entry_id : "");
-        lua_createtable (lua, 0, 1);
+        lua_createtable (lua, 0, 3);
         lua_pushboolean (lua, request->path != NULL && strcmp (request->path, "quick") == 0);
         lua_setfield (lua, -2, "quick");
+        lua_pushboolean (lua, request->path != NULL && strcmp (request->path, "plain") == 0);
+        lua_setfield (lua, -2, "plain");
+        lua_pushstring (lua, request->path != NULL ? request->path : "view");
+        lua_setfield (lua, -2, "mode");
         provider->package->callback_depth++;
         if (lua_pcall (lua, 3, 1, 0) != LUA_OK)
         {
@@ -2676,6 +2708,143 @@ mc_lua_panel_provider_dispatch (mc_runtime_plugin_context_t *context, guint64 ru
         }
         provider->package->callback_depth--;
         response->handled = lua_toboolean (lua, -1) != 0;
+        lua_pop (lua, 1);
+        return TRUE;
+    }
+    if (operation == MC_RUNTIME_PANEL_PROVIDER_OPEN_READ && provider->open_read_ref != LUA_NOREF)
+    {
+        mc_runtime_viewer_source_t *source;
+
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->open_read_ref);
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, *instance_ref);
+        lua_pushstring (lua, request->entry_id != NULL ? request->entry_id : "");
+        provider->package->callback_depth++;
+        if (lua_pcall (lua, 2, 1, 0) != LUA_OK)
+        {
+            mc_lua_report_error (provider->package, MC_RUNTIME_ERROR_PHASE_EVENT,
+                                 "Lua panel open_read callback failed");
+            provider->package->callback_depth--;
+            return FALSE;
+        }
+        provider->package->callback_depth--;
+        source = g_new0 (mc_runtime_viewer_source_t, 1);
+        if (!lua_istable (lua, -1) || !mc_lua_parse_viewer_source (lua, -1, source))
+        {
+            lua_pop (lua, 1);
+            mc_lua_viewer_source_clear (source);
+            g_free (source);
+            return FALSE;
+        }
+        lua_pop (lua, 1);
+        response->read_source = source;
+        response->handled = TRUE;
+        return TRUE;
+    }
+    if (operation == MC_RUNTIME_PANEL_PROVIDER_NEW_CONNECTION
+        && provider->new_connection_ref != LUA_NOREF)
+    {
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->new_connection_ref);
+        lua_pushnil (lua); /* Reserved host object. */
+        provider->package->callback_depth++;
+        if (lua_pcall (lua, 1, 1, 0) != LUA_OK)
+        {
+            mc_lua_report_error (provider->package, MC_RUNTIME_ERROR_PHASE_EVENT,
+                                 "Lua panel new connection callback failed");
+            provider->package->callback_depth--;
+            return FALSE;
+        }
+        provider->package->callback_depth--;
+        if (lua_isnil (lua, -1))
+        {
+            lua_pop (lua, 1);
+            return FALSE;
+        }
+        if (!lua_istable (lua, -1))
+        {
+            lua_pop (lua, 1);
+            return FALSE;
+        }
+        mc_lua_cache_connection (provider, -1);
+        response->refresh = TRUE;
+        response->focus_id = mc_lua_dup_table_string (lua, -1, "title");
+        response->status = g_strdup ("Connection created");
+        response->handled = TRUE;
+        lua_pop (lua, 1);
+        return TRUE;
+    }
+    if (operation == MC_RUNTIME_PANEL_PROVIDER_EDIT_CONNECTION
+        || operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION
+        || operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION
+        || operation == MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION)
+    {
+        int callback_ref = operation == MC_RUNTIME_PANEL_PROVIDER_EDIT_CONNECTION
+                ? provider->edit_connection_ref
+            : operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION
+                ? provider->copy_connection_ref
+            : operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION
+                ? provider->rename_connection_ref
+                : provider->delete_connection_ref;
+
+        if (callback_ref == LUA_NOREF)
+            return FALSE;
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, callback_ref);
+        lua_pushnil (lua); /* Reserved host object. */
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->connections_ref);
+        lua_getfield (lua, -1,
+                      request->connection_id != NULL ? request->connection_id : "");
+        lua_remove (lua, -2);
+        if (operation == MC_RUNTIME_PANEL_PROVIDER_DELETE_CONNECTION)
+        {
+            gboolean deleted = lua_toboolean (lua, -1) != 0;
+
+            lua_pop (lua, 1);
+            if (!deleted)
+                return FALSE;
+            lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->connections_ref);
+            lua_pushstring (lua, request->connection_id);
+            lua_pushnil (lua);
+            lua_settable (lua, -3);
+            lua_pop (lua, 1);
+            response->refresh = TRUE;
+            response->status = g_strdup ("Connection deleted");
+            response->handled = TRUE;
+            return TRUE;
+        }
+        if (!lua_istable (lua, -1))
+        {
+            lua_pop (lua, 3);
+            return FALSE;
+        }
+        provider->package->callback_depth++;
+        if (lua_pcall (lua, 2, 1, 0) != LUA_OK)
+        {
+            mc_lua_report_error (provider->package, MC_RUNTIME_ERROR_PHASE_EVENT,
+                                 "Lua panel edit connection callback failed");
+            provider->package->callback_depth--;
+            return FALSE;
+        }
+        provider->package->callback_depth--;
+        if (!lua_istable (lua, -1))
+        {
+            lua_pop (lua, 1);
+            return FALSE;
+        }
+        if (operation != MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION)
+        {
+            lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->connections_ref);
+            lua_pushstring (lua, request->connection_id);
+            lua_pushnil (lua);
+            lua_settable (lua, -3);
+            lua_pop (lua, 1);
+        }
+        mc_lua_cache_connection (provider, -1);
+        response->refresh = TRUE;
+        response->focus_id = mc_lua_dup_table_string (lua, -1, "title");
+        response->status = g_strdup (
+            operation == MC_RUNTIME_PANEL_PROVIDER_COPY_CONNECTION ? "Connection copied"
+            : operation == MC_RUNTIME_PANEL_PROVIDER_RENAME_CONNECTION ? "Connection renamed"
+                                                                       : "Connection updated");
+        response->handled = TRUE;
         lua_pop (lua, 1);
         return TRUE;
     }
@@ -2736,6 +2905,62 @@ mc_lua_panel_action_clear (mc_runtime_panel_action_t *action)
     g_free ((char *) action->menu_label);
     g_free ((char *) action->help_node);
     g_free ((char *) action->open_path);
+}
+
+static gboolean
+mc_lua_push_connection_copy (lua_State *lua, int source)
+{
+    static const char *const string_fields[] = { "id", "title", "location", "description" };
+    guint i;
+
+    source = lua_absindex (lua, source);
+    lua_getfield (lua, source, "id");
+    lua_getfield (lua, source, "title");
+    lua_getfield (lua, source, "location");
+    if (!lua_isstring (lua, -3) || lua_rawlen (lua, -3) == 0 || !lua_isstring (lua, -2)
+        || lua_rawlen (lua, -2) == 0 || !lua_isstring (lua, -1))
+    {
+        lua_pop (lua, 3);
+        return FALSE;
+    }
+    lua_pop (lua, 3);
+    lua_createtable (lua, 0, 5);
+    for (i = 0; i < G_N_ELEMENTS (string_fields); i++)
+    {
+        lua_getfield (lua, source, string_fields[i]);
+        if (!lua_isnil (lua, -1))
+            lua_setfield (lua, -2, string_fields[i]);
+        else
+            lua_pop (lua, 1);
+    }
+    lua_getfield (lua, source, "favorite");
+    if (!lua_isnil (lua, -1))
+        lua_setfield (lua, -2, "favorite");
+    else
+        lua_pop (lua, 1);
+    return TRUE;
+}
+
+static void
+mc_lua_cache_connection (mc_lua_panel_provider_t *provider, int source)
+{
+    lua_State *lua = provider->package->lua;
+    const char *id;
+
+    source = lua_absindex (lua, source);
+    lua_getfield (lua, source, "id");
+    id = lua_tostring (lua, -1);
+    if (id != NULL && id[0] != '\0')
+    {
+        lua_rawgeti (lua, LUA_REGISTRYINDEX, provider->connections_ref);
+        lua_pushstring (lua, id);
+        if (mc_lua_push_connection_copy (lua, source))
+            lua_settable (lua, -3);
+        else
+            lua_pop (lua, 1);
+        lua_pop (lua, 1);
+    }
+    lua_pop (lua, 1);
 }
 
 static gboolean
@@ -2813,6 +3038,7 @@ mc_lua_panel_parse_actions (lua_State *lua, int spec, mc_lua_panel_provider_t *p
                 action.title = mc_lua_dup_table_string (lua, -1, "title");
                 if (id != NULL && location != NULL && action.title != NULL)
                 {
+                    mc_lua_cache_connection (provider, -1);
                     action.id = g_strdup_printf ("connection.%s", id);
                     action.open_path = g_strconcat (provider->prefix, location, NULL);
                     action.targets = MC_RUNTIME_PANEL_ACTION_VIEW;
@@ -2862,6 +3088,14 @@ mc_lua_panel_provider_register (lua_State *lua)
     provider->reload_ref = LUA_NOREF;
     provider->invoke_action_ref = LUA_NOREF;
     provider->view_ref = LUA_NOREF;
+    provider->open_read_ref = LUA_NOREF;
+    provider->new_connection_ref = LUA_NOREF;
+    provider->edit_connection_ref = LUA_NOREF;
+    provider->copy_connection_ref = LUA_NOREF;
+    provider->rename_connection_ref = LUA_NOREF;
+    provider->delete_connection_ref = LUA_NOREF;
+    lua_newtable (lua);
+    provider->connections_ref = luaL_ref (lua, LUA_REGISTRYINDEX);
     provider->id = mc_lua_dup_table_string (lua, 1, "id");
     provider->title = mc_lua_dup_table_string (lua, 1, "title");
     provider->prefix = mc_lua_dup_table_string (lua, 1, "prefix");
@@ -2894,6 +3128,14 @@ mc_lua_panel_provider_register (lua_State *lua)
     provider->reload_ref = mc_lua_panel_callback_ref (lua, 1, "reload", FALSE);
     provider->invoke_action_ref = mc_lua_panel_callback_ref (lua, 1, "invoke_action", FALSE);
     provider->view_ref = mc_lua_panel_callback_ref (lua, 1, "view", FALSE);
+    provider->open_read_ref = mc_lua_panel_callback_ref (lua, 1, "open_read", FALSE);
+    provider->new_connection_ref = mc_lua_panel_callback_ref (lua, 1, "new_connection", FALSE);
+    provider->edit_connection_ref = mc_lua_panel_callback_ref (lua, 1, "edit_connection", FALSE);
+    provider->copy_connection_ref = mc_lua_panel_callback_ref (lua, 1, "copy_connection", FALSE);
+    provider->rename_connection_ref =
+        mc_lua_panel_callback_ref (lua, 1, "rename_connection", FALSE);
+    provider->delete_connection_ref =
+        mc_lua_panel_callback_ref (lua, 1, "delete_connection", FALSE);
     if (!mc_lua_panel_parse_actions (lua, 1, provider))
     {
         mc_lua_panel_provider_destroy (provider);
@@ -2915,6 +3157,12 @@ mc_lua_panel_provider_register (lua_State *lua)
     }
     descriptor.dispatch = mc_lua_panel_provider_dispatch;
     descriptor.response_free = mc_lua_panel_response_free;
+    descriptor.supports_new_connection = provider->new_connection_ref != LUA_NOREF;
+    descriptor.supports_edit_connection = provider->edit_connection_ref != LUA_NOREF;
+    descriptor.supports_copy_connection = provider->copy_connection_ref != LUA_NOREF;
+    descriptor.supports_rename_connection = provider->rename_connection_ref != LUA_NOREF;
+    descriptor.supports_delete_connection = provider->delete_connection_ref != LUA_NOREF;
+    descriptor.supports_open_read = provider->open_read_ref != LUA_NOREF;
     descriptor.actions = provider->actions;
     descriptor.actions_count = provider->actions_count;
     if (!package->runtime->host->panel_provider_register (package->runtime->context, &descriptor,
@@ -2969,6 +3217,13 @@ mc_lua_panel_provider_destroy (gpointer data)
         luaL_unref (lua, LUA_REGISTRYINDEX, provider->reload_ref);
         luaL_unref (lua, LUA_REGISTRYINDEX, provider->invoke_action_ref);
         luaL_unref (lua, LUA_REGISTRYINDEX, provider->view_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->open_read_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->new_connection_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->edit_connection_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->copy_connection_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->rename_connection_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->delete_connection_ref);
+        luaL_unref (lua, LUA_REGISTRYINDEX, provider->connections_ref);
     }
     if (provider->instances != NULL)
         g_hash_table_destroy (provider->instances);
@@ -3519,6 +3774,43 @@ mc_lua_ui_open_viewer (lua_State *lua)
         lua_pushstring (lua, error != NULL ? error : "open_failed");
         return 2;
     }
+    lua_pushboolean (lua, TRUE);
+    return 1;
+}
+
+static int
+mc_lua_ui_open_diff (lua_State *lua)
+{
+    mc_lua_package_t *package = mc_lua_package_from_state (lua);
+    const char *left;
+    const char *right;
+    const char *left_label;
+    const char *right_label;
+    const char *error = NULL;
+    size_t left_length;
+    size_t right_length;
+
+    if (!mc_lua_require_active_context (lua, package))
+        return 2;
+    if (package->runtime->host->struct_size < MC_LUA_HOST_API_OPEN_DIFF_SIZE
+        || package->runtime->host->ui_open_diff == NULL)
+        return mc_lua_return_error (lua, "not_supported");
+    luaL_checktype (lua, 1, LUA_TTABLE);
+    lua_getfield (lua, 1, "left");
+    left = luaL_checklstring (lua, -1, &left_length);
+    lua_getfield (lua, 1, "right");
+    right = luaL_checklstring (lua, -1, &right_length);
+    lua_getfield (lua, 1, "left_label");
+    left_label = luaL_optstring (lua, -1, "before");
+    lua_getfield (lua, 1, "right_label");
+    right_label = luaL_optstring (lua, -1, "after");
+    if (!package->runtime->host->ui_open_diff (package->runtime->context, left, left_length, right,
+                                               right_length, left_label, right_label, &error))
+    {
+        lua_pop (lua, 4);
+        return mc_lua_return_error (lua, error);
+    }
+    lua_pop (lua, 4);
     lua_pushboolean (lua, TRUE);
     return 1;
 }
@@ -4739,6 +5031,8 @@ mc_lua_install_api (mc_lua_package_t *package)
     lua_setfield (lua, -2, "text_width");
     lua_pushcfunction (lua, mc_lua_ui_open_viewer);
     lua_setfield (lua, -2, "open_viewer");
+    lua_pushcfunction (lua, mc_lua_ui_open_diff);
+    lua_setfield (lua, -2, "open_diff");
     lua_setfield (lua, -2, "ui");
 
     lua_createtable (lua, 0, 1);
